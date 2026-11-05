@@ -4,8 +4,8 @@ CI/CD, the software factory, and code quality for the booking system.
 
 ## Software factory
 
-See [`factory/`](factory/README.md). A single script runs on a 1-hour interval
-and picks up GitHub issues:
+See [`factory/`](factory/README.md). [`factory/tick.sh`](factory/tick.sh) runs
+on a 1-hour interval and picks up GitHub issues:
 
 - **No labels** → the issue is in its infant state → a planning agent posts an
   implementation plan as a comment and categorizes the issue with labels.
