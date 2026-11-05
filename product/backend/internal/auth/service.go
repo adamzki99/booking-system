@@ -40,9 +40,10 @@ type rateLimiter interface {
 
 // AuthService orchestrates passwordless login.
 type AuthService struct {
-	commands commandExecutor
-	sender   email.Sender
-	limiter  rateLimiter
+	commands       commandExecutor
+	sender         email.Sender
+	limiter        rateLimiter
+	BootstrapAdmin func(context.Context, string) error
 }
 
 // NewService creates an auth service.
@@ -121,6 +122,11 @@ func (s *AuthService) Verify(ctx context.Context, emailAddr, code, clientIP stri
 	}
 	if err := s.commands.Execute(ctx, cmd); err != nil {
 		return "", err
+	}
+	if s.BootstrapAdmin != nil {
+		if err := s.BootstrapAdmin(ctx, normalized); err != nil {
+			return token, err
+		}
 	}
 	return token, nil
 }
