@@ -1,0 +1,8 @@
+# Authelia configuration (skeleton).
+#
+# Open decision: the passwordless email-code login flow is planned to be handled
+# by the product backend (see product/backend/README.md). Authelia's role here
+# (SSO/2FA portal, e.g. for super/admin users) is TBD.
+
+server:
+  address: tcp://0.0.0.0:9091

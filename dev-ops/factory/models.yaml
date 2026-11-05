@@ -1,0 +1,9 @@
+# Label → model selection for factory sessions.
+# The factory script consults this file when starting a session for a labeled
+# issue, e.g. the label "heavy-build-task" selects a heavier model.
+
+labels:
+  heavy-build-task:
+    model: TBD-heavy-model
+  default:
+    model: TBD-default-model

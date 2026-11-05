@@ -1,0 +1,11 @@
+# Environment → port mapping on the dev machine.
+# Maintained by agents as environments are created and removed.
+
+environments:
+  qa:
+    branch: main
+    port: 8080
+  # Candidate environments for release branches are added here, e.g.:
+  # release-1-0:
+  #   branch: release/1.0
+  #   port: 8081

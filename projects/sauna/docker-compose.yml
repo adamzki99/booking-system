@@ -1,0 +1,52 @@
+# Sauna Booking System — deployment compose file.
+#
+# Combines the generic booking product (../../product) with the sauna-specific
+# sidecar and configuration. SigNoz (APM) is deployed separately; the backend
+# and frontend emit OTLP telemetry to its collector.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "${PORT:-8080}:80"
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - frontend
+      - backend
+
+  frontend:
+    build: ../../product/frontend
+    # React SPA, served as static files behind Caddy.
+
+  backend:
+    build: ../../product/backend
+    environment:
+      DATABASE_URL: postgres://booking:booking@postgres:5432/booking
+      SIDECAR_URL: http://sidecar:8081
+    depends_on:
+      - postgres
+      - sidecar
+
+  sidecar:
+    build: ./sidecar
+    # Stateless sauna-specific functions, exposed via REST to the backend.
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: booking
+      POSTGRES_PASSWORD: booking
+      POSTGRES_DB: booking
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  authelia:
+    image: authelia/authelia:latest
+    volumes:
+      - ./config/authelia:/config:ro
+
+volumes:
+  caddy-data:
+  postgres-data:
