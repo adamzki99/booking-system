@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
+	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 	"github.com/adamzki99/booking-system/product/backend/internal/server"
 )
 
@@ -19,6 +20,21 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
+
+	if cfg.DatabaseURL != "" {
+		pool, err := eventstore.OpenPool(context.Background(), cfg.DatabaseURL)
+		if err != nil {
+			logger.Error("open db pool", "err", err)
+			os.Exit(1)
+		}
+		if err := eventstore.Migrate(context.Background(), pool); err != nil {
+			pool.Close()
+			logger.Error("migrate db", "err", err)
+			os.Exit(1)
+		}
+		store := eventstore.NewPostgresStore(pool)
+		logger.Info("event store ready", "store", store != nil)
+	}
 
 	srv := server.New(cfg, logger)
 	logger.Info("starting server", "port", cfg.Port)
