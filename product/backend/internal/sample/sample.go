@@ -22,6 +22,10 @@ const (
 	AggregateType = "Sample"
 )
 
+type createdPayload struct {
+	Name string `json:"name"`
+}
+
 // CreateSample creates one sample read-model item through an event.
 type CreateSample struct {
 	ID         string
@@ -62,9 +66,7 @@ func handleCreateSample(_ context.Context, cmd command.Command) ([]eventstore.Ev
 	if create.OccurredAt.IsZero() {
 		create.OccurredAt = time.Now().UTC()
 	}
-	payload, err := json.Marshal(struct {
-		Name string `json:"name"`
-	}{Name: create.Name})
+	payload, err := json.Marshal(createdPayload{Name: create.Name})
 	if err != nil {
 		return nil, fmt.Errorf("sample: marshal event: %w", err)
 	}

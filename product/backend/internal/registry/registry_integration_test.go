@@ -57,22 +57,39 @@ func TestSampleFlowReplayAndCatchUp(t *testing.T) {
 		t.Fatalf("rebuilt read model differs:\nbefore: %+v\nafter:  %+v", before, after)
 	}
 
-	catchUpID := id + "-catch-up"
-	_, err = store.Append(ctx, eventstore.Event{
-		AggregateType: sample.AggregateType,
-		AggregateID:   catchUpID,
-		EventType:     sample.CreatedEventType,
-		Payload:       []byte(`{"name":"Birch"}`),
-		OccurredAt:    createdAt.Add(time.Hour),
-	})
+	firstID := id + "-partial-1"
+	secondID := id + "-partial-2"
+	recorded, err := store.Append(ctx,
+		eventstore.Event{
+			AggregateType: sample.AggregateType,
+			AggregateID:   firstID,
+			EventType:     sample.CreatedEventType,
+			Payload:       []byte(`{"name":"Birch"}`),
+			OccurredAt:    createdAt.Add(time.Hour),
+		},
+		eventstore.Event{
+			AggregateType: sample.AggregateType,
+			AggregateID:   secondID,
+			EventType:     sample.CreatedEventType,
+			Payload:       []byte(`{"name":"Oak"}`),
+			OccurredAt:    createdAt.Add(2 * time.Hour),
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertSampleMissing(t, readModel, catchUpID)
+	if len(recorded) != 2 {
+		t.Fatalf("expected two recorded events, got %d", len(recorded))
+	}
+	if err := app.Dispatcher.Publish(ctx, recorded[:1]); err != nil {
+		t.Fatal(err)
+	}
+	assertSample(t, readModel, firstID, sample.Item{ID: firstID, Name: "Birch", CreatedAt: createdAt.Add(time.Hour)})
+	assertSampleMissing(t, readModel, secondID)
 	if err := app.Projections.CatchUp(ctx); err != nil {
 		t.Fatal(err)
 	}
-	assertSample(t, readModel, catchUpID, sample.Item{ID: catchUpID, Name: "Birch", CreatedAt: createdAt.Add(time.Hour)})
+	assertSample(t, readModel, secondID, sample.Item{ID: secondID, Name: "Oak", CreatedAt: createdAt.Add(2 * time.Hour)})
 }
 
 func assertSample(t *testing.T, readModel *sample.Projection, id string, want sample.Item) {

@@ -35,9 +35,7 @@ func (p *Projection) Apply(ctx context.Context, event eventstore.Event) error {
 	if event.AggregateType != AggregateType || event.EventType != CreatedEventType {
 		return nil
 	}
-	var payload struct {
-		Name string `json:"name"`
-	}
+	var payload createdPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("sample projection: decode event %d: %w", event.ID, err)
 	}
