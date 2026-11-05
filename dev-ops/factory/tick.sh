@@ -19,10 +19,13 @@
 # idempotent and never re-plan or re-build the same issue. Ticks do not
 # overlap: a tick that finds a previous one still running exits immediately.
 #
+# If a session fails because usage/quota is filled, --on-usage-filled controls
+# the behavior (default: backup = retry once with the configured backup model).
+#
 # Schedule hourly, e.g.:  0 * * * * /path/to/repo/dev-ops/factory/tick.sh
 #
 # Usage:
-#   dev-ops/factory/tick.sh [--dry-run]
+#   dev-ops/factory/tick.sh [--dry-run] [--on-usage-filled=backup|skip|fail]
 #
 # Dependencies: gh (authenticated), opencode, python3 + PyYAML, flock.
 
@@ -37,10 +40,23 @@ APPROVED_LABEL="owner approved"
 PLAN_MARKER='<!-- factory:plan -->'
 BUILD_MARKER='<!-- factory:build -->'
 DRY_RUN=0
-[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
+ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
 
 log() { printf '[factory-tick] %s\n' "$*"; }
 die() { printf '[factory-tick] ERROR: %s\n' "$*" >&2; exit 1; }
+
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --on-usage-filled=*) ON_USAGE_FILLED="${arg#*=}" ;;
+    *) die "unknown argument: $arg" ;;
+  esac
+done
+
+case "$ON_USAGE_FILLED" in
+  backup|skip|fail) ;;
+  *) die "invalid --on-usage-filled value: $ON_USAGE_FILLED (use backup, skip, or fail)" ;;
+esac
 
 [[ -f "$MODELS_CONFIG" ]] || die "config not found: $MODELS_CONFIG"
 command -v gh >/dev/null || die "gh is required"
@@ -216,24 +232,39 @@ issue_labels() { # $1 issue number; prints one label name per line
   gh issue view "$1" --json labels --jq '.labels[].name'
 }
 
-# Print the model for the given label names per models.yaml: the first label
-# (in models.yaml order) that has an entry, else the default entry.
+# Print "<model>\t<backup_model>" for the given label names per models.yaml:
+# the first label (in models.yaml order) with an entry, else default.
+# backup_model falls back to the default entry's backup_model when unset.
 model_for_labels() { # $@ label names
   python3 - "$MODELS_CONFIG" "$@" << 'PYEOF'
 import sys, yaml
 with open(sys.argv[1]) as f:
     entries = (yaml.safe_load(f) or {}).get("labels") or {}
 have = set(sys.argv[2:])
-model = ""
+model = backup = ""
 for name, cfg in entries.items():
     if name != "default" and name in have and isinstance(cfg, dict):
         model = cfg.get("model") or ""
+        backup = cfg.get("backup_model") or cfg.get("backup") or ""
         if model:
             break
 if not model:
     model = (entries.get("default") or {}).get("model") or ""
-print(model)
+    backup = backup or (entries.get("default") or {}).get("backup_model") or (entries.get("default") or {}).get("backup") or ""
+if not backup:
+    backup = (entries.get("default") or {}).get("backup_model") or (entries.get("default") or {}).get("backup") or ""
+print(model + "\t" + backup)
 PYEOF
+}
+
+is_usage_filled() { # $1 output text (case-insensitive patterns)
+  local out="${1,,}"
+  [[ "$out" == *"usage limit"* ]] && return 0
+  [[ "$out" == *"limit exceeded"* ]] && return 0
+  [[ "$out" == *"rate limit"* ]] && return 0
+  [[ "$out" == *"quota"* && "$out" == *"exceed"* ]] && return 0
+  [[ "$out" == *"usage"* && "$out" == *"exceed"* ]] && return 0
+  return 1
 }
 
 plan_prompt() { # $1 issue number
@@ -272,11 +303,52 @@ $BUILD_MARKER
 EOF
 }
 
-start_session() { # $1 title, $2 model (empty = opencode default), $3 prompt
+run_opencode() { # $1 title, $2 model (empty = opencode default), $3 prompt
   local args=(run --auto --title "$1")
   [[ -n "$2" ]] && args+=(--model "$2")
   args+=("$3")
   opencode "${args[@]}"
+}
+
+start_session() { # $1 kind (plan/build), $2 issue, $3 title, $4 model, $5 backup_model, $6 prompt
+  local kind="$1" issue="$2" title="$3" model="$4" backup="$5" prompt="$6"
+  local out status=0
+
+  log "starting $kind session for issue #$issue (model: ${model:-opencode default})"
+  set +e
+  out="$(run_opencode "$title" "$model" "$prompt" 2>&1)"
+  status=$?
+  set -e
+  if [[ $status -eq 0 ]]; then
+    printf '%s\n' "$out"
+    return 0
+  fi
+
+  printf '%s\n' "$out" >&2
+  if is_usage_filled "$out"; then
+    log "session for issue #$issue failed: usage/quota appears filled (on-usage-filled=$ON_USAGE_FILLED)"
+    case "$ON_USAGE_FILLED" in
+      backup)
+        if [[ -n "$backup" && "$backup" != "$model" ]]; then
+          log "retrying issue #$issue with backup model: $backup"
+          run_opencode "$title (backup)" "$backup" "$prompt" || return $?
+          return 0
+        fi
+        log "no distinct backup model configured for issue #$issue; failing"
+        return "$status"
+        ;;
+      skip)
+        log "skipping issue #$issue due to filled usage"
+        return 0
+        ;;
+      fail)
+        return "$status"
+        ;;
+    esac
+  fi
+
+  log "$kind session for issue #$issue failed (exit $status)"
+  return "$status"
 }
 
 plan_issue="$(oldest_unlabeled_issue)"
@@ -302,22 +374,20 @@ if [[ -z "$plan_issue" && -z "$build_issue" ]]; then
 fi
 
 if [[ -n "$plan_issue" ]]; then
-  model="$(model_for_labels)"
+  IFS=$'\t' read -r model backup_model < <(model_for_labels)
   if [[ "$DRY_RUN" == 1 ]]; then
-    log "dry-run: would plan issue #$plan_issue (model: ${model:-opencode default})"
+    log "dry-run: would plan issue #$plan_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
   else
-    log "planning issue #$plan_issue (model: ${model:-opencode default})"
-    start_session "factory: plan issue #$plan_issue" "$model" "$(plan_prompt "$plan_issue")"
+    start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")"
   fi
 fi
 
 if [[ -n "$build_issue" ]]; then
   mapfile -t labels < <(issue_labels "$build_issue")
-  model="$(model_for_labels "${labels[@]}")"
+  IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
   if [[ "$DRY_RUN" == 1 ]]; then
-    log "dry-run: would build issue #$build_issue (model: ${model:-opencode default})"
+    log "dry-run: would build issue #$build_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
   else
-    log "building issue #$build_issue (model: ${model:-opencode default})"
-    start_session "factory: build issue #$build_issue" "$model" "$(build_prompt "$build_issue")"
+    start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")"
   fi
 fi

@@ -60,5 +60,10 @@ One or more per issue, for categorization only — they do not select a model:
 - `tick.sh` — one factory tick: starts at most one planning and one building
   session (see `--dry-run`). Finished work carries `<!-- factory:plan -->` /
   `<!-- factory:build -->` comment markers, making ticks idempotent.
+  `--on-usage-filled=backup|skip|fail` (default `backup`, or
+  `FACTORY_ON_USAGE_FILLED`) controls what happens when a session fails because
+  usage/quota is filled: retry once with the configured `backup_model`, skip
+  that session, or fail the tick.
   Scheduling: `0 * * * * /path/to/repo/dev-ops/factory/tick.sh`
-- `models.yaml` — label → model selection for factory sessions.
+- `models.yaml` — label → model selection for factory sessions (`model` plus
+  optional `backup_model` per entry / `default`).
