@@ -12,9 +12,6 @@ type LogSender struct {
 
 // NewLogSender returns a Sender that logs each message via logger.
 func NewLogSender(logger *slog.Logger) *LogSender {
-	if logger == nil {
-		logger = slog.Default()
-	}
 	return &LogSender{logger: logger}
 }
 

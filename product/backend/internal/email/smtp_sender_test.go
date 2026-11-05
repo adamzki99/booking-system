@@ -62,6 +62,32 @@ func TestSMTPSenderSendsConfiguredMessage(t *testing.T) {
 	}
 }
 
+func TestSMTPSenderRejectsHeaderInjection(t *testing.T) {
+	s := &SMTPSender{
+		host: "smtp.example.com",
+		port: 587,
+		from: "noreply@example.com",
+		sendMail: func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+			t.Fatal("sendMail must not be called for injected headers")
+			return nil
+		},
+	}
+
+	cases := []struct {
+		name, to, subject string
+	}{
+		{"newline in subject", "alice@example.com", "hi\r\nBcc: eve@example.com"},
+		{"newline in recipient", "alice@example.com\nBcc: eve@example.com", "hi"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := s.Send(context.Background(), c.to, c.subject, "body"); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
 func TestSMTPSenderUsesAuthWhenUsernameSet(t *testing.T) {
 	var got smtp.Auth
 	s := &SMTPSender{

@@ -10,7 +10,10 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
 )
 
-var errMissingSMTPConfig = errors.New("smtp mode requires SMTP_HOST and SMTP_FROM")
+var (
+	errMissingSMTPConfig = errors.New("smtp mode requires SMTP_HOST and SMTP_FROM")
+	errHeaderInjection   = errors.New("recipient and subject must not contain CR or LF")
+)
 
 // SMTPSender delivers email through an SMTP server.
 type SMTPSender struct {
@@ -40,6 +43,9 @@ func NewSMTPSender(cfg config.Config) (*SMTPSender, error) {
 // Send renders a plain-text message and hands it to the SMTP server.
 // net/smtp has no context support, so ctx is not used for cancellation.
 func (s *SMTPSender) Send(_ context.Context, to, subject, body string) error {
+	if strings.ContainsAny(to, "\r\n") || strings.ContainsAny(subject, "\r\n") {
+		return errHeaderInjection
+	}
 	var auth smtp.Auth
 	if s.username != "" {
 		auth = smtp.PlainAuth("", s.username, s.password, s.host)

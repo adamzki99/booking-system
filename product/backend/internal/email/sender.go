@@ -20,7 +20,11 @@ func New(cfg config.Config, logger *slog.Logger) (Sender, error) {
 	case "log":
 		return NewLogSender(logger), nil
 	case "smtp":
-		return NewSMTPSender(cfg)
+		s, err := NewSMTPSender(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
 	default:
 		return nil, fmt.Errorf("unknown EMAIL_MODE %q", cfg.EmailMode)
 	}
