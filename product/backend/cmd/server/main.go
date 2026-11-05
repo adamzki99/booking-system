@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
+	"github.com/adamzki99/booking-system/product/backend/internal/email"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 	"github.com/adamzki99/booking-system/product/backend/internal/server"
 
@@ -22,6 +23,13 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
+
+	mailer, err := email.New(cfg, logger)
+	if err != nil {
+		logger.Error("configure email", "err", err)
+		os.Exit(1)
+	}
+	_ = mailer // consumers arrive in #5/#7/#8
 
 	var pool *pgxpool.Pool
 	var store eventstore.Store
