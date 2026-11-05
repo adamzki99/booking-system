@@ -10,8 +10,11 @@ The automation that turns GitHub issues into merged PRs.
    - **one planning session** — for issues with no labels (infant state). A plan
      agent posts the implementation plan as a comment and categorizes the issue
      with labels.
-   - **one building session** — for issues labeled `owner approved`. A builder
-     agent implements the issue, creates a PR, and merges it.
+   - **one building session** — for issues labeled `owner approved`, selected by
+     build priority: issues in a GitHub Project (v2) come before others; among
+     project issues, the oldest project (by `createdAt`) wins, then the numeric
+     `Build order` project field ascending (from 1). A builder agent implements
+     the issue, creates a PR, and merges it.
 3. Labels select the model for the session, per [`models.yaml`](models.yaml).
 
 The total number of sessions is not limited — only the rate at which they are
