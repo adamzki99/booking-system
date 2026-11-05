@@ -291,11 +291,29 @@ build_prompt() { # $1 issue number
 You are the builder agent of this software factory. Implement GitHub issue
 #$1 and land it on the base branch.
 
+Load and follow these OpenCode skills (use the skill tool) as they apply:
+- \`implement\` — build the issue from its spec/plan (state the issue title
+  after fetching it; use TDD at pre-agreed seams when practical; run
+  typechecking and targeted tests regularly; run the full test suite once at
+  the end; run a code review before landing).
+- \`tdd\` — drive red-green-refactor for features/fixes when the project has
+  tests (as \`implement\` directs).
+- \`code-review\` — review changes before landing when available.
+- \`diagnosing-bugs\` — use for hard bugs or performance regressions.
+- \`domain-modeling\` — use when changing domain terminology, CQRS/event-sourced
+  models, or project glossary/ADR-worthy decisions.
+- \`frontend-design\` / \`webapp-testing\` — use for \`product/frontend/\` UI
+  work and Playwright/browser verification when relevant.
+- \`pr\` — when opening the pull request, write the PR body in that format
+  (Summary, Evidence, Merge Danger). Include \`Closes #$1\` in the body.
+
+Factory delivery rules (these override generic skill defaults where they
+conflict):
 1. Read the issue and its plan: gh issue view $1 --comments
 2. Create a branch named factory/issue-$1 and implement the issue. Follow
    AGENTS.md; add tests where the project has tests. Keep the change minimal.
-3. Push the branch, open a pull request with "Closes #$1" in the body, merge
-   it (squash), and delete the branch.
+3. Push the branch, open a pull request whose body follows the \`pr\` skill and
+   includes \`Closes #$1\`, merge it (squash), and delete the branch.
 4. Post one comment on the issue summarizing what was merged. The comment
    body must start with this exact marker line:
 

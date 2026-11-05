@@ -16,6 +16,9 @@ homeowner association. See `README.md` for the stack and
 - `projects/<name>/` — one folder per deployment: documentation, configuration,
   and that deployment's sidecar. `product/` + one `projects/<name>/` = a working app.
 - `dev-ops/` — software factory, environments, code quality.
+- `.opencode/skills/` — vendored open-source OpenCode skills. Do not add skills
+  here by hand; they are managed by `dev-ops/scripts/request-skills.sh` (see
+  `dev-ops/skills.yaml`).
 
 ## Architecture rules (do not violate)
 

@@ -32,3 +32,19 @@ leaving ~12 h for Playwright testing on the development environment.
 
 A Semgrep instance runs on the development server, connected to this repo. It
 performs checks on merges into the `main` and release branches.
+
+## Open-source skills
+
+[`scripts/request-skills.sh`](scripts/request-skills.sh) calls for the addition
+of open-source [OpenCode skills](https://opencode.ai/v2/docs/skills/) to this
+repository. It vendors each skill listed in [`skills.yaml`](skills.yaml) into
+`.opencode/skills/` and opens a pull request proposing the addition:
+
+```sh
+dev-ops/scripts/request-skills.sh          # vendor + open a PR
+dev-ops/scripts/request-skills.sh --local  # vendor only, no PR
+```
+
+Skills already present are skipped. Each vendored skill carries a `.source`
+file recording its origin (repo, path, ref). Review licenses and content before
+merging — skills are instructions loaded by the factory agents.
