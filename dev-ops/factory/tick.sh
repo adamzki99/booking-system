@@ -78,14 +78,24 @@ def gh_json(*args):
     return json.loads(r.stdout or "null")
 
 
-try:
-    repo = gh_json("repo", "view", "--json", "owner,nameWithOwner")
-except Exception as e:
-    sys.stderr.write(f"[factory-tick] project priority lookup failed: {e}\n")
-    raise SystemExit(0)
+def by_created(it):
+    n = it["number"]
+    created = it.get("createdAt") or "9999"
+    return (created, n)
 
-owner = repo["owner"]["login"]
-full = repo["nameWithOwner"]
+
+def emit(items, prio):
+    def key(it):
+        n = it["number"]
+        created = it.get("createdAt") or "9999"
+        if n in prio:
+            pc, pn, bo = prio[n]
+            return (0, pc, pn, bo, created, n)
+        return (1, "9999", math.inf, math.inf, created, n)
+
+    for it in sorted(items, key=key):
+        print(it["number"])
+
 
 try:
     issues = gh_json(
@@ -105,85 +115,93 @@ except Exception:
 if not issues:
     raise SystemExit
 
-projects = []
-for q in (
-    "query($login:String!){ user(login:$login){ projectsV2(first:50){ nodes{ number createdAt closed } } } }",
-    "query($login:String!){ organization(login:$login){ projectsV2(first:50){ nodes{ number createdAt closed } } } }",
-):
-    try:
-        pdata = gh_json("api", "graphql", "-f", f"query={q}", "-F", f"login={owner}")["data"]
-        for key in ("user", "organization"):
-            nodes = ((pdata.get(key) or {}).get("projectsV2") or {}).get("nodes") or []
-            projects.extend([n for n in nodes if n])
-    except Exception:
-        pass
-seen_p = set()
-uniq_projects = []
-for p in projects:
-    n = p.get("number")
-    if n not in seen_p:
-        seen_p.add(n)
-        uniq_projects.append(p)
+# Build project priority map. On any failure, fall back to issue age so a
+# project-metadata/auth issue never suppresses building.
+try:
+    repo = gh_json("repo", "view", "--json", "owner,nameWithOwner")
+    owner = repo["owner"]["login"]
+    full = repo["nameWithOwner"]
 
-# issue number -> best (project_createdAt, project_number, build_order)
-prio = {}
-for p in uniq_projects:
-    if p.get("closed"):
-        continue
-    pnum = p.get("number")
-    pcreated = p.get("createdAt") or "9999"
-    try:
-        items = (
-            gh_json(
-                "project",
-                "item-list",
-                str(pnum),
-                "--owner",
-                owner,
-                "--format",
-                "json",
-                "--limit",
-                "200",
-            ).get("items")
-            or []
-        )
-    except Exception:
-        continue
-    for it in items:
-        content = it.get("content") or {}
-        if (content.get("type") or "").lower() != "issue":
-            continue
-        if (content.get("repository") or "").strip() != full:
-            continue
-        num = content.get("number")
-        if not isinstance(num, int):
-            continue
-        bo = it.get("build order")
-        if bo is None:
-            for k, v in it.items():
-                if k.replace("_", " ").lower() == "build order":
-                    bo = v
-                    break
+    projects = []
+    for q in (
+        "query($login:String!){ user(login:$login){ projectsV2(first:50){ nodes{ number id createdAt closed } } } }",
+        "query($login:String!){ organization(login:$login){ projectsV2(first:50){ nodes{ number id createdAt closed } } } }",
+    ):
         try:
-            bof = float(bo)
+            pdata = gh_json("api", "graphql", "-f", f"query={q}", "-F", f"login={owner}")["data"]
+            for key in ("user", "organization"):
+                nodes = ((pdata.get(key) or {}).get("projectsV2") or {}).get("nodes") or []
+                projects.extend([n for n in nodes if n])
         except Exception:
-            bof = math.inf
-        cand = (pcreated, pnum or math.inf, bof)
-        if num not in prio or cand < prio[num]:
-            prio[num] = cand
+            pass
+    seen_p = set()
+    uniq_projects = []
+    for p in projects:
+        n = p.get("number")
+        if n not in seen_p:
+            seen_p.add(n)
+            uniq_projects.append(p)
 
+    items_q = (
+        "query($id:ID!, $after:String){ node(id:$id){ ... on ProjectV2{"
+        " items(first:100, after:$after){ nodes{ content{ __typename"
+        " ... on Issue{ number repository{ nameWithOwner } }"
+        " ... on PullRequest{ number repository{ nameWithOwner } } }"
+        " fieldValueByName(name:\"Build order\"){ __typename"
+        " ... on ProjectV2ItemFieldNumberValue{ number }"
+        " ... on ProjectV2ItemFieldTextValue{ text } } }"
+        " pageInfo{ hasNextPage endCursor } } } } }"
+    )
 
-def key(it):
-    n = it["number"]
-    created = it.get("createdAt") or "9999"
-    if n in prio:
-        pc, pn, bo = prio[n]
-        return (0, pc, pn, bo, created, n)
-    return (1, "9999", math.inf, math.inf, created, n)
+    # issue number -> best (project_createdAt, project_number, build_order)
+    prio = {}
+    for p in uniq_projects:
+        if p.get("closed") or not p.get("id"):
+            continue
+        pnum = p.get("number")
+        pcreated = p.get("createdAt") or "9999"
+        after = None
+        while True:
+            try:
+                args = ["api", "graphql", "-f", f"query={items_q}", "-f", f"id={p['id']}"]
+                if after:
+                    args += ["-f", f"after={after}"]
+                conn = ((gh_json(*args).get("data") or {}).get("node") or {}).get("items") or {}
+            except Exception:
+                break
+            for it in conn.get("nodes") or []:
+                content = it.get("content") or {}
+                if (content.get("__typename") or "").lower() != "issue":
+                    continue
+                repo_name = ((content.get("repository") or {}).get("nameWithOwner") or "").strip()
+                if repo_name != full:
+                    continue
+                num = content.get("number")
+                if not isinstance(num, int):
+                    continue
+                fv = it.get("fieldValueByName") or {}
+                bo = fv.get("number")
+                if bo is None:
+                    bo = fv.get("text")
+                try:
+                    bof = float(bo)
+                except Exception:
+                    bof = math.inf
+                cand = (pcreated, pnum or math.inf, bof)
+                if num not in prio or cand < prio[num]:
+                    prio[num] = cand
+            page = conn.get("pageInfo") or {}
+            if not page.get("hasNextPage"):
+                break
+            after = page.get("endCursor")
+            if not after:
+                break
 
-
-for it in sorted(issues, key=key):
-    print(it["number"])
+    emit(issues, prio)
+except Exception as e:
+    sys.stderr.write(f"[factory-tick] project priority unavailable, using issue age: {e}\n")
+    for it in sorted(issues, key=by_created):
+        print(it["number"])
 PYEOF
 }
 
