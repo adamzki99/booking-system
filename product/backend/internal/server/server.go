@@ -13,12 +13,14 @@ import (
 
 	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
+	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
 // Deps holds the dependencies required by the HTTP server.
 type Deps struct {
-	Auth       *auth.AuthService
-	Middleware *auth.SessionMiddleware
+	Auth        *auth.AuthService
+	Middleware  *auth.SessionMiddleware
+	UserService *user.UserService
 }
 
 // NewMux builds the HTTP router.
@@ -28,6 +30,14 @@ func NewMux(deps Deps) *http.ServeMux {
 	mux.HandleFunc("POST /auth/request-code", handleRequestCode(deps.Auth))
 	mux.HandleFunc("POST /auth/verify", handleVerify(deps.Auth))
 	mux.Handle("GET /auth/me", protect(deps.Middleware, handleMe))
+
+	// User endpoints (all require a valid session).
+	mux.Handle("GET /users", protect(deps.Middleware, user.HandleListUsers(deps.UserService)))
+	mux.Handle("GET /users/me", protect(deps.Middleware, user.HandleMe(deps.UserService)))
+	mux.Handle("POST /users", protect(deps.Middleware, user.HandleCreateUser(deps.UserService)))
+	mux.Handle("POST /users/{id}/remove", protect(deps.Middleware, user.HandleRemoveUser(deps.UserService)))
+	mux.Handle("PATCH /users/me/email", protect(deps.Middleware, user.HandleChangeOwnEmail(deps.UserService)))
+	mux.Handle("PATCH /users/{id}/address", protect(deps.Middleware, user.HandleChangeUserAddress(deps.UserService)))
 	return mux
 }
 
