@@ -22,9 +22,6 @@ var Migrations embed.FS = migrations.FS
 // MigrationFS is an alias for Migrations.
 var MigrationFS = Migrations
 
-// MigrationSQL is the contents of the first migration (convenience).
-const migrationFile = "0001_create_events.sql"
-
 // Event is a single recorded domain event. Events are append-only.
 type Event struct {
 	ID            int64           `json:"id"`
@@ -84,14 +81,6 @@ func New(pool *pgxpool.Pool) *PostgresStore {
 	return NewPostgresStore(pool)
 }
 
-// NewStore is an alias for NewPostgresStore.
-func NewStore(pool *pgxpool.Pool) *PostgresStore {
-	return NewPostgresStore(pool)
-}
-
-// Pool returns the underlying pool.
-func (s *PostgresStore) Pool() *pgxpool.Pool { return s.pool }
-
 // Append inserts events in a single transaction. recorded_at comes from DB default.
 func (s *PostgresStore) Append(ctx context.Context, events ...Event) error {
 	if len(events) == 0 {
@@ -108,19 +97,23 @@ func (s *PostgresStore) Append(ctx context.Context, events ...Event) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	batch := &pgx.Batch{}
 	for _, e := range events {
-		payload := e.Payload
-		if len(payload) == 0 {
-			payload = json.RawMessage("null")
-		}
-		_, err := tx.Exec(ctx,
+		batch.Queue(
 			`INSERT INTO events (aggregate_type, aggregate_id, event_type, payload, occurred_at)
 			 VALUES ($1, $2, $3, $4, $5)`,
-			e.AggregateType, e.AggregateID, e.EventType, []byte(payload), e.OccurredAt,
+			e.AggregateType, e.AggregateID, e.EventType, []byte(e.Payload), e.OccurredAt,
 		)
-		if err != nil {
+	}
+	br := tx.SendBatch(ctx, batch)
+	for range events {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close()
 			return fmt.Errorf("eventstore: insert: %w", err)
 		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("eventstore: batch close: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("eventstore: commit: %w", err)
@@ -175,32 +168,7 @@ func scanEvents(rows pgx.Rows) ([]Event, error) {
 
 // Migrate applies all embedded migrations idempotently.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	return MigratePool(ctx, pool)
-}
-
-// MigratePool applies migrations using a pool.
-func MigratePool(ctx context.Context, pool *pgxpool.Pool) error {
 	return runMigrations(ctx, pool, Migrations)
-}
-
-// ApplyMigrations alias.
-func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	return MigratePool(ctx, pool)
-}
-
-// MigrateUp alias.
-func MigrateUp(ctx context.Context, pool *pgxpool.Pool) error {
-	return MigratePool(ctx, pool)
-}
-
-// EnsureSchema alias.
-func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	return MigratePool(ctx, pool)
-}
-
-// RunMigrations alias.
-func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	return MigratePool(ctx, pool)
 }
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool, fsys embed.FS) error {
@@ -234,31 +202,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, fsys embed.FS) error
 	return nil
 }
 
-// MigrateStore applies migrations then returns store? no.
-// NewPostgresStoreFromURL opens pool, migrates, returns store.
-func NewPostgresStoreFromURL(ctx context.Context, databaseURL string) (*PostgresStore, *pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := Migrate(ctx, pool); err != nil {
-		pool.Close()
-		return nil, nil, err
-	}
-	return NewPostgresStore(pool), pool, nil
-}
-
-// OpenPool helper.
+// OpenPool opens a pgx pool from a database URL.
 func OpenPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	return pgxpool.New(ctx, databaseURL)
-}
-
-// NewPool is an alias for OpenPool.
-func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
-	return OpenPool(ctx, databaseURL)
-}
-
-// Connect is an alias for OpenPool.
-func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
-	return OpenPool(ctx, databaseURL)
 }

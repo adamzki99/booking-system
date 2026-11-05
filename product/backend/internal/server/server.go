@@ -7,10 +7,11 @@ import (
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
+	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 )
 
 // NewMux builds the HTTP router.
-func NewMux() *http.ServeMux {
+func NewMux(stores ...eventstore.Store) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -21,10 +22,10 @@ func NewMux() *http.ServeMux {
 }
 
 // New creates an *http.Server wired with sensible timeouts.
-func New(cfg config.Config, logger *slog.Logger) *http.Server {
+func New(cfg config.Config, logger *slog.Logger, stores ...eventstore.Store) *http.Server {
 	return &http.Server{
 		Addr:         ":" + strconv.Itoa(cfg.Port),
-		Handler:      NewMux(),
+		Handler:      NewMux(stores...),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
