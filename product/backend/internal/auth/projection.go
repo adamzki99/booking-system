@@ -53,7 +53,8 @@ func (p *LoginCodeProjection) Apply(ctx context.Context, event eventstore.Event)
 		}
 		_, err := p.pool.Exec(ctx,
 			`INSERT INTO login_codes (email, code_hash, expires_at, created_at)
-			 VALUES ($1, $2, $3, $4)`,
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (code_hash) DO NOTHING`,
 			payload.Email, payload.CodeHash, payload.ExpiresAt, event.OccurredAt,
 		)
 		if err != nil {
@@ -133,7 +134,8 @@ func (p *SessionProjection) Apply(ctx context.Context, event eventstore.Event) e
 	}
 	_, err := p.pool.Exec(ctx,
 		`INSERT INTO sessions (token_hash, email, expires_at, created_at)
-		 VALUES ($1, $2, $3, $4)`,
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (token_hash) DO NOTHING`,
 		payload.TokenHash, payload.Email, payload.ExpiresAt, event.OccurredAt,
 	)
 	if err != nil {

@@ -43,7 +43,6 @@ type AuthService struct {
 	commands commandExecutor
 	sender   email.Sender
 	limiter  rateLimiter
-	now      func() time.Time
 }
 
 // NewService creates an auth service.
@@ -52,7 +51,6 @@ func NewService(commands commandExecutor, sender email.Sender, limiter rateLimit
 		commands: commands,
 		sender:   sender,
 		limiter:  limiter,
-		now:      time.Now,
 	}
 }
 
@@ -77,7 +75,7 @@ func (s *AuthService) RequestCode(ctx context.Context, emailAddr, clientIP strin
 		return fmt.Errorf("auth: hash code: %w", err)
 	}
 
-	now := s.now().UTC()
+	now := time.Now().UTC()
 	cmd := RequestLoginCode{
 		Email:      normalized,
 		CodeHash:   hash,
@@ -113,7 +111,7 @@ func (s *AuthService) Verify(ctx context.Context, emailAddr, code, clientIP stri
 		return "", fmt.Errorf("auth: generate token: %w", err)
 	}
 
-	now := s.now().UTC()
+	now := time.Now().UTC()
 	cmd := VerifyLoginCode{
 		Email:            normalized,
 		Code:             code,

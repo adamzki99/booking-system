@@ -15,12 +15,11 @@ type sessionReader interface {
 // SessionMiddleware protects handlers behind session authentication.
 type SessionMiddleware struct {
 	sessions sessionReader
-	now      func() time.Time
 }
 
 // NewSessionMiddleware creates session middleware backed by a sessions read model.
 func NewSessionMiddleware(sessions sessionReader) *SessionMiddleware {
-	return &SessionMiddleware{sessions: sessions, now: time.Now}
+	return &SessionMiddleware{sessions: sessions}
 }
 
 // Middleware validates the session and stores the email in the request context.
@@ -32,7 +31,7 @@ func (m *SessionMiddleware) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		session, err := m.sessions.Find(r.Context(), HashToken(token))
-		if err != nil || session.Revoked || !session.ExpiresAt.After(m.now()) {
+		if err != nil || session.Revoked || !session.ExpiresAt.After(time.Now()) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

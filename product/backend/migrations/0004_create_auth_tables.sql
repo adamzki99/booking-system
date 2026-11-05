@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS login_codes (
   id          BIGSERIAL PRIMARY KEY,
   email       TEXT NOT NULL,
-  code_hash   TEXT NOT NULL,
+  code_hash   TEXT NOT NULL UNIQUE,
   expires_at  TIMESTAMPTZ NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   consumed_at TIMESTAMPTZ
