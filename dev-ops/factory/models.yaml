@@ -1,9 +1,28 @@
 # Label → model selection for factory sessions.
 # The factory script consults this file when starting a session for a labeled
 # issue, e.g. the label "heavy-build-task" selects a heavier model.
+#
+# Models are OpenCode Go models (provider "opencode-go"), passed to
+# `opencode run --model`. Verify model IDs against the provider's current
+# model list before changing them.
+#
+# For build sessions the first label (in the order below) present on the
+# issue wins, so list heavier tiers before lighter ones. "default" is the
+# fallback when no listed label matches.
 
 labels:
+  # Planning sessions (plan comments on infant issues).
+  plan-task:
+    model: opencode-go/qwen3.7-plus
+  # Build sessions, by complexity tier (heaviest first):
   heavy-build-task:
-    model: TBD-heavy-model
+    model: opencode-go/kimi-k3.1-pro
+  standard-build-task:
+    model: opencode-go/deepseek-v4-pro
+  light-build-task:
+    model: opencode-go/claude-haiku-5-5
+  trivial-task:
+    model: opencode-go/beam-free
+  # Fallback when an issue has no model-selection label.
   default:
-    model: TBD-default-model
+    model: opencode-go/deepseek-v4-pro
