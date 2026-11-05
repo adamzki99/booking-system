@@ -48,15 +48,19 @@ PYEOF
 # Sparse-fetch one skill directory from a remote git repo.
 fetch_skill() { # $1 repo, $2 path, $3 ref, $4 dest
   local repo="$1" path="$2" ref="$3" dest="$4" tmp
-  tmp="$(mktemp -d)"
-  local args=(clone --quiet --filter=blob:none --no-checkout --depth 1)
-  [[ -n "$ref" ]] && args+=(--branch "$ref")
-  git "${args[@]}" "$repo" "$tmp"
-  git -C "$tmp" sparse-checkout set "$path" >/dev/null
-  git -C "$tmp" checkout --quiet
+  tmp="$(mktemp -d)" || return 1
+  git clone --quiet --filter=blob:none --no-checkout --depth 1 "$repo" "$tmp" || { rm -rf "$tmp"; return 1; }
+  git -C "$tmp" sparse-checkout set --no-cone "$path" >/dev/null 2>&1 \
+    || git -C "$tmp" sparse-checkout set "$path" >/dev/null || { rm -rf "$tmp"; return 1; }
+  if [[ -n "$ref" ]]; then
+    git -C "$tmp" fetch --quiet --depth 1 origin "$ref" || { rm -rf "$tmp"; return 1; }
+    git -C "$tmp" checkout --quiet FETCH_HEAD || { rm -rf "$tmp"; return 1; }
+  else
+    git -C "$tmp" checkout --quiet || { rm -rf "$tmp"; return 1; }
+  fi
   [[ -f "$tmp/$path/SKILL.md" ]] || { rm -rf "$tmp"; return 1; }
-  mkdir -p "$dest"
-  cp -r "$tmp/$path/." "$dest/"
+  mkdir -p "$dest" || { rm -rf "$tmp"; return 1; }
+  cp -r "$tmp/$path/." "$dest/" || { rm -rf "$tmp"; return 1; }
   rm -rf "$tmp"
 }
 
