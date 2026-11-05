@@ -7,8 +7,12 @@
 #   - one planning session, for the oldest issue with no labels (infant
 #     state): the agent posts the implementation plan as a comment and
 #     categorizes the issue with labels.
-#   - one building session, for the oldest issue labeled "owner approved":
-#     the agent implements the issue, creates a PR, and merges it.
+#   - one building session, for the highest-priority issue labeled
+#     "owner approved": priority is determined by GitHub Projects (v2)
+#     membership — issues in the oldest project (by createdAt) come first,
+#     then by the project's numeric "Build order" field (ascending, from 1);
+#     issues not in any project are ranked after project issues. The agent
+#     implements the issue, creates a PR, and merges it.
 #
 # Labels select the session model per models.yaml. Finished work is marked
 # with <!-- factory:plan --> / <!-- factory:build --> comments, so ticks are
@@ -54,10 +58,151 @@ oldest_unlabeled_issue() {
     --jq '[.[] | select((.labels | length) == 0)] | sort_by(.createdAt) | .[0].number // empty'
 }
 
-# Print the number of the oldest open issue labeled "owner approved".
-oldest_approved_issue() {
-  gh issue list --state open --label "$APPROVED_LABEL" --limit 100 --json number,createdAt \
-    --jq 'sort_by(.createdAt) | .[0].number // empty'
+# Print candidate open "owner approved" issue numbers, best build candidate
+# first. Priority: issues in a GitHub Project (v2) come before others; among
+# project issues, the older project (by createdAt) wins, then the numeric
+# "Build order" project field ascending (ties broken by issue age). Issues not
+# in any project are ranked after project issues, oldest first. One number per
+# line; the caller skips issues whose build marker is already present.
+approved_build_candidates() {
+  python3 - "$APPROVED_LABEL" << 'PYEOF'
+import json, math, subprocess, sys
+
+label = sys.argv[1]
+
+
+def gh_json(*args):
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout or "").strip())
+    return json.loads(r.stdout or "null")
+
+
+def by_created(it):
+    n = it["number"]
+    created = it.get("createdAt") or "9999"
+    return (created, n)
+
+
+def emit(items, prio):
+    def key(it):
+        n = it["number"]
+        created = it.get("createdAt") or "9999"
+        if n in prio:
+            pc, pn, bo = prio[n]
+            return (0, pc, pn, bo, created, n)
+        return (1, "9999", math.inf, math.inf, created, n)
+
+    for it in sorted(items, key=key):
+        print(it["number"])
+
+
+try:
+    issues = gh_json(
+        "issue",
+        "list",
+        "--state",
+        "open",
+        "--label",
+        label,
+        "--limit",
+        "200",
+        "--json",
+        "number,createdAt",
+    )
+except Exception:
+    issues = []
+if not issues:
+    raise SystemExit
+
+# Build project priority map. On any failure, fall back to issue age so a
+# project-metadata/auth issue never suppresses building.
+try:
+    repo = gh_json("repo", "view", "--json", "owner,nameWithOwner")
+    owner = repo["owner"]["login"]
+    full = repo["nameWithOwner"]
+
+    projects = []
+    for q in (
+        "query($login:String!){ user(login:$login){ projectsV2(first:50){ nodes{ number id createdAt closed } } } }",
+        "query($login:String!){ organization(login:$login){ projectsV2(first:50){ nodes{ number id createdAt closed } } } }",
+    ):
+        try:
+            pdata = gh_json("api", "graphql", "-f", f"query={q}", "-F", f"login={owner}")["data"]
+            for key in ("user", "organization"):
+                nodes = ((pdata.get(key) or {}).get("projectsV2") or {}).get("nodes") or []
+                projects.extend([n for n in nodes if n])
+        except Exception:
+            pass
+    seen_p = set()
+    uniq_projects = []
+    for p in projects:
+        n = p.get("number")
+        if n not in seen_p:
+            seen_p.add(n)
+            uniq_projects.append(p)
+
+    items_q = (
+        "query($id:ID!, $after:String){ node(id:$id){ ... on ProjectV2{"
+        " items(first:100, after:$after){ nodes{ content{ __typename"
+        " ... on Issue{ number repository{ nameWithOwner } }"
+        " ... on PullRequest{ number repository{ nameWithOwner } } }"
+        " fieldValueByName(name:\"Build order\"){ __typename"
+        " ... on ProjectV2ItemFieldNumberValue{ number }"
+        " ... on ProjectV2ItemFieldTextValue{ text } } }"
+        " pageInfo{ hasNextPage endCursor } } } } }"
+    )
+
+    # issue number -> best (project_createdAt, project_number, build_order)
+    prio = {}
+    for p in uniq_projects:
+        if p.get("closed") or not p.get("id"):
+            continue
+        pnum = p.get("number")
+        pcreated = p.get("createdAt") or "9999"
+        after = None
+        while True:
+            try:
+                args = ["api", "graphql", "-f", f"query={items_q}", "-f", f"id={p['id']}"]
+                if after:
+                    args += ["-f", f"after={after}"]
+                conn = ((gh_json(*args).get("data") or {}).get("node") or {}).get("items") or {}
+            except Exception:
+                break
+            for it in conn.get("nodes") or []:
+                content = it.get("content") or {}
+                if (content.get("__typename") or "").lower() != "issue":
+                    continue
+                repo_name = ((content.get("repository") or {}).get("nameWithOwner") or "").strip()
+                if repo_name != full:
+                    continue
+                num = content.get("number")
+                if not isinstance(num, int):
+                    continue
+                fv = it.get("fieldValueByName") or {}
+                bo = fv.get("number")
+                if bo is None:
+                    bo = fv.get("text")
+                try:
+                    bof = float(bo)
+                except Exception:
+                    bof = math.inf
+                cand = (pcreated, pnum or math.inf, bof)
+                if num not in prio or cand < prio[num]:
+                    prio[num] = cand
+            page = conn.get("pageInfo") or {}
+            if not page.get("hasNextPage"):
+                break
+            after = page.get("endCursor")
+            if not after:
+                break
+
+    emit(issues, prio)
+except Exception as e:
+    sys.stderr.write(f"[factory-tick] project priority unavailable, using issue age: {e}\n")
+    for it in sorted(issues, key=by_created):
+        print(it["number"])
+PYEOF
 }
 
 has_marker() { # $1 issue number, $2 marker string; prints true/false
@@ -140,11 +285,16 @@ if [[ -n "$plan_issue" && "$(has_marker "$plan_issue" "$PLAN_MARKER")" == "true"
   plan_issue=""
 fi
 
-build_issue="$(oldest_approved_issue)"
-if [[ -n "$build_issue" && "$(has_marker "$build_issue" "$BUILD_MARKER")" == "true" ]]; then
-  log "issue #$build_issue already built (marker present); skipping"
-  build_issue=""
-fi
+build_issue=""
+while IFS= read -r candidate; do
+  [[ -z "$candidate" ]] && continue
+  if [[ "$(has_marker "$candidate" "$BUILD_MARKER")" == "true" ]]; then
+    log "issue #$candidate already built (marker present); skipping"
+    continue
+  fi
+  build_issue="$candidate"
+  break
+done < <(approved_build_candidates)
 
 if [[ -z "$plan_issue" && -z "$build_issue" ]]; then
   log "nothing to do"
