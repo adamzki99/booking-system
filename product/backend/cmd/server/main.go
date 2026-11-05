@@ -13,6 +13,8 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
 	"github.com/adamzki99/booking-system/product/backend/internal/email"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/registry"
+	"github.com/adamzki99/booking-system/product/backend/internal/sample"
 	"github.com/adamzki99/booking-system/product/backend/internal/server"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,13 +42,20 @@ func main() {
 			os.Exit(1)
 		}
 		pool = p
-		if err := eventstore.Migrate(context.Background(), pool); err != nil {
+		store = eventstore.NewPostgresStore(pool)
+		app, err := registry.New(context.Background(), store, pool)
+		if err != nil {
 			pool.Close()
-			logger.Error("migrate db", "err", err)
+			logger.Error("initialize application", "err", err)
 			os.Exit(1)
 		}
-		store = eventstore.NewPostgresStore(pool)
-		logger.Info("event store ready")
+		sample.Register(app)
+		if err := app.Projections.CatchUp(context.Background()); err != nil {
+			pool.Close()
+			logger.Error("catch up projections", "err", err)
+			os.Exit(1)
+		}
+		logger.Info("event store and projections ready")
 	}
 
 	srv := server.New(cfg, logger, store)

@@ -61,7 +61,7 @@ func ValidateEvent(e Event) error { return e.Validate() }
 
 // Store is the append-only event store interface.
 type Store interface {
-	Append(ctx context.Context, events ...Event) error
+	Append(ctx context.Context, events ...Event) ([]Event, error)
 	LoadAll(ctx context.Context) ([]Event, error)
 	LoadByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]Event, error)
 }
@@ -81,19 +81,19 @@ func New(pool *pgxpool.Pool) *PostgresStore {
 	return NewPostgresStore(pool)
 }
 
-// Append inserts events in a single transaction. recorded_at comes from DB default.
-func (s *PostgresStore) Append(ctx context.Context, events ...Event) error {
+// Append inserts events in a single transaction and returns their database IDs and timestamps.
+func (s *PostgresStore) Append(ctx context.Context, events ...Event) ([]Event, error) {
 	if len(events) == 0 {
-		return nil
+		return []Event{}, nil
 	}
 	for _, e := range events {
 		if err := e.Validate(); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("eventstore: begin tx: %w", err)
+		return nil, fmt.Errorf("eventstore: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -101,31 +101,34 @@ func (s *PostgresStore) Append(ctx context.Context, events ...Event) error {
 	for _, e := range events {
 		batch.Queue(
 			`INSERT INTO events (aggregate_type, aggregate_id, event_type, payload, occurred_at)
-			 VALUES ($1, $2, $3, $4, $5)`,
+			 VALUES ($1, $2, $3, $4, $5)
+			 RETURNING id, recorded_at`,
 			e.AggregateType, e.AggregateID, e.EventType, []byte(e.Payload), e.OccurredAt,
 		)
 	}
+	recorded := make([]Event, len(events))
+	copy(recorded, events)
 	br := tx.SendBatch(ctx, batch)
-	for range events {
-		if _, err := br.Exec(); err != nil {
+	for i := range recorded {
+		if err := br.QueryRow().Scan(&recorded[i].ID, &recorded[i].RecordedAt); err != nil {
 			_ = br.Close()
-			return fmt.Errorf("eventstore: insert: %w", err)
+			return nil, fmt.Errorf("eventstore: insert: %w", err)
 		}
 	}
 	if err := br.Close(); err != nil {
-		return fmt.Errorf("eventstore: batch close: %w", err)
+		return nil, fmt.Errorf("eventstore: batch close: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("eventstore: commit: %w", err)
+		return nil, fmt.Errorf("eventstore: commit: %w", err)
 	}
-	return nil
+	return recorded, nil
 }
 
-// LoadAll returns all events ordered by (recorded_at, id).
+// LoadAll returns all events in recorded order.
 func (s *PostgresStore) LoadAll(ctx context.Context) ([]Event, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, aggregate_type, aggregate_id, event_type, payload, occurred_at, recorded_at
-		 FROM events ORDER BY recorded_at, id`)
+		 FROM events ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("eventstore: query: %w", err)
 	}
@@ -137,7 +140,7 @@ func (s *PostgresStore) LoadAll(ctx context.Context) ([]Event, error) {
 func (s *PostgresStore) LoadByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]Event, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, aggregate_type, aggregate_id, event_type, payload, occurred_at, recorded_at
-		 FROM events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY recorded_at, id`,
+		 FROM events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id`,
 		aggregateType, aggregateID)
 	if err != nil {
 		return nil, fmt.Errorf("eventstore: query: %w", err)
