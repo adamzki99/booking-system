@@ -1,34 +1,160 @@
+// Package server wires the HTTP API to the application services.
 package server
 
 import (
+	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
-	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 )
 
+// Deps holds the dependencies required by the HTTP server.
+type Deps struct {
+	Auth       *auth.AuthService
+	Middleware *auth.SessionMiddleware
+}
+
 // NewMux builds the HTTP router.
-func NewMux(stores ...eventstore.Store) *http.ServeMux {
+func NewMux(deps Deps) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("POST /auth/request-code", handleRequestCode(deps.Auth))
+	mux.HandleFunc("POST /auth/verify", handleVerify(deps.Auth))
+	mux.Handle("GET /auth/me", protect(deps.Middleware, handleMe))
 	return mux
 }
 
 // New creates an *http.Server wired with sensible timeouts.
-func New(cfg config.Config, logger *slog.Logger, stores ...eventstore.Store) *http.Server {
+func New(cfg config.Config, logger *slog.Logger, deps Deps) *http.Server {
 	return &http.Server{
 		Addr:         ":" + strconv.Itoa(cfg.Port),
-		Handler:      NewMux(stores...),
+		Handler:      NewMux(deps),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
 		ErrorLog:     slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
+}
+
+func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+type requestCodeRequest struct {
+	Email string `json:"email"`
+}
+
+func handleRequestCode(svc *auth.AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeError(w, http.StatusServiceUnavailable, "auth unavailable")
+			return
+		}
+		var req requestCodeRequest
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if err := svc.RequestCode(r.Context(), req.Email, clientIP(r)); err != nil {
+			writeAuthError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type verifyRequest struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
+func handleVerify(svc *auth.AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeError(w, http.StatusServiceUnavailable, "auth unavailable")
+			return
+		}
+		var req verifyRequest
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		token, err := svc.Verify(r.Context(), req.Email, req.Code, clientIP(r))
+		if err != nil {
+			writeAuthError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"token": token})
+	}
+}
+
+func handleMe(w http.ResponseWriter, r *http.Request) {
+	email, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"email": email})
+}
+
+func protect(mw *auth.SessionMiddleware, next http.HandlerFunc) http.Handler {
+	if mw == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeError(w, http.StatusServiceUnavailable, "auth unavailable")
+		})
+	}
+	return mw.Require(next)
+}
+
+func decodeJSON(r *http.Request, dst any) error {
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("request body must contain a single JSON object")
+	}
+	return nil
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func writeAuthError(w http.ResponseWriter, err error) {
+	writeError(w, authStatus(err), err.Error())
+}
+
+func authStatus(err error) int {
+	switch {
+	case errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrInvalidCode):
+		return http.StatusBadRequest
+	case errors.Is(err, auth.ErrInvalidOrExpiredCode):
+		return http.StatusUnauthorized
+	case errors.Is(err, auth.ErrRateLimited):
+		return http.StatusTooManyRequests
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

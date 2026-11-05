@@ -10,9 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
 	"github.com/adamzki99/booking-system/product/backend/internal/email"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/ratelimit"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 	"github.com/adamzki99/booking-system/product/backend/internal/sample"
 	"github.com/adamzki99/booking-system/product/backend/internal/server"
@@ -31,10 +33,9 @@ func main() {
 		logger.Error("configure email", "err", err)
 		os.Exit(1)
 	}
-	_ = mailer // consumers arrive in #5/#7/#8
 
+	var deps server.Deps
 	var pool *pgxpool.Pool
-	var store eventstore.Store
 	if cfg.DatabaseURL != "" {
 		p, err := eventstore.OpenPool(context.Background(), cfg.DatabaseURL)
 		if err != nil {
@@ -42,7 +43,7 @@ func main() {
 			os.Exit(1)
 		}
 		pool = p
-		store = eventstore.NewPostgresStore(pool)
+		store := eventstore.NewPostgresStore(pool)
 		app, err := registry.New(context.Background(), store, pool)
 		if err != nil {
 			pool.Close()
@@ -50,15 +51,19 @@ func main() {
 			os.Exit(1)
 		}
 		sample.Register(app)
+		projections := auth.Register(app)
 		if err := app.Projections.CatchUp(context.Background()); err != nil {
 			pool.Close()
 			logger.Error("catch up projections", "err", err)
 			os.Exit(1)
 		}
+
+		deps.Auth = auth.NewService(app.Commands, mailer, ratelimit.NewLimiter())
+		deps.Middleware = auth.NewSessionMiddleware(projections.Sessions)
 		logger.Info("event store and projections ready")
 	}
 
-	srv := server.New(cfg, logger, store)
+	srv := server.New(cfg, logger, deps)
 	logger.Info("starting server", "port", cfg.Port)
 
 	go func() {
