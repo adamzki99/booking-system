@@ -10,6 +10,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/booking"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
+	"github.com/adamzki99/booking-system/product/backend/internal/user"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -23,6 +24,7 @@ type bookingTestApp struct {
 	store    eventstore.Store
 	app      *registry.Registry
 	bookings *booking.BookingsProjection
+	blocked  *booking.BlockedPeriodsProjection
 }
 
 func newBookingTestApp(t *testing.T) *bookingTestApp {
@@ -34,8 +36,9 @@ func newBookingTestApp(t *testing.T) *bookingTestApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bookings := booking.Register(app)
-	return &bookingTestApp{pool: pool, store: store, app: app, bookings: bookings}
+	users := user.Register(app)
+	bookings, blocked := booking.Register(app, users)
+	return &bookingTestApp{pool: pool, store: store, app: app, bookings: bookings, blocked: blocked}
 }
 
 func TestCreateBookingAppendsEventAndRow(t *testing.T) {
@@ -191,6 +194,86 @@ func TestRebuildAllReproducesState(t *testing.T) {
 	}
 	if before.ID != after.ID || before.Status != after.Status || !before.Start.Equal(after.Start) || !before.End.Equal(after.End) {
 		t.Fatalf("rebuilt read model differs:\nbefore: %+v\nafter:  %+v", before, after)
+	}
+}
+
+func TestBlockTimePeriodBlocksBasicBookings(t *testing.T) {
+	ta := newBookingTestApp(t)
+	ctx := context.Background()
+
+	superID := "00000000-0000-0000-0000-000000000002"
+	basicID := "00000000-0000-0000-0000-000000000003"
+	seedUser(t, ta.pool, superID, "super@example.com", "super")
+	seedUser(t, ta.pool, basicID, "basic@example.com", "basic")
+
+	from := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	to := from.Add(2 * time.Hour)
+	if err := ta.app.Commands.Execute(ctx, booking.BlockTimePeriod{
+		From:        from,
+		To:          to,
+		RequesterID: superID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	periods, err := ta.blocked.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(periods) != 1 || !periods[0].Start.Equal(from) || !periods[0].End.Equal(to) {
+		t.Fatalf("blocked periods = %+v", periods)
+	}
+	overlaps, err := ta.blocked.HasOverlap(ctx, from.Add(time.Minute), from.Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !overlaps {
+		t.Fatal("expected overlap inside blocked period")
+	}
+
+	// A basic user cannot book inside the blocked period.
+	bookingID := "50000000-0000-0000-0000-000000000001"
+	err = ta.app.Commands.Execute(ctx, booking.CreateBooking{
+		ID:     bookingID,
+		UserID: basicID,
+		Start:  from.Add(time.Minute),
+		End:    from.Add(90 * time.Minute),
+	})
+	if !errors.Is(err, booking.ErrBlockedPeriod) {
+		t.Fatalf("expected ErrBlockedPeriod, got %v", err)
+	}
+
+	// A super user may book inside the blocked period.
+	if err := ta.app.Commands.Execute(ctx, booking.CreateBooking{
+		ID:     "50000000-0000-0000-0000-000000000002",
+		UserID: superID,
+		Start:  from.Add(time.Minute),
+		End:    from.Add(90 * time.Minute),
+	}); err != nil {
+		t.Fatalf("expected super booking inside blocked period, got %v", err)
+	}
+
+	// A basic user may book outside the blocked period.
+	if err := ta.app.Commands.Execute(ctx, booking.CreateBooking{
+		ID:     "50000000-0000-0000-0000-000000000003",
+		UserID: basicID,
+		Start:  to.Add(time.Hour),
+		End:    to.Add(2 * time.Hour),
+	}); err != nil {
+		t.Fatalf("expected booking outside blocked period, got %v", err)
+	}
+}
+
+func seedUser(t *testing.T, pool *pgxpool.Pool, id, email, role string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO users (id, email, role, address, active, created_at, updated_at)
+		 VALUES ($1, $2, $3, '', true, now(), now())
+		 ON CONFLICT (id) DO NOTHING`,
+		id, email, role,
+	); err != nil {
+		t.Fatal(err)
 	}
 }
 

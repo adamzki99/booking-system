@@ -71,6 +71,28 @@ func (f *fakeUserResolver) GetByEmail(_ context.Context, email string) (user.Use
 	return u, nil
 }
 
+// basicResolver returns a resolver with basic users user-1 and user-2.
+func basicResolver() *fakeUserResolver {
+	return &fakeUserResolver{byID: map[string]user.User{
+		"user-1": {ID: "user-1", Email: "user-1@example.com", Role: user.RoleBasic},
+		"user-2": {ID: "user-2", Email: "user-2@example.com", Role: user.RoleBasic},
+	}}
+}
+
+// superByEmail returns a resolver with a super user at super@example.com.
+func superByEmail() *fakeUserResolver {
+	return &fakeUserResolver{byEmail: map[string]user.User{
+		"super@example.com": {ID: "super-1", Email: "super@example.com", Role: user.RoleSuper},
+	}}
+}
+
+// basicByEmail returns a resolver with a basic user at basic@example.com.
+func basicByEmail() *fakeUserResolver {
+	return &fakeUserResolver{byEmail: map[string]user.User{
+		"basic@example.com": {ID: "user-2", Email: "basic@example.com", Role: user.RoleBasic},
+	}}
+}
+
 // fakeSender records the most recent email.
 type fakeSender struct {
 	to, subject, body string

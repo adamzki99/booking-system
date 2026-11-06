@@ -46,6 +46,11 @@ var (
 	ErrNotOwner = errors.New("booking: not the owner")
 	// ErrAlreadyCancelled indicates the booking is already cancelled.
 	ErrAlreadyCancelled = errors.New("booking: already cancelled")
+	// ErrBlockedPeriod indicates the slot overlaps a blocked period.
+	ErrBlockedPeriod = errors.New("booking: slot overlaps a blocked period")
+	// ErrBlockedPeriodsUnavailable indicates the blocked-periods read model is
+	// not wired up.
+	ErrBlockedPeriodsUnavailable = errors.New("booking: blocked periods unavailable")
 	// ErrForbidden indicates the caller is not allowed to act.
 	ErrForbidden = errors.New("booking: forbidden")
 )

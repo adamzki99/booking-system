@@ -12,6 +12,7 @@ import (
 
 	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/booking"
+	"github.com/adamzki99/booking-system/product/backend/internal/broadcast"
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
 	"github.com/adamzki99/booking-system/product/backend/internal/email"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
@@ -55,8 +56,10 @@ func main() {
 		sample.Register(app)
 		projections := auth.Register(app)
 		userProjections := user.Register(app)
-		bookingProjections := booking.Register(app)
-		booking.RegisterNotify(app, mailer, userProjections, logger)
+		bookings, blocked := booking.Register(app, userProjections)
+		booking.RegisterNotify(app, mailer, userProjections, bookings, logger)
+		broadcast.Register(app, userProjections)
+		broadcast.RegisterNotify(app, mailer, userProjections, logger)
 		if err := app.Projections.CatchUp(context.Background()); err != nil {
 			pool.Close()
 			logger.Error("catch up projections", "err", err)
@@ -64,7 +67,8 @@ func main() {
 		}
 
 		userService := user.NewService(app.Commands, userProjections)
-		bookingService := booking.NewService(app.Commands, bookingProjections, userProjections)
+		bookingService := booking.NewService(app.Commands, bookings, userProjections, blocked)
+		broadcastService := broadcast.NewService(app.Commands, userProjections)
 		authService := auth.NewService(app.Commands, mailer, ratelimit.NewLimiter())
 		authService.BootstrapAdmin = func(ctx context.Context, email string) error {
 			return userService.BootstrapAdmin(ctx, email)
@@ -73,6 +77,7 @@ func main() {
 		deps.Middleware = auth.NewSessionMiddleware(projections.Sessions)
 		deps.UserService = userService
 		deps.BookingService = bookingService
+		deps.BroadcastService = broadcastService
 		logger.Info("event store and projections ready")
 	}
 
