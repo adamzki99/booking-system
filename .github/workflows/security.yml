@@ -17,6 +17,8 @@ jobs:
     name: Dependency review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    # Requires Dependency Graph to be enabled in repository settings.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Dependency review
