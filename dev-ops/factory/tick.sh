@@ -51,6 +51,7 @@ FIX_MARKER_PREFIX='<!-- factory:fix-pr:'
 DRY_RUN=0
 ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
 MAX_FIX_SESSIONS="${FACTORY_MAX_FIX_SESSIONS:-1}"
+FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
 
 log() { printf '[factory-tick] %s\n' "$*"; }
 die() { printf '[factory-tick] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -454,9 +455,23 @@ summarizing what was merged (add it if missing).
 EOF
 }
 
+# Normalize a model id: free models (beam-free) always run with "high" effort.
+normalize_model() { # $1 model id (may be empty)
+  local m="$1"
+  [[ -z "$m" ]] && { printf '%s' "$m"; return; }
+  case "${m%%#*}" in
+    opencode-go/beam-free)
+      m="opencode-go/beam-free#high"
+      ;;
+  esac
+  printf '%s' "$m"
+}
+
 run_opencode() { # $1 title, $2 model (empty = opencode default), $3 prompt
+  local model
+  model="$(normalize_model "$2")"
   local args=(run --auto --title "$1")
-  [[ -n "$2" ]] && args+=(--model "$2")
+  [[ -n "$model" ]] && args+=(--model "$model")
   args+=("$3")
   opencode "${args[@]}"
 }
@@ -480,12 +495,33 @@ start_session() { # $1 kind (plan/build/fix), $2 ref (issue or PR), $3 title, $4
     log "session for #$ref failed: usage/quota appears filled (on-usage-filled=$ON_USAGE_FILLED)"
     case "$ON_USAGE_FILLED" in
       backup)
+        # Try the configured backup model first.
         if [[ -n "$backup" && "$backup" != "$model" ]]; then
+          local bout bstatus=0
           log "retrying #$ref with backup model: $backup"
-          run_opencode "$title (backup)" "$backup" "$prompt" || return $?
+          set +e
+          bout="$(run_opencode "$title (backup)" "$backup" "$prompt" 2>&1)"
+          bstatus=$?
+          set -e
+          printf '%s\n' "$bout" >&2
+          if [[ $bstatus -eq 0 ]]; then
+            return 0
+          fi
+          if ! is_usage_filled "$bout"; then
+            return "$bstatus"
+          fi
+          log "backup model for #$ref also hit usage/quota limit"
+        fi
+        # Final fallback: a free model is not subject to the Go weekly
+        # usage limit, so it is the only model guaranteed to still work
+        # when paid models are exhausted. Try it if it is not already the
+        # model/backup we just attempted.
+        if [[ "$model" != "$FREE_MODEL" && "$backup" != "$FREE_MODEL" ]]; then
+          log "retrying #$ref with free model: $FREE_MODEL"
+          run_opencode "$title (free)" "$FREE_MODEL" "$prompt" || return $?
           return 0
         fi
-        log "no distinct backup model configured for #$ref; failing"
+        log "no distinct free model configured for #$ref; failing"
         return "$status"
         ;;
       skip)

@@ -18,21 +18,21 @@ labels:
   # Planning sessions (plan comments on infant issues).
   plan-task:
     model: opencode-go/qwen3.7-plus
-    backup_model: opencode-go/beam-free
+    backup_model: opencode/deepseek-v4.1-flash-free
   # Build sessions, by complexity tier (heaviest first):
   heavy-build-task:
     model: opencode-go/kimi-k3.1-pro
-    backup_model: opencode-go/deepseek-v4-pro
+    backup_model: opencode/glm-5.3-flash-free
   standard-build-task:
     model: opencode-go/deepseek-v4-pro
-    backup_model: opencode-go/beam-free
+    backup_model: opencode/deepseek-v4.1-flash-free
   light-build-task:
     model: opencode-go/claude-haiku-5-5
-    backup_model: opencode-go/beam-free
+    backup_model: opencode/glm-5.3-flash-free
   trivial-task:
     model: opencode-go/beam-free
-    backup_model: opencode-go/beam-free
+    backup_model: opencode/mimo-v2.6-flash-free
   # Fallback when an issue has no model-selection label.
   default:
     model: opencode-go/deepseek-v4-pro
-    backup_model: opencode-go/beam-free
+    backup_model: opencode/deepseek-v4.1-flash-free
