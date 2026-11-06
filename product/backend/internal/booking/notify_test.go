@@ -84,6 +84,29 @@ func TestNotifierSendsCancellation(t *testing.T) {
 	}
 }
 
+func TestNotifierSendsCancellationToBookingOwner(t *testing.T) {
+	sender := &fakeSender{}
+	// user-1 is the super user cancelling; user-2 owns the booking.
+	users := &fakeUserResolver{byID: map[string]user.User{
+		"user-1": {ID: "user-1", Email: "super@example.com"},
+		"user-2": {ID: "user-2", Email: "owner@example.com"},
+	}}
+	bookings := &fakeBookingsReader{byID: map[string]Booking{
+		"booking-1": {ID: "booking-1", UserID: "user-2", Status: StatusCancelled},
+	}}
+	n := &Notifier{sender: sender, users: users, bookings: bookings, logger: testLogger()}
+
+	if err := n.Handle(context.Background(), []eventstore.Event{cancelledEvent(t, "user-1")}); err != nil {
+		t.Fatal(err)
+	}
+	if sender.to != "owner@example.com" {
+		t.Fatalf("to = %q, want owner@example.com", sender.to)
+	}
+	if sender.subject != cancelledSubject {
+		t.Fatalf("subject = %q", sender.subject)
+	}
+}
+
 func TestNotifierIgnoresOtherEvents(t *testing.T) {
 	sender := &fakeSender{}
 	users := &fakeUserResolver{}

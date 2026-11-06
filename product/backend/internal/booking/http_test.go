@@ -14,7 +14,7 @@ import (
 )
 
 func newTestService(exec *fakeExecutor, bookings *fakeBookingsReader, users *fakeUserResolver) *BookingService {
-	return NewService(exec, bookings, users)
+	return NewService(exec, bookings, users, nil)
 }
 
 func aliceResolver() *fakeUserResolver {
@@ -95,32 +95,160 @@ func TestHandleCreateBookingBadRequest(t *testing.T) {
 }
 
 func TestHandleCancelOwnBookingNoContent(t *testing.T) {
-	svc := newTestService(&fakeExecutor{}, &fakeBookingsReader{}, aliceResolver())
+	bookings := &fakeBookingsReader{
+		getByIDFunc: func(id string) (Booking, error) {
+			return Booking{ID: id, UserID: "user-1", Status: StatusActive}, nil
+		},
+	}
+	svc := newTestService(&fakeExecutor{}, bookings, aliceResolver())
 
 	req := httptest.NewRequest(http.MethodPost, "/bookings/booking-1/cancel", nil)
 	req.SetPathValue("id", "booking-1")
 	req = req.WithContext(auth.WithEmail(req.Context(), "alice@example.com"))
 	rec := httptest.NewRecorder()
 
-	HandleCancelOwnBooking(svc)(rec, req)
+	HandleCancelBooking(svc)(rec, req)
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
 }
 
-func TestHandleCancelOwnBookingForbidden(t *testing.T) {
-	svc := newTestService(&fakeExecutor{err: ErrNotOwner}, &fakeBookingsReader{}, aliceResolver())
+func TestHandleCancelBookingForbidden(t *testing.T) {
+	bookings := &fakeBookingsReader{
+		getByIDFunc: func(id string) (Booking, error) {
+			return Booking{ID: id, UserID: "user-1", Status: StatusActive}, nil
+		},
+	}
+	svc := newTestService(&fakeExecutor{err: ErrNotOwner}, bookings, aliceResolver())
 
 	req := httptest.NewRequest(http.MethodPost, "/bookings/booking-1/cancel", nil)
 	req.SetPathValue("id", "booking-1")
 	req = req.WithContext(auth.WithEmail(req.Context(), "alice@example.com"))
 	rec := httptest.NewRecorder()
 
-	HandleCancelOwnBooking(svc)(rec, req)
+	HandleCancelBooking(svc)(rec, req)
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestHandleCancelBookingAsSuperCancelsAny(t *testing.T) {
+	exec := &fakeExecutor{}
+	users := &fakeUserResolver{byEmail: map[string]user.User{
+		"super@example.com": {ID: "super-1", Email: "super@example.com", Role: user.RoleSuper},
+	}}
+	bookings := &fakeBookingsReader{
+		getByIDFunc: func(id string) (Booking, error) {
+			return Booking{ID: id, UserID: "user-1", Status: StatusActive}, nil
+		},
+	}
+	svc := newTestService(exec, bookings, users)
+
+	req := httptest.NewRequest(http.MethodPost, "/bookings/booking-1/cancel", nil)
+	req.SetPathValue("id", "booking-1")
+	req = req.WithContext(auth.WithEmail(req.Context(), "super@example.com"))
+	rec := httptest.NewRecorder()
+
+	HandleCancelBooking(svc)(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	cancel, ok := exec.last.(CancelAnyBooking)
+	if !ok {
+		t.Fatalf("expected CancelAnyBooking command, got %T", exec.last)
+	}
+	if cancel.BookingID != "booking-1" || cancel.RequesterID != "super-1" {
+		t.Fatalf("command = %+v", cancel)
+	}
+}
+
+func TestHandleCancelBookingRejectsForeignBooking(t *testing.T) {
+	users := &fakeUserResolver{byEmail: map[string]user.User{
+		"charlie@example.com": {ID: "user-2", Email: "charlie@example.com", Role: user.RoleBasic},
+	}}
+	bookings := &fakeBookingsReader{
+		getByIDFunc: func(id string) (Booking, error) {
+			return Booking{ID: id, UserID: "user-1", Status: StatusActive}, nil
+		},
+	}
+	svc := newTestService(&fakeExecutor{}, bookings, users)
+
+	req := httptest.NewRequest(http.MethodPost, "/bookings/booking-1/cancel", nil)
+	req.SetPathValue("id", "booking-1")
+	req = req.WithContext(auth.WithEmail(req.Context(), "charlie@example.com"))
+	rec := httptest.NewRecorder()
+
+	HandleCancelBooking(svc)(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+}
+
+func TestHandleBlockTimePeriodCreated(t *testing.T) {
+	exec := &fakeExecutor{}
+	users := superByEmail()
+	bookings := &fakeBookingsReader{byID: map[string]Booking{}}
+	blocked := &fakeBlockedReader{}
+	svc := NewService(exec, bookings, users, blocked)
+
+	body := `{"start":"2026-12-01T10:00:00Z","end":"2026-12-01T12:00:00Z"}`
+	req := httptest.NewRequest(http.MethodPost, "/blocked-periods", strings.NewReader(body))
+	req = req.WithContext(auth.WithEmail(req.Context(), "super@example.com"))
+	rec := httptest.NewRecorder()
+
+	HandleBlockTimePeriod(svc)(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	cmd, ok := exec.last.(BlockTimePeriod)
+	if !ok {
+		t.Fatalf("expected BlockTimePeriod command, got %T", exec.last)
+	}
+	if cmd.RequesterID != "super-1" {
+		t.Fatalf("command = %+v", cmd)
+	}
+}
+
+func TestHandleBlockTimePeriodForbidden(t *testing.T) {
+	svc := NewService(&fakeExecutor{}, &fakeBookingsReader{byID: map[string]Booking{}}, basicByEmail(), &fakeBlockedReader{})
+
+	body := `{"start":"2026-12-01T10:00:00Z","end":"2026-12-01T12:00:00Z"}`
+	req := httptest.NewRequest(http.MethodPost, "/blocked-periods", strings.NewReader(body))
+	req = req.WithContext(auth.WithEmail(req.Context(), "basic@example.com"))
+	rec := httptest.NewRecorder()
+
+	HandleBlockTimePeriod(svc)(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+}
+
+func TestHandleListBlockedPeriods(t *testing.T) {
+	svc := NewService(&fakeExecutor{}, &fakeBookingsReader{}, aliceResolver(), &fakeBlockedReader{list: []BlockedPeriod{
+		{ID: "p1", BlockedBy: "super-1"},
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "/blocked-periods", nil)
+	req = req.WithContext(auth.WithEmail(req.Context(), "alice@example.com"))
+	rec := httptest.NewRecorder()
+
+	HandleListBlockedPeriods(svc)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var out []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0]["id"] != "p1" {
+		t.Fatalf("body = %s", rec.Body.String())
 	}
 }
 

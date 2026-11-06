@@ -20,14 +20,15 @@ const (
 // of recorded booking events. Delivery is best-effort: errors are logged and
 // never surfaced, so a failed email cannot roll back an accepted booking.
 type Notifier struct {
-	sender email.Sender
-	users  userResolver
-	logger *slog.Logger
+	sender   email.Sender
+	users    Directory
+	bookings bookingsReader
+	logger   *slog.Logger
 }
 
 // RegisterNotify subscribes the booking notifier to the dispatcher.
-func RegisterNotify(r *registry.Registry, sender email.Sender, users userResolver, logger *slog.Logger) {
-	n := &Notifier{sender: sender, users: users, logger: logger}
+func RegisterNotify(r *registry.Registry, sender email.Sender, users Directory, bookings bookingsReader, logger *slog.Logger) {
+	n := &Notifier{sender: sender, users: users, bookings: bookings, logger: logger}
 	r.Dispatcher.Subscribe(n.Handle)
 }
 
@@ -69,9 +70,22 @@ func (n *Notifier) sendCancelled(ctx context.Context, event eventstore.Event) {
 		n.logger.Error("booking notify: decode cancelled event", "event", event.ID, "err", err)
 		return
 	}
-	u, err := n.users.GetByID(ctx, payload.CancelledBy)
+	// The cancellation notice goes to the user that made the booking — the
+	// owner — whether they cancelled it themselves or a super user did.
+	var ownerID string
+	if n.bookings != nil {
+		b, err := n.bookings.GetByID(ctx, payload.BookingID)
+		if err != nil {
+			n.logger.Error("booking notify: resolve booking", "event", event.ID, "booking_id", payload.BookingID, "err", err)
+			return
+		}
+		ownerID = b.UserID
+	} else {
+		ownerID = payload.CancelledBy
+	}
+	u, err := n.users.GetByID(ctx, ownerID)
 	if err != nil {
-		n.logger.Error("booking notify: resolve user", "event", event.ID, "user_id", payload.CancelledBy, "err", err)
+		n.logger.Error("booking notify: resolve user", "event", event.ID, "user_id", ownerID, "err", err)
 		return
 	}
 	body := fmt.Sprintf("Your booking %s has been cancelled.", payload.BookingID)

@@ -6,11 +6,13 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
 func TestHandleCreateBookingEmitsCreatedEvent(t *testing.T) {
 	bookings := &fakeBookingsReader{byID: map[string]Booking{}}
-	handler := handleCreateBooking(bookings)
+	handler := handleCreateBooking(bookings, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	end := start.Add(time.Hour)
@@ -50,7 +52,7 @@ func TestHandleCreateBookingEmitsCreatedEvent(t *testing.T) {
 
 func TestHandleCreateBookingGeneratesID(t *testing.T) {
 	bookings := &fakeBookingsReader{}
-	handler := handleCreateBooking(bookings)
+	handler := handleCreateBooking(bookings, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	events, err := handler(context.Background(), CreateBooking{
@@ -68,7 +70,7 @@ func TestHandleCreateBookingGeneratesID(t *testing.T) {
 
 func TestHandleCreateBookingRejectsDoubleBooking(t *testing.T) {
 	bookings := &fakeBookingsReader{overlap: true}
-	handler := handleCreateBooking(bookings)
+	handler := handleCreateBooking(bookings, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	_, err := handler(context.Background(), CreateBooking{
@@ -83,7 +85,7 @@ func TestHandleCreateBookingRejectsDoubleBooking(t *testing.T) {
 
 func TestHandleCreateBookingRejectsInvalidInterval(t *testing.T) {
 	bookings := &fakeBookingsReader{}
-	handler := handleCreateBooking(bookings)
+	handler := handleCreateBooking(bookings, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	_, err := handler(context.Background(), CreateBooking{
@@ -98,7 +100,7 @@ func TestHandleCreateBookingRejectsInvalidInterval(t *testing.T) {
 
 func TestHandleCreateBookingRequiresUser(t *testing.T) {
 	bookings := &fakeBookingsReader{}
-	handler := handleCreateBooking(bookings)
+	handler := handleCreateBooking(bookings, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	_, err := handler(context.Background(), CreateBooking{
@@ -163,6 +165,104 @@ func TestHandleCancelOwnBookingRejectsAlreadyCancelled(t *testing.T) {
 	_, err := handler(context.Background(), CancelOwnBooking{
 		BookingID: "booking-1",
 		UserID:    "user-1",
+	})
+	if !errors.Is(err, ErrAlreadyCancelled) {
+		t.Fatalf("expected ErrAlreadyCancelled, got %v", err)
+	}
+}
+
+func TestHandleCancelAnyBookingEmitsCancelledEvent(t *testing.T) {
+	bookings := &fakeBookingsReader{byID: map[string]Booking{
+		"booking-1": {ID: "booking-1", UserID: "user-1", Status: StatusActive},
+	}}
+	users := &fakeUserResolver{byID: map[string]user.User{
+		"super-1": {ID: "super-1", Email: "super@example.com", Role: user.RoleSuper},
+	}}
+	handler := handleCancelAnyBooking(bookings, users)
+
+	events, err := handler(context.Background(), CancelAnyBooking{
+		BookingID:   "booking-1",
+		RequesterID: "super-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	event := events[0]
+	if event.AggregateType != AggregateType || event.AggregateID != "booking-1" {
+		t.Fatalf("event = %+v", event)
+	}
+	if event.EventType != BookingCancelledEventType {
+		t.Fatalf("event type = %q", event.EventType)
+	}
+	var payload BookingCancelledPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.BookingID != "booking-1" || payload.CancelledBy != "super-1" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestHandleCancelAnyBookingRejectsNonSuper(t *testing.T) {
+	bookings := &fakeBookingsReader{byID: map[string]Booking{
+		"booking-1": {ID: "booking-1", UserID: "user-1", Status: StatusActive},
+	}}
+	handler := handleCancelAnyBooking(bookings, basicResolver())
+
+	_, err := handler(context.Background(), CancelAnyBooking{
+		BookingID:   "booking-1",
+		RequesterID: "user-2",
+	})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+}
+
+func TestHandleCancelAnyBookingRejectsUnknownRequester(t *testing.T) {
+	bookings := &fakeBookingsReader{byID: map[string]Booking{
+		"booking-1": {ID: "booking-1", UserID: "user-1", Status: StatusActive},
+	}}
+	handler := handleCancelAnyBooking(bookings, &fakeUserResolver{byID: map[string]user.User{}})
+
+	_, err := handler(context.Background(), CancelAnyBooking{
+		BookingID:   "booking-1",
+		RequesterID: "user-2",
+	})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+}
+
+func TestHandleCancelAnyBookingRejectsUnknownBooking(t *testing.T) {
+	users := &fakeUserResolver{byID: map[string]user.User{
+		"super-1": {ID: "super-1", Email: "super@example.com", Role: user.RoleSuper},
+	}}
+	handler := handleCancelAnyBooking(&fakeBookingsReader{byID: map[string]Booking{}}, users)
+
+	_, err := handler(context.Background(), CancelAnyBooking{
+		BookingID:   "missing",
+		RequesterID: "super-1",
+	})
+	if !errors.Is(err, ErrBookingNotFound) {
+		t.Fatalf("expected ErrBookingNotFound, got %v", err)
+	}
+}
+
+func TestHandleCancelAnyBookingRejectsAlreadyCancelled(t *testing.T) {
+	bookings := &fakeBookingsReader{byID: map[string]Booking{
+		"booking-1": {ID: "booking-1", UserID: "user-1", Status: StatusCancelled},
+	}}
+	users := &fakeUserResolver{byID: map[string]user.User{
+		"super-1": {ID: "super-1", Email: "super@example.com", Role: user.RoleSuper},
+	}}
+	handler := handleCancelAnyBooking(bookings, users)
+
+	_, err := handler(context.Background(), CancelAnyBooking{
+		BookingID:   "booking-1",
+		RequesterID: "super-1",
 	})
 	if !errors.Is(err, ErrAlreadyCancelled) {
 		t.Fatalf("expected ErrAlreadyCancelled, got %v", err)

@@ -10,6 +10,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/command"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
+	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
 const (
@@ -17,6 +18,8 @@ const (
 	CreateBookingCommandType = "booking.CreateBooking"
 	// CancelOwnBookingCommandType identifies CancelOwnBooking commands.
 	CancelOwnBookingCommandType = "booking.CancelOwnBooking"
+	// CancelAnyBookingCommandType identifies CancelAnyBooking commands.
+	CancelAnyBookingCommandType = "booking.CancelAnyBooking"
 )
 
 // CreateBooking creates a booking for a user in the given interval.
@@ -39,16 +42,30 @@ type CancelOwnBooking struct {
 // CommandType implements command.Command.
 func (CancelOwnBooking) CommandType() string { return CancelOwnBookingCommandType }
 
-// Register wires the booking commands and projection into the registry.
-func Register(r *registry.Registry) *BookingsProjection {
-	bookings := NewBookingsProjection(r.DB())
-	r.RegisterCommand(CreateBookingCommandType, handleCreateBooking(bookings))
-	r.RegisterCommand(CancelOwnBookingCommandType, handleCancelOwnBooking(bookings))
-	r.RegisterProjection(bookings)
-	return bookings
+// CancelAnyBooking cancels any user's booking (super users only).
+type CancelAnyBooking struct {
+	BookingID   string
+	RequesterID string
 }
 
-func handleCreateBooking(bookings bookingsReader) command.Handler {
+// CommandType implements command.Command.
+func (CancelAnyBooking) CommandType() string { return CancelAnyBookingCommandType }
+
+// Register wires the booking and blocked-period commands and projections into
+// the registry. users is the user directory used for role checks.
+func Register(r *registry.Registry, users Directory) (*BookingsProjection, *BlockedPeriodsProjection) {
+	bookings := NewBookingsProjection(r.DB())
+	blocked := NewBlockedPeriodsProjection(r.DB())
+	r.RegisterCommand(CreateBookingCommandType, handleCreateBooking(bookings, blocked, users))
+	r.RegisterCommand(CancelOwnBookingCommandType, handleCancelOwnBooking(bookings))
+	r.RegisterCommand(CancelAnyBookingCommandType, handleCancelAnyBooking(bookings, users))
+	r.RegisterCommand(BlockTimePeriodCommandType, handleBlockTimePeriod(users))
+	r.RegisterProjection(bookings)
+	r.RegisterProjection(blocked)
+	return bookings, blocked
+}
+
+func handleCreateBooking(bookings bookingsReader, blocked blockedReader, users Directory) command.Handler {
 	return func(ctx context.Context, cmd command.Command) ([]eventstore.Event, error) {
 		var c CreateBooking
 		switch typed := cmd.(type) {
@@ -76,6 +93,15 @@ func handleCreateBooking(bookings bookingsReader) command.Handler {
 		}
 		if overlaps {
 			return nil, ErrDoubleBooking
+		}
+		if blocked != nil && !createsAsSuper(ctx, users, c.UserID) {
+			blockedOverlaps, err := blocked.HasOverlap(ctx, c.Start, c.End)
+			if err != nil {
+				return nil, err
+			}
+			if blockedOverlaps {
+				return nil, ErrBlockedPeriod
+			}
 		}
 
 		id := c.ID
@@ -136,20 +162,85 @@ func handleCancelOwnBooking(bookings bookingsReader) command.Handler {
 		}
 
 		now := time.Now().UTC()
-		payload, err := json.Marshal(BookingCancelledPayload{
-			BookingID:   b.ID,
-			CancelledBy: c.UserID,
-			CancelledAt: now,
-		})
+		event, err := newBookingCancelledEvent(b, c.UserID, now)
 		if err != nil {
-			return nil, fmt.Errorf("booking: marshal event: %w", err)
+			return nil, err
 		}
-		return []eventstore.Event{{
-			AggregateType: AggregateType,
-			AggregateID:   b.ID,
-			EventType:     BookingCancelledEventType,
-			Payload:       payload,
-			OccurredAt:    now,
-		}}, nil
+		return []eventstore.Event{event}, nil
 	}
+}
+
+func handleCancelAnyBooking(bookings bookingsReader, users Directory) command.Handler {
+	return func(ctx context.Context, cmd command.Command) ([]eventstore.Event, error) {
+		var c CancelAnyBooking
+		switch typed := cmd.(type) {
+		case CancelAnyBooking:
+			c = typed
+		case *CancelAnyBooking:
+			if typed == nil {
+				return nil, errors.New("booking: command is nil")
+			}
+			c = *typed
+		default:
+			return nil, fmt.Errorf("booking: expected CancelAnyBooking, got %T", cmd)
+		}
+
+		if c.BookingID == "" {
+			return nil, errors.New("booking: booking id is required")
+		}
+		if c.RequesterID == "" {
+			return nil, errors.New("booking: requester id is required")
+		}
+		u, err := users.GetByID(ctx, c.RequesterID)
+		if err != nil || !u.Role.AtLeast(user.RoleSuper) {
+			return nil, ErrForbidden
+		}
+
+		b, err := bookings.GetByID(ctx, c.BookingID)
+		if err != nil {
+			return nil, err
+		}
+		if b.Status != StatusActive {
+			return nil, ErrAlreadyCancelled
+		}
+
+		now := time.Now().UTC()
+		event, err := newBookingCancelledEvent(b, c.RequesterID, now)
+		if err != nil {
+			return nil, err
+		}
+		return []eventstore.Event{event}, nil
+	}
+}
+
+// createsAsSuper reports whether the booking's creation should be treated as a
+// super-user action. Unknown or unresolvable users are treated as basic users.
+func createsAsSuper(ctx context.Context, users Directory, userID string) bool {
+	if users == nil {
+		return false
+	}
+	u, err := users.GetByID(ctx, userID)
+	if err != nil {
+		return false
+	}
+	return u.Role.AtLeast(user.RoleSuper)
+}
+
+// newBookingCancelledEvent builds the booking.cancelled event for a booking.
+func newBookingCancelledEvent(b Booking, cancelledBy string, now time.Time) (eventstore.Event, error) {
+	payload, err := json.Marshal(BookingCancelledPayload{
+		BookingID:   b.ID,
+		CancelledBy: cancelledBy,
+		CancelledAt: now,
+	})
+	if err != nil {
+		return eventstore.Event{}, fmt.Errorf("booking: marshal event: %w", err)
+	}
+	return eventstore.Event{
+		AggregateType: AggregateType,
+		AggregateID:   b.ID,
+		EventType:     BookingCancelledEventType,
+		Payload:       payload,
+		OccurredAt:    now,
+	}, nil
 }

@@ -31,6 +31,10 @@ func bookingHTTPStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, ErrDoubleBooking), errors.Is(err, ErrAlreadyCancelled):
 		return http.StatusConflict
+	case errors.Is(err, ErrBlockedPeriod):
+		return http.StatusConflict
+	case errors.Is(err, ErrBlockedPeriodsUnavailable):
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}
@@ -90,8 +94,9 @@ func HandleCreateBooking(svc *BookingService) http.HandlerFunc {
 	}
 }
 
-// HandleCancelOwnBooking cancels the authenticated user's own booking.
-func HandleCancelOwnBooking(svc *BookingService) http.HandlerFunc {
+// HandleCancelBooking cancels a booking: the owner their own booking, and a
+// super user any booking.
+func HandleCancelBooking(svc *BookingService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if svc == nil {
 			writeBookingError(w, http.StatusServiceUnavailable, "booking unavailable")
@@ -103,11 +108,56 @@ func HandleCancelOwnBooking(svc *BookingService) http.HandlerFunc {
 			return
 		}
 		id := r.PathValue("id")
-		if err := svc.CancelOwnBooking(r.Context(), email, id); err != nil {
+		if err := svc.CancelBooking(r.Context(), email, id); err != nil {
 			writeBookingError(w, bookingHTTPStatus(err), err.Error())
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// HandleBlockTimePeriod blocks a time period for basic-user bookings
+// (super users only).
+func HandleBlockTimePeriod(svc *BookingService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeBookingError(w, http.StatusServiceUnavailable, "booking unavailable")
+			return
+		}
+		email, ok := auth.FromContext(r.Context())
+		if !ok {
+			writeBookingError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		var body struct {
+			Start time.Time `json:"start"`
+			End   time.Time `json:"end"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeBookingError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if err := svc.BlockTimePeriod(r.Context(), email, body.Start, body.End); err != nil {
+			writeBookingError(w, bookingHTTPStatus(err), err.Error())
+			return
+		}
+		writeBookingJSON(w, http.StatusCreated, map[string]string{"status": "blocked"})
+	}
+}
+
+// HandleListBlockedPeriods returns the blocked periods.
+func HandleListBlockedPeriods(svc *BookingService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeBookingError(w, http.StatusServiceUnavailable, "booking unavailable")
+			return
+		}
+		periods, err := svc.ListBlockedPeriods(r.Context())
+		if err != nil {
+			writeBookingError(w, bookingHTTPStatus(err), err.Error())
+			return
+		}
+		writeBookingJSON(w, http.StatusOK, periods)
 	}
 }
 
