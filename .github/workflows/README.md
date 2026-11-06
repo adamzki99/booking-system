@@ -28,6 +28,13 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 
 No workflow-specific repository secrets are required for the current CI/security checks. Future deployment or image-publish workflows will need secrets (registry credentials, SSH/runner access, database/application configuration) — document them here when added.
 
+### Secret handling policy
+
+- Never commit secrets. Runtime values live in `projects/<name>/.env` (gitignored) or in
+  GitHub Environment/Repository secrets; document required keys in `projects/<name>/.env.example`.
+- The `secret-scan` job runs gitleaks on every PR/push to catch accidental commits.
+- If a secret is ever committed, rotate it — deleting the file is not enough.
+
 ## Running checks locally
 
 From the repository root:

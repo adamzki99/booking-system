@@ -63,3 +63,8 @@ It is stateless and called by the backend over REST.
 Everything is packaged in `docker-compose.yml` (Caddy, frontend, backend,
 sidecar, PostgreSQL, Authelia; SigNoz runs separately). A single setup script
 for provisioning a server is TBD — see `../../dev-ops/`.
+
+For exposing a self-hosted instance publicly over HTTPS via Cloudflare Tunnels,
+follow [`../../dev-ops/self-hosting-cloudflare-tunnel.md`](../../dev-ops/self-hosting-cloudflare-tunnel.md).
+Keep tunnel tokens, public hostnames, and other deployment-specific values in
+sauna deployment config/environment (not in `product/`).
