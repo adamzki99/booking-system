@@ -423,7 +423,7 @@ conflict):
    until the actions and security scan results have come in. Example:
 
    PR=<number>
-   gh pr checks "$PR" --watch
+   gh pr checks "\$PR" --watch
 
    Only after this command exits (all checks finished) evaluate the results.
 3b. Wait for ALL required checks and security analyses to complete and pass
@@ -462,7 +462,7 @@ changes; conflicts = merge conflicts / not mergeable.)
    until the actions and security scan results have come in:
 
    PR=$1
-   gh pr checks "$PR" --watch
+   gh pr checks "\$PR" --watch
 
    Only after this command exits evaluate the results, and wait for ALL required
    checks and security analyses to complete and pass
