@@ -3,9 +3,9 @@ package user
 import (
 	"crypto/rand"
 
-	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"errors"
 	"fmt"
+	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"strings"
 	"time"
 )
