@@ -34,7 +34,7 @@ func RenderFeed(bookings []booking.Booking, now time.Time) string {
 }
 
 // Aliases.
-func Render(bookings []booking.Booking, now time.Time) string { return RenderFeed(bookings, now) }
+func Render(bookings []booking.Booking, now time.Time) string     { return RenderFeed(bookings, now) }
 func RenderICal(bookings []booking.Booking, now time.Time) string { return RenderFeed(bookings, now) }
 
 func escapeText(v string) string {
