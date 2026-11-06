@@ -415,7 +415,9 @@ Load and follow these OpenCode skills (use the skill tool) as they apply:
 Factory delivery rules (these override generic skill defaults where they
 conflict):
 1. Read the issue and its plan: gh issue view $1 --comments
-2. Create a branch named factory/issue-$1 and implement the issue. Follow
+2. Fetch the latest base and create a branch named factory/issue-$1 from
+   origin/main (run `git fetch origin` first, then
+   `git checkout -b factory/issue-$1 origin/main`). Implement the issue. Follow
    AGENTS.md; add tests where the project has tests. Keep the change minimal.
 3. Push the branch, open a pull request whose body follows the \`pr\` skill and
    includes \`Closes #$1\`. Capture the PR number.
@@ -456,7 +458,8 @@ changes; conflicts = merge conflicts / not mergeable.)
    minimal, focused changes. Follow AGENTS.md and the issue plan.
 3. If checks failed, reproduce/fix the failures and ensure relevant tests and
    checks pass. If changes were requested, address the review comments. If
-   there are merge conflicts, resolve them against the base branch.
+   there are merge conflicts, fetch origin and rebase onto the default branch
+   (origin/main) to resolve them.
 4. Push fixes to the PR branch. Re-run/verify the failing checks locally.
    Put yourself in an agent loop that watches PR #$1 with a bash command
    until the actions and security scan results have come in:
@@ -575,6 +578,10 @@ start_session() { # $1 kind (plan/build/fix), $2 ref (issue or PR), $3 title, $4
   log "$kind session for #$ref failed (exit $status)"
   return "$status"
 }
+
+# Keep remote refs current so sessions branch from the latest origin/main
+# rather than a stale local base.
+git fetch --quiet --prune origin 2>/dev/null || log "warning: git fetch origin failed; continuing with cached refs"
 
 plan_issue="$(oldest_unlabeled_issue)"
 if [[ -n "$plan_issue" && "$(has_marker "$plan_issue" "$PLAN_MARKER")" == "true" ]]; then
