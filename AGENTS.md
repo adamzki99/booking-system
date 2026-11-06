@@ -19,6 +19,10 @@ homeowner association. See `README.md` for the stack and
 - `.opencode/skills/` — vendored open-source OpenCode skills. Do not add skills
   here by hand; they are managed by `dev-ops/scripts/request-skills.sh` (see
   `dev-ops/skills.yaml`).
+  **Agent protection:** do not read, browse, or summarize files under
+  `.opencode/skills/` unless the user explicitly asks to invoke a skill. Load a
+  skill only via the `skill` tool when explicitly requested. Never auto-ingest
+  the skills directory into context.
 
 ## Architecture rules (do not violate)
 
@@ -34,3 +38,8 @@ homeowner association. See `README.md` for the stack and
 
 - Keep changes minimal and follow the existing style of the directory you work in.
 - Update this file if you change the structure, stack, or architecture.
+- **Secrets:** never commit secrets. Use `projects/<name>/.env` (gitignored) with a
+  committed `projects/<name>/.env.example` documenting required keys. `product/`
+  must contain no deployment-specific secrets or identifiers.
+- **Agent protection (skills):** agents must not read `.opencode/skills/` unprompted;
+  only load a skill via the `skill` tool when the user explicitly requests it.

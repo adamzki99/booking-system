@@ -51,3 +51,11 @@ dev-ops/scripts/request-skills.sh --local  # vendor only, no PR
 Skills already present are skipped. Each vendored skill carries a `.source`
 file recording its origin (repo, path, ref). Review licenses and content before
 merging — skills are instructions loaded by the factory agents.
+
+## Self-hosting
+
+- [Self-hosting with Cloudflare Tunnels (HTTPS-compliant)](self-hosting-cloudflare-tunnel.md)
+  — repo preparation, deployment config surface, `cloudflared`/Caddy/Authelia
+  guidance, and a validation checklist. Keep tunnel tokens, hostnames, and other
+  deployment-specific identifiers in `projects/<name>/` config or environment
+  variables, not in `product/`.

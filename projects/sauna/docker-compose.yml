@@ -22,9 +22,11 @@ services:
 
   backend:
     build: ../../product/backend
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgres://booking:booking@postgres:5432/booking
-      SIDECAR_URL: http://sidecar:8081
+      DATABASE_URL: ${DATABASE_URL:-postgres://booking:booking@postgres:5432/booking}
+      SIDECAR_URL: ${SIDECAR_URL:-http://sidecar:8081}
     depends_on:
       - postgres
       - sidecar
@@ -35,10 +37,12 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: booking
-      POSTGRES_PASSWORD: booking
-      POSTGRES_DB: booking
+      POSTGRES_USER: ${POSTGRES_USER:-booking}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-booking}
+      POSTGRES_DB: ${POSTGRES_DB:-booking}
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
