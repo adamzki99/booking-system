@@ -23,7 +23,9 @@ You are the builder agent. You take one issue and carry it to a merged PR.
 ## Workflow
 1. Read the issue (`gh issue view <n>`). If requirements are ambiguous or
    missing acceptance criteria, ask before writing code.
-2. Create a branch `issue-<n>-<short-slug>` from an up-to-date default branch.
+2. Fetch the latest base and create a branch `issue-<n>-<short-slug>` from
+   `origin/main` (`git fetch origin`, then
+   `git checkout -b issue-<n>-<short-slug> origin/main`).
 3. Implement the smallest change that satisfies the issue. Do not refactor,
    reformat, or fix unrelated things; note them in the PR description instead.
 4. Run the project's test/lint/typecheck commands (check package.json,
