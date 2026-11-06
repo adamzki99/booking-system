@@ -2,17 +2,24 @@
 #
 # tick.sh — one tick of the software factory.
 #
-# Fetches open GitHub issues and starts at most two OpenCode sessions:
+# Fetches open GitHub issues/PRs and starts OpenCode sessions:
 #
 #   - one planning session, for the oldest issue with no labels (infant
 #     state): the agent posts the implementation plan as a comment and
 #     categorizes the issue with labels.
-#   - one building session, for the highest-priority issue labeled
-#     "owner approved": priority is determined by GitHub Projects (v2)
-#     membership — issues in the oldest project (by createdAt) come first,
-#     then by the project's numeric "Build order" field (ascending, from 1);
-#     issues not in any project are ranked after project issues. The agent
-#     implements the issue, creates a PR, and merges it.
+#   - build-path sessions (fixes, then optionally a new build):
+#       - fix sessions for open factory PRs (head "factory/issue-*") that need
+#         fixes before merge: failing/status checks, changes requested, or merge
+#         conflicts/non-mergeable. Up to FACTORY_MAX_FIX_SESSIONS per tick
+#         (default: 1). Fix attempts are idempotent per PR head SHA + blocking
+#         reasons via <!-- factory:fix-pr:... --> PR comments.
+#       - one building session, for the highest-priority issue labeled
+#         "owner approved" with no build marker and no open factory PR: priority
+#         is determined by GitHub Projects (v2) membership — issues in the oldest
+#         project (by createdAt) come first, then by the project's numeric "Build
+#         order" field (ascending, from 1); issues not in any project are ranked
+#         after project issues. The agent implements the issue, creates a PR, and
+#         merges it.
 #
 # Labels select the session model per models.yaml. Finished work is marked
 # with <!-- factory:plan --> / <!-- factory:build --> comments, so ticks are
@@ -26,9 +33,10 @@
 #
 # Usage:
 #   dev-ops/factory/tick.sh [--dry-run] [--on-usage-filled=backup|skip|fail]
+#                           [--max-fix-sessions=N]
 #
 # Dependencies: gh (authenticated), opencode, python3 + PyYAML, flock.
-
+#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
@@ -39,8 +47,10 @@ MODELS_CONFIG="${MODELS_CONFIG:-$SCRIPT_DIR/models.yaml}"
 APPROVED_LABEL="owner approved"
 PLAN_MARKER='<!-- factory:plan -->'
 BUILD_MARKER='<!-- factory:build -->'
+FIX_MARKER_PREFIX='<!-- factory:fix-pr:'
 DRY_RUN=0
 ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
+MAX_FIX_SESSIONS="${FACTORY_MAX_FIX_SESSIONS:-1}"
 
 log() { printf '[factory-tick] %s\n' "$*"; }
 die() { printf '[factory-tick] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -49,6 +59,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --on-usage-filled=*) ON_USAGE_FILLED="${arg#*=}" ;;
+    --max-fix-sessions=*) MAX_FIX_SESSIONS="${arg#*=}" ;;
     *) die "unknown argument: $arg" ;;
   esac
 done
@@ -57,6 +68,8 @@ case "$ON_USAGE_FILLED" in
   backup|skip|fail) ;;
   *) die "invalid --on-usage-filled value: $ON_USAGE_FILLED (use backup, skip, or fail)" ;;
 esac
+
+[[ "$MAX_FIX_SESSIONS" =~ ^[0-9]+$ ]] || die "invalid --max-fix-sessions value: $MAX_FIX_SESSIONS (use a non-negative integer)"
 
 [[ -f "$MODELS_CONFIG" ]] || die "config not found: $MODELS_CONFIG"
 command -v gh >/dev/null || die "gh is required"
@@ -221,6 +234,83 @@ except Exception as e:
 PYEOF
 }
 
+# Print fix candidates for open factory PRs (head factory/issue-*): one line per
+# candidate as: pr_number<TAB>issue_number<TAB>head_sha<TAB>reasons<TAB>marker
+# "reasons" is a comma-separated list (failing-checks,changes-requested,conflicts).
+# "marker" is the idempotency marker for this PR head+reasons. Candidates with no
+# blocking reasons are omitted. On API errors, prints nothing (never blocks ticks).
+fix_pr_candidates() {
+  python3 - << 'PYEOF'
+import json, re, subprocess, sys
+
+FAIL = {"FAILURE", "FAILED", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"}
+
+
+def gh_json(*args):
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout or "").strip())
+    return json.loads(r.stdout or "null")
+
+
+def check_state(item):
+    # statusCheckRollup items: CheckRun has status/conclusion; StatusContext has state.
+    if not isinstance(item, dict):
+        return ""
+    st = (item.get("state") or item.get("conclusion") or item.get("status") or "").upper()
+    if item.get("__typename") == "CheckRun" and (item.get("status") or "").upper() not in ("COMPLETED", ""):
+        # in progress / queued - not an actionable failure
+        return "PENDING"
+    return st
+
+
+try:
+    prs = gh_json(
+        "pr", "list", "--state", "open", "--limit", "100",
+        "--json", "number,headRefName,headRefOid,mergeable,reviewDecision,statusCheckRollup,isDraft,createdAt",
+    )
+except Exception as e:
+    sys.stderr.write(f"[factory-tick] fix-pr discovery unavailable: {e}\n")
+    raise SystemExit
+
+rows = []
+for pr in prs or []:
+    if pr.get("isDraft"):
+        continue
+    head = pr.get("headRefName") or ""
+    m = re.match(r"^factory/issue-(\d+)$", head)
+    if not m:
+        continue
+    issue = int(m.group(1))
+    sha = (pr.get("headRefOid") or "").strip()
+    if not sha:
+        continue
+    reasons = []
+    rollup = pr.get("statusCheckRollup") or []
+    if isinstance(rollup, list):
+        for item in rollup:
+            st = check_state(item)
+            if st in FAIL:
+                reasons.append("failing-checks")
+                break
+    rd = (pr.get("reviewDecision") or "").upper()
+    if rd == "CHANGES_REQUESTED":
+        reasons.append("changes-requested")
+    mergeable = (pr.get("mergeable") or "").upper()
+    if mergeable == "CONFLICTING":
+        reasons.append("conflicts")
+    if not reasons:
+        continue
+    reasons = sorted(set(reasons))
+    rkey = ",".join(reasons)
+    marker = f"<!-- factory:fix-pr:{sha}:{rkey} -->"
+    rows.append((pr.get("createdAt") or "9999", pr.get("number"), issue, sha, rkey, marker))
+
+for _created, prnum, issue, sha, rkey, marker in sorted(rows):
+    print(f"{prnum}\t{issue}\t{sha}\t{rkey}\t{marker}")
+PYEOF
+}
+
 has_marker() { # $1 issue number, $2 marker string; prints true/false
   local marker_json
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
@@ -228,8 +318,19 @@ has_marker() { # $1 issue number, $2 marker string; prints true/false
     --jq "[.comments[].body | contains($marker_json)] | any"
 }
 
+has_pr_marker() { # $1 PR number, $2 marker string; prints true/false
+  local marker_json
+  marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
+  gh pr view "$1" --json comments \
+    --jq "[.comments[].body | contains($marker_json)] | any" 2>/dev/null || echo "false"
+}
+
 issue_labels() { # $1 issue number; prints one label name per line
   gh issue view "$1" --json labels --jq '.labels[].name'
+}
+
+open_factory_pr_for_issue() { # $1 issue number; prints PR number or nothing
+  gh pr list --state open --head "factory/issue-$1" --json number --jq '.[0].number // empty' 2>/dev/null || true
 }
 
 # Print "<model>\t<backup_model>" for the given label names per models.yaml:
@@ -321,6 +422,38 @@ $BUILD_MARKER
 EOF
 }
 
+fix_prompt() { # $1 PR number, $2 issue number, $3 reasons, $4 marker
+  cat << EOF
+You are the fix agent of this software factory. Pull request #$1 (for issue
+#$2, branch factory/issue-$2) is open but blocked from merge. Make it
+mergeable.
+
+Blocking reasons reported by GitHub: $3
+(failing-checks = status/CI failures; changes-requested = review requested
+changes; conflicts = merge conflicts / not mergeable.)
+
+1. Read context: gh pr view $1 --comments; gh pr checks $1 || true; gh issue view $2 --comments
+2. Check out the PR branch (gh pr checkout $1). Fix the blocking issues with
+   minimal, focused changes. Follow AGENTS.md and the issue plan.
+3. If checks failed, reproduce/fix the failures and ensure relevant tests and
+   checks pass. If changes were requested, address the review comments. If
+   there are merge conflicts, resolve them against the base branch.
+4. Push fixes to the PR branch. If the PR is now mergeable and checks/reviews
+   allow, merge it (squash) and delete the branch.
+5. Post one comment on PR #$1 summarizing what you fixed and the merge/result
+   status. The comment body must start with this exact marker line (required
+   for factory idempotency):
+
+$4
+
+If the PR was merged, also ensure issue #$2 has a comment starting with:
+
+$BUILD_MARKER
+
+summarizing what was merged (add it if missing).
+EOF
+}
+
 run_opencode() { # $1 title, $2 model (empty = opencode default), $3 prompt
   local args=(run --auto --title "$1")
   [[ -n "$2" ]] && args+=(--model "$2")
@@ -328,11 +461,11 @@ run_opencode() { # $1 title, $2 model (empty = opencode default), $3 prompt
   opencode "${args[@]}"
 }
 
-start_session() { # $1 kind (plan/build), $2 issue, $3 title, $4 model, $5 backup_model, $6 prompt
-  local kind="$1" issue="$2" title="$3" model="$4" backup="$5" prompt="$6"
+start_session() { # $1 kind (plan/build/fix), $2 ref (issue or PR), $3 title, $4 model, $5 backup_model, $6 prompt
+  local kind="$1" ref="$2" title="$3" model="$4" backup="$5" prompt="$6"
   local out status=0
 
-  log "starting $kind session for issue #$issue (model: ${model:-opencode default})"
+  log "starting $kind session for #$ref (model: ${model:-opencode default})"
   set +e
   out="$(run_opencode "$title" "$model" "$prompt" 2>&1)"
   status=$?
@@ -344,19 +477,19 @@ start_session() { # $1 kind (plan/build), $2 issue, $3 title, $4 model, $5 backu
 
   printf '%s\n' "$out" >&2
   if is_usage_filled "$out"; then
-    log "session for issue #$issue failed: usage/quota appears filled (on-usage-filled=$ON_USAGE_FILLED)"
+    log "session for #$ref failed: usage/quota appears filled (on-usage-filled=$ON_USAGE_FILLED)"
     case "$ON_USAGE_FILLED" in
       backup)
         if [[ -n "$backup" && "$backup" != "$model" ]]; then
-          log "retrying issue #$issue with backup model: $backup"
+          log "retrying #$ref with backup model: $backup"
           run_opencode "$title (backup)" "$backup" "$prompt" || return $?
           return 0
         fi
-        log "no distinct backup model configured for issue #$issue; failing"
+        log "no distinct backup model configured for #$ref; failing"
         return "$status"
         ;;
       skip)
-        log "skipping issue #$issue due to filled usage"
+        log "skipping #$ref due to filled usage"
         return 0
         ;;
       fail)
@@ -365,7 +498,7 @@ start_session() { # $1 kind (plan/build), $2 issue, $3 title, $4 model, $5 backu
     esac
   fi
 
-  log "$kind session for issue #$issue failed (exit $status)"
+  log "$kind session for #$ref failed (exit $status)"
   return "$status"
 }
 
@@ -375,6 +508,33 @@ if [[ -n "$plan_issue" && "$(has_marker "$plan_issue" "$PLAN_MARKER")" == "true"
   plan_issue=""
 fi
 
+# Build path, sub-path 1: fix open factory PRs blocked from merge.
+fix_count=0
+if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
+  while IFS=$'\t' read -r pr_number issue_number head_sha reasons marker; do
+    [[ -z "$pr_number" ]] && continue
+    [[ "$fix_count" -ge "$MAX_FIX_SESSIONS" ]] && break
+    if [[ "$(has_pr_marker "$pr_number" "$marker")" == "true" ]]; then
+      log "PR #$pr_number already attempted for head $head_sha ($reasons); skipping"
+      continue
+    fi
+    if [[ "$(has_marker "$issue_number" "$BUILD_MARKER")" == "true" ]]; then
+      log "issue #$issue_number already built; skipping fix for PR #$pr_number"
+      continue
+    fi
+    mapfile -t labels < <(issue_labels "$issue_number")
+    IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
+    if [[ "$DRY_RUN" == 1 ]]; then
+      log "dry-run: would fix PR #$pr_number (issue #$issue_number, reasons: $reasons, model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
+      fix_count=$((fix_count + 1))
+    else
+      start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"
+      fix_count=$((fix_count + 1))
+    fi
+  done < <(fix_pr_candidates)
+fi
+
+# Build path, sub-path 2: build a new approved issue (no open factory PR).
 build_issue=""
 while IFS= read -r candidate; do
   [[ -z "$candidate" ]] && continue
@@ -382,11 +542,15 @@ while IFS= read -r candidate; do
     log "issue #$candidate already built (marker present); skipping"
     continue
   fi
+  if [[ -n "$(open_factory_pr_for_issue "$candidate")" ]]; then
+    log "issue #$candidate has an open factory PR; skipping new build"
+    continue
+  fi
   build_issue="$candidate"
   break
 done < <(approved_build_candidates)
 
-if [[ -z "$plan_issue" && -z "$build_issue" ]]; then
+if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
   log "nothing to do"
   exit 0
 fi
