@@ -27,11 +27,11 @@ type Deps struct {
 	BookingService   *booking.BookingService
 	BroadcastService *broadcast.BroadcastService
 
-	ICal             *ical.Service
-	ICalService      *ical.Service
+	ICal                 *ical.Service
+	ICalService          *ical.Service
 	CalendarTokenService *ical.Service
-	CalendarTokens   *ical.CalendarTokenProjection
-	Bookings         *booking.BookingsProjection
+	CalendarTokens       *ical.CalendarTokenProjection
+	Bookings             *booking.BookingsProjection
 }
 
 // NewMux builds the HTTP router.

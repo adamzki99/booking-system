@@ -418,7 +418,30 @@ conflict):
 2. Create a branch named factory/issue-$1 and implement the issue. Follow
    AGENTS.md; add tests where the project has tests. Keep the change minimal.
 3. Push the branch, open a pull request whose body follows the \`pr\` skill and
-   includes \`Closes #$1\`, merge it (squash), and delete the branch.
+   includes \`Closes #$1\`. Capture the PR number.
+3a. Put yourself in an agent loop that watches the PR with a bash command
+   until the actions and security scan results have come in. Example:
+
+   PR=<number>
+   while :; do
+     out="$(gh pr checks "$PR" 2>&1 || true)"
+     printf '%s\n' "$out"
+     if printf '%s\n' "$out" | grep -Eiq 'pending|in_progress|queued|waiting|running'; then
+       sleep 30
+       continue
+     fi
+     break
+   done
+
+   Only after this loop exits (all checks finished) evaluate the results.
+3b. Wait for ALL required checks and security analyses to complete and pass
+   (Backend CI: format/vet/test/build, Docker build; Security: govulncheck,
+   secret scan; Semgrep). Run the relevant local checks yourself first
+   (\`gofmt -l .\`, \`go vet ./...\`, \`go test ./...\`, \`go build ./cmd/server\`
+   for backend). Do NOT merge until every check is green and no security
+   finding is outstanding; if any fail, fix them and re-push.
+3b. Only once checks/security are green and the PR is mergeable with no
+   requested changes, merge it (squash) and delete the branch.
 4. Post one comment on the issue summarizing what was merged. The comment
    body must start with this exact marker line:
 
@@ -442,8 +465,26 @@ changes; conflicts = merge conflicts / not mergeable.)
 3. If checks failed, reproduce/fix the failures and ensure relevant tests and
    checks pass. If changes were requested, address the review comments. If
    there are merge conflicts, resolve them against the base branch.
-4. Push fixes to the PR branch. If the PR is now mergeable and checks/reviews
-   allow, merge it (squash) and delete the branch.
+4. Push fixes to the PR branch. Re-run/verify the failing checks locally.
+   Put yourself in an agent loop that watches PR #$1 with a bash command
+   until the actions and security scan results have come in:
+
+   PR=$1
+   while :; do
+     out="$(gh pr checks "$PR" 2>&1 || true)"
+     printf '%s\n' "$out"
+     if printf '%s\n' "$out" | grep -Eiq 'pending|in_progress|queued|waiting|running'; then
+       sleep 30
+       continue
+     fi
+     break
+   done
+
+   Only after this loop exits evaluate the results, and wait for ALL required
+   checks and security analyses to complete and pass
+   (Backend CI, Security, Semgrep). Do NOT merge until every check is green,
+   security analysis is clean, the PR is mergeable, and there are no requested
+   changes. Only then merge it (squash) and delete the branch.
 5. Post one comment on PR #$1 summarizing what you fixed and the merge/result
    status. The comment body must start with this exact marker line (required
    for factory idempotency):

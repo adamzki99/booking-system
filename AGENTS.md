@@ -33,6 +33,10 @@ homeowner association. See `README.md` for the stack and
   is **stateless** — functions in, results out, called via REST by the backend.
 - **No deletes:** not even super users may delete data from the system
   (cancellations are events, not deletions).
+- **CI/security gate:** never merge a pull request (manually or via the
+  factory) until all required CI checks and security analyses (Backend CI,
+  Security, Semgrep) pass and findings are addressed. A PR with failing or
+  pending checks must not be merged.
 
 ## Conventions
 
