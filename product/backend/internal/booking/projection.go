@@ -101,6 +101,27 @@ func (p *BookingsProjection) GetByID(ctx context.Context, id string) (Booking, e
 	return b, nil
 }
 
+// ListByUser returns all bookings for a user, ordered by start.
+func (p *BookingsProjection) ListByUser(ctx context.Context, userID string) ([]Booking, error) {
+	rows, err := p.pool.Query(ctx, bookingColumns+` WHERE user_id = $1 ORDER BY start, id`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("booking projection: list by user: %w", err)
+	}
+	defer rows.Close()
+	out := []Booking{}
+	for rows.Next() {
+		b, err := scanBooking(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("booking projection: rows: %w", err)
+	}
+	return out, nil
+}
+
 // List returns active bookings overlapping the optional [from, to) range,
 // ordered by start.
 func (p *BookingsProjection) List(ctx context.Context, from, to *time.Time) ([]Booking, error) {

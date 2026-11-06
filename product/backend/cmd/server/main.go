@@ -16,6 +16,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
 	"github.com/adamzki99/booking-system/product/backend/internal/email"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/ical"
 	"github.com/adamzki99/booking-system/product/backend/internal/ratelimit"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 	"github.com/adamzki99/booking-system/product/backend/internal/sample"
@@ -60,6 +61,7 @@ func main() {
 		booking.RegisterNotify(app, mailer, userProjections, bookings, logger)
 		broadcast.Register(app, userProjections)
 		broadcast.RegisterNotify(app, mailer, userProjections, logger)
+		icalProjections := ical.Register(app)
 		if err := app.Projections.CatchUp(context.Background()); err != nil {
 			pool.Close()
 			logger.Error("catch up projections", "err", err)
@@ -69,6 +71,7 @@ func main() {
 		userService := user.NewService(app.Commands, userProjections)
 		bookingService := booking.NewService(app.Commands, bookings, userProjections, blocked)
 		broadcastService := broadcast.NewService(app.Commands, userProjections)
+		icalService := ical.NewService(app.Commands, icalProjections)
 		authService := auth.NewService(app.Commands, mailer, ratelimit.NewLimiter())
 		authService.BootstrapAdmin = func(ctx context.Context, email string) error {
 			return userService.BootstrapAdmin(ctx, email)
@@ -78,6 +81,11 @@ func main() {
 		deps.UserService = userService
 		deps.BookingService = bookingService
 		deps.BroadcastService = broadcastService
+		deps.ICal = icalService
+		deps.ICalService = icalService
+		deps.CalendarTokenService = icalService
+		deps.CalendarTokens = icalProjections
+		deps.Bookings = bookings
 		logger.Info("event store and projections ready")
 	}
 

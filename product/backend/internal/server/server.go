@@ -15,6 +15,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/booking"
 	"github.com/adamzki99/booking-system/product/backend/internal/broadcast"
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
+	"github.com/adamzki99/booking-system/product/backend/internal/ical"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
@@ -25,6 +26,12 @@ type Deps struct {
 	UserService      *user.UserService
 	BookingService   *booking.BookingService
 	BroadcastService *broadcast.BroadcastService
+
+	ICal             *ical.Service
+	ICalService      *ical.Service
+	CalendarTokenService *ical.Service
+	CalendarTokens   *ical.CalendarTokenProjection
+	Bookings         *booking.BookingsProjection
 }
 
 // NewMux builds the HTTP router.
@@ -52,6 +59,12 @@ func NewMux(deps Deps) *http.ServeMux {
 
 	// Broadcast endpoint (super users only; requires a valid session).
 	mux.Handle("POST /broadcast", protect(deps.Middleware, broadcast.HandleBroadcast(deps.BroadcastService)))
+
+	// iCal feed (unauthenticated; token is the credential).
+	mux.HandleFunc("GET /calendar/", ical.HandleFeed(deps.CalendarTokens, deps.Bookings))
+
+	// Regenerate calendar token (authenticated).
+	mux.Handle("POST /account/calendar-token", protect(deps.Middleware, ical.HandleRegenerateToken(icalServiceFromDeps(deps), deps.UserService)))
 	return mux
 }
 
@@ -65,6 +78,16 @@ func New(cfg config.Config, logger *slog.Logger, deps Deps) *http.Server {
 		IdleTimeout:  60 * time.Second,
 		ErrorLog:     slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
+}
+
+func icalServiceFromDeps(deps Deps) *ical.Service {
+	if deps.ICalService != nil {
+		return deps.ICalService
+	}
+	if deps.ICal != nil {
+		return deps.ICal
+	}
+	return deps.CalendarTokenService
 }
 
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
