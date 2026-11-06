@@ -7,4 +7,18 @@
 # This file holds repo-specific overrides only. Keep it minimal; the platform
 # is the source of truth for which rules run and how findings gate PRs.
 
+paths:
+  exclude:
+    - .opencode/skills/**
+    - '**/node_modules/**'
+    - '**/dist/**'
+    - '**/build/**'
+    - '**/coverage/**'
+    - '**/vendor/**'
+    - '**/*.min.js'
+    - '**/*.min.css'
+    - '**/generated/**'
+    - '**/*.gen.go'
+    - '**/*_generated.go'
+
 rules: []
