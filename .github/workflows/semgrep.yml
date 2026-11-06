@@ -1,0 +1,37 @@
+name: Semgrep
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - 'release/**'
+  push:
+    branches:
+      - main
+      - master
+      - 'release/**'
+    paths:
+      - '.github/workflows/semgrep.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * *' # daily full scan (randomized time)
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: semgrep/ci
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: semgrep ci
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}

@@ -24,9 +24,18 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 
 **Code scanning:** Semgrep checks already run on the development server for merges into `main`/release branches (see `dev-ops/README.md`). GitHub CodeQL or a Semgrep GitHub Action can be added later if you want results directly in PR checks; keep the chosen approach documented here.
 
+## `semgrep.yml`
+
+**Triggers:** `pull_request` to `main`/`master`/`release/**`, `push` to `main`/`master`/`release/**` (workflow file only), `workflow_dispatch`, and a daily `schedule` (randomized time).
+
+**Jobs:**
+- **Semgrep** (`semgrep/ci`): runs `semgrep ci` in the `semgrep/semgrep` container; diff-aware on PRs. Requires the `SEMGREP_APP_TOKEN` repository secret. Skips `dependabot[bot]`.
+
+**Notes:** Rule selection and remediation policies (Block / Comment / Monitor) are managed in the Semgrep AppSec Platform; `.semgrep.yml` holds repo-specific overrides only. Once a successful run exists, wire `semgrep/ci` as a required status check on `main` branch protection.
+
 ## Required secrets
 
-No workflow-specific repository secrets are required for the current CI/security checks. Future deployment or image-publish workflows will need secrets (registry credentials, SSH/runner access, database/application configuration) — document them here when added.
+`SEMGREP_APP_TOKEN` (repository secret) is required by `.github/workflows/semgrep.yml` for `semgrep ci` to report to the Semgrep AppSec Platform. No other workflow-specific repository secrets are required for the current CI/security checks. Future deployment or image-publish workflows will need secrets (registry credentials, SSH/runner access, database/application configuration) — document them here when added.
 
 ### Secret handling policy
 
