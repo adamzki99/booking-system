@@ -7,9 +7,10 @@ import (
 
 // Config holds runtime configuration populated from environment variables.
 type Config struct {
-	Port        int
-	DatabaseURL string
-	SidecarURL  string
+	Port         int
+	DatabaseURL  string
+	SidecarURL   string
+	PublicBaseURL string
 
 	EmailMode    string
 	SMTPHost     string
@@ -38,9 +39,10 @@ func Load() Config {
 		emailMode = "log"
 	}
 	return Config{
-		Port:        port,
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		SidecarURL:  os.Getenv("SIDECAR_URL"),
+		Port:         port,
+		DatabaseURL:  os.Getenv("DATABASE_URL"),
+		SidecarURL:   os.Getenv("SIDECAR_URL"),
+		PublicBaseURL: os.Getenv("PUBLIC_BASE_URL"),
 
 		EmailMode:    emailMode,
 		SMTPHost:     os.Getenv("SMTP_HOST"),
