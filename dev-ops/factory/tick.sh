@@ -423,17 +423,9 @@ conflict):
    until the actions and security scan results have come in. Example:
 
    PR=<number>
-   while :; do
-     out="$(gh pr checks "$PR" 2>&1 || true)"
-     printf '%s\n' "$out"
-     if printf '%s\n' "$out" | grep -Eiq 'pending|in_progress|queued|waiting|running'; then
-       sleep 30
-       continue
-     fi
-     break
-   done
+   gh pr checks "$PR" --watch
 
-   Only after this loop exits (all checks finished) evaluate the results.
+   Only after this command exits (all checks finished) evaluate the results.
 3b. Wait for ALL required checks and security analyses to complete and pass
    (Backend CI: format/vet/test/build, Docker build; Security: govulncheck,
    secret scan; Semgrep). Run the relevant local checks yourself first
@@ -470,17 +462,9 @@ changes; conflicts = merge conflicts / not mergeable.)
    until the actions and security scan results have come in:
 
    PR=$1
-   while :; do
-     out="$(gh pr checks "$PR" 2>&1 || true)"
-     printf '%s\n' "$out"
-     if printf '%s\n' "$out" | grep -Eiq 'pending|in_progress|queued|waiting|running'; then
-       sleep 30
-       continue
-     fi
-     break
-   done
+   gh pr checks "$PR" --watch
 
-   Only after this loop exits evaluate the results, and wait for ALL required
+   Only after this command exits evaluate the results, and wait for ALL required
    checks and security analyses to complete and pass
    (Backend CI, Security, Semgrep). Do NOT merge until every check is green,
    security analysis is clean, the PR is mergeable, and there are no requested
@@ -511,23 +495,33 @@ normalize_model() { # $1 model id (may be empty)
   printf '%s' "$m"
 }
 
-run_opencode() { # $1 title, $2 model (empty = opencode default), $3 prompt
+run_opencode() { # $1 title, $2 model (empty = opencode default), $3 agent (empty = default), $4 prompt
   local model
   model="$(normalize_model "$2")"
   local args=(run --auto --title "$1")
   [[ -n "$model" ]] && args+=(--model "$model")
-  args+=("$3")
+  [[ -n "$3" ]] && args+=(--agent "$3")
+  args+=("$4")
   opencode "${args[@]}"
 }
 
 start_session() { # $1 kind (plan/build/fix), $2 ref (issue or PR), $3 title, $4 model, $5 backup_model, $6 prompt
   local kind="$1" ref="$2" title="$3" model="$4" backup="$5" prompt="$6"
+  local agent=""
+  case "$kind" in
+    plan) agent="planner" ;;
+    build) agent="builder" ;;
+    fix) agent="fixer" ;;
+  esac
   local out status=0
 
-  log "starting $kind session for #$ref (model: ${model:-opencode default})"
+  local logfile="/tmp/opencode/factory-${kind}-${ref}.log"
+  mkdir -p /tmp/opencode
+  : > "$logfile"
+  log "starting $kind session for #$ref (model: ${model:-opencode default}, agent: ${agent:-default})"
   set +e
-  out="$(run_opencode "$title" "$model" "$prompt" 2>&1)"
-  status=$?
+  out="$(run_opencode "$title" "$model" "$agent" "$prompt" 2>&1 | tee "$logfile")"
+  status=${PIPESTATUS[0]}
   set -e
   if [[ $status -eq 0 ]]; then
     printf '%s\n' "$out"
@@ -544,8 +538,8 @@ start_session() { # $1 kind (plan/build/fix), $2 ref (issue or PR), $3 title, $4
           local bout bstatus=0
           log "retrying #$ref with backup model: $backup"
           set +e
-          bout="$(run_opencode "$title (backup)" "$backup" "$prompt" 2>&1)"
-          bstatus=$?
+          bout="$(run_opencode "$title (backup)" "$backup" "$agent" "$prompt" 2>&1 | tee -a "$logfile")"
+          bstatus=${PIPESTATUS[0]}
           set -e
           printf '%s\n' "$bout" >&2
           if [[ $bstatus -eq 0 ]]; then
@@ -562,7 +556,7 @@ start_session() { # $1 kind (plan/build/fix), $2 ref (issue or PR), $3 title, $4
         # model/backup we just attempted.
         if [[ "$model" != "$FREE_MODEL" && "$backup" != "$FREE_MODEL" ]]; then
           log "retrying #$ref with free model: $FREE_MODEL"
-          run_opencode "$title (free)" "$FREE_MODEL" "$prompt" || return $?
+          run_opencode "$title (free)" "$FREE_MODEL" "$agent" "$prompt" 2>&1 | tee -a "$logfile" || return $?
           return 0
         fi
         log "no distinct free model configured for #$ref; failing"
@@ -590,6 +584,7 @@ fi
 
 # Build path, sub-path 1: fix open factory PRs blocked from merge.
 fix_count=0
+fix_pids=()
 if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
   while IFS=$'\t' read -r pr_number issue_number head_sha reasons marker; do
     [[ -z "$pr_number" ]] && continue
@@ -608,10 +603,16 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       log "dry-run: would fix PR #$pr_number (issue #$issue_number, reasons: $reasons, model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
       fix_count=$((fix_count + 1))
     else
-      start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"
+      start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")" &
+      fix_pids+=($!)
       fix_count=$((fix_count + 1))
     fi
   done < <(fix_pr_candidates)
+  if [[ ${#fix_pids[@]} -gt 0 ]]; then
+    for pid in "${fix_pids[@]}"; do
+      wait "$pid" || true
+    done
+  fi
 fi
 
 # Build path, sub-path 2: build a new approved issue (no open factory PR).
