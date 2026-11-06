@@ -33,6 +33,8 @@ services:
 
   sidecar:
     build: ./sidecar
+    environment:
+      PORT: "8081"
     # Stateless sauna-specific functions, exposed via REST to the backend.
 
   postgres:
