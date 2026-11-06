@@ -12,15 +12,17 @@ import (
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/auth"
+	"github.com/adamzki99/booking-system/product/backend/internal/booking"
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
 // Deps holds the dependencies required by the HTTP server.
 type Deps struct {
-	Auth        *auth.AuthService
-	Middleware  *auth.SessionMiddleware
-	UserService *user.UserService
+	Auth           *auth.AuthService
+	Middleware     *auth.SessionMiddleware
+	UserService    *user.UserService
+	BookingService *booking.BookingService
 }
 
 // NewMux builds the HTTP router.
@@ -38,6 +40,11 @@ func NewMux(deps Deps) *http.ServeMux {
 	mux.Handle("POST /users/{id}/remove", protect(deps.Middleware, user.HandleRemoveUser(deps.UserService)))
 	mux.Handle("PATCH /users/me/email", protect(deps.Middleware, user.HandleChangeOwnEmail(deps.UserService)))
 	mux.Handle("PATCH /users/{id}/address", protect(deps.Middleware, user.HandleChangeUserAddress(deps.UserService)))
+
+	// Booking endpoints (all require a valid session).
+	mux.Handle("GET /bookings", protect(deps.Middleware, booking.HandleListBookings(deps.BookingService)))
+	mux.Handle("POST /bookings", protect(deps.Middleware, booking.HandleCreateBooking(deps.BookingService)))
+	mux.Handle("POST /bookings/{id}/cancel", protect(deps.Middleware, booking.HandleCancelOwnBooking(deps.BookingService)))
 	return mux
 }
 
