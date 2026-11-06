@@ -1,0 +1,10 @@
+# Semgrep ruleset configuration
+#
+# Rule selection, severity gating (Block / Comment / Monitor), and remediation
+# policies are managed in the Semgrep AppSec Platform for this repository:
+#   https://semgrep.dev/orgs (Settings -> Policies)
+#
+# This file holds repo-specific overrides only. Keep it minimal; the platform
+# is the source of truth for which rules run and how findings gate PRs.
+
+rules: []

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+coverage/
+vendor/
+*.min.js
+*.min.css
+**/generated/**
+**/*.gen.go
+**/*_generated.go
+.opencode/skills/
