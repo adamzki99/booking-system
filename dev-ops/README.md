@@ -20,8 +20,26 @@ on a 1-hour interval and picks up GitHub issues and pull requests:
 
 The system owner steers the project purely by interacting with GitHub issues.
 
-Deployment to the development environment happens at **12 am and 12 pm** daily,
-leaving ~12 h for Playwright testing on the development environment.
+Deployment of `main` to the **QA environment** happens at **12 am and 12 pm**
+daily (host local time), leaving ~12 h for Playwright testing on QA.
+
+## Scheduled deployment (QA)
+
+The dev machine runs a cron entry that deploys `main` to QA twice daily:
+
+```cron
+0 0,12 * * * /path/to/repo/dev-ops/scripts/deploy-environment.sh qa >> /var/log/booking-qa-deploy.log 2>&1
+```
+
+- Cron uses the host's local time; 12 am / 12 pm are local time. If the host is
+  UTC, set `CRON_TZ=<owner timezone>` (e.g. `Europe/Stockholm`) in the crontab.
+- The `flock` in the script makes manual re-runs safe.
+- Logs: `/var/log/booking-qa-deploy.log`.
+- Manual deploy: `dev-ops/scripts/deploy-environment.sh qa`
+- Dry run: `dev-ops/scripts/deploy-environment.sh qa --dry-run`
+- A failed deployment keeps/creates a GitHub issue titled `QA deployment
+  failed` (labels `bug`, `dev-ops`) with the failing log tail; the next
+  successful deploy comments `Recovered in <sha>` and closes it.
 
 ## Branches and environments
 
