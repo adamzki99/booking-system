@@ -17,6 +17,8 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
 	"github.com/adamzki99/booking-system/product/backend/internal/ical"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Deps holds the dependencies required by the HTTP server.
@@ -72,7 +74,7 @@ func NewMux(deps Deps) *http.ServeMux {
 func New(cfg config.Config, logger *slog.Logger, deps Deps) *http.Server {
 	return &http.Server{
 		Addr:         ":" + strconv.Itoa(cfg.Port),
-		Handler:      NewMux(deps),
+		Handler:      otelhttp.NewHandler(NewMux(deps), "http"),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

@@ -53,6 +53,16 @@ The system owner only. Capabilities are a superset of the super user's.
     to the user that made the booking.
 12. The user reads the email with the notice of the cancelled booking.
 
+
+## SigNoz / telemetry
+
+The backend exports traces and metrics via OTLP/HTTP. SigNoz (APM) is run
+separately from this compose stack. Configure the collector endpoint with the
+`OTEL_EXPORTER_OTLP_ENDPOINT` environment variable (SigNoz collector listens
+on port 4318 for OTLP/HTTP). Set `OTEL_SERVICE_NAME` to override the service
+name (defaults to `booking-backend`). Leaving `OTEL_EXPORTER_OTLP_ENDPOINT`
+unset disables export; the backend logs a warning and runs with no-op providers.
+
 ## Sidecar
 
 `sidecar/` holds the sauna-specific components, kept out of the generic product.

@@ -7,6 +7,11 @@ import (
 	"fmt"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ErrUnknownCommand indicates that no handler is registered for a command type.
@@ -35,6 +40,7 @@ type Service struct {
 	store     Store
 	publisher Publisher
 	handlers  map[string]Handler
+	tracer    trace.Tracer
 }
 
 // NewService creates a command service.
@@ -43,6 +49,7 @@ func NewService(store Store, publisher Publisher) *Service {
 		store:     store,
 		publisher: publisher,
 		handlers:  make(map[string]Handler),
+		tracer:    otel.Tracer("command"),
 	}
 }
 
@@ -53,17 +60,32 @@ func (s *Service) Register(commandType string, handler Handler) {
 
 // Execute dispatches a command to its registered handler.
 func (s *Service) Execute(ctx context.Context, cmd Command) error {
+	ctx, span := s.tracer.Start(ctx, "command.execute", trace.WithAttributes(attribute.String("command.type", cmd.CommandType())))
+	defer span.End()
+
 	handler, ok := s.handlers[cmd.CommandType()]
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrUnknownCommand, cmd.CommandType())
+		err := fmt.Errorf("%w: %s", ErrUnknownCommand, cmd.CommandType())
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 	events, err := handler(ctx, cmd)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	recorded, err := s.store.Append(ctx, events...)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
-	return s.publisher.Publish(ctx, recorded)
+	if err := s.publisher.Publish(ctx, recorded); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	return nil
 }

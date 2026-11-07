@@ -8,6 +8,11 @@ import (
 	"sync"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Projection is a named read model built from events.
@@ -130,8 +135,12 @@ func (r *Runner) handleLocked(ctx context.Context, events []eventstore.Event) er
 }
 
 func (r *Runner) applyLocked(ctx context.Context, name string, projection Projection, events []eventstore.Event) error {
+	ctx, span := otel.Tracer("projection").Start(ctx, "projection.apply", trace.WithAttributes(attribute.String("projection.name", name), attribute.Int("event.count", len(events))))
+	defer span.End()
 	checkpoint, err := r.checkpoints.Get(ctx, name)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("projection %s: get checkpoint: %w", name, err)
 	}
 	for _, event := range events {
@@ -139,9 +148,13 @@ func (r *Runner) applyLocked(ctx context.Context, name string, projection Projec
 			continue
 		}
 		if err := projection.Apply(ctx, event); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return fmt.Errorf("projection %s: apply event %d: %w", name, event.ID, err)
 		}
 		if err := r.checkpoints.Set(ctx, name, event.ID); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return fmt.Errorf("projection %s: set checkpoint %d: %w", name, event.ID, err)
 		}
 		checkpoint = event.ID
