@@ -8,7 +8,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 REPO_URL="${REPO_URL:-https://github.com/adamzki99/booking-system.git}"
-INSTALL_DIR="${INSTALL_DIR:-/opt/booking-system}"
+INSTALL_DIR="${DEPLOY_DIR:-${INSTALL_DIR:-/opt/booking-system}}"
 
 # Install git if missing.
 if ! command -v git >/dev/null 2>&1; then

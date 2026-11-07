@@ -5,6 +5,10 @@ environments:
   qa:
     branch: main
     port: 8080
+    # The following are written by dev-ops/scripts/deploy-environment.sh:
+    last_deploy: null
+    last_deploy_commit: null
+    last_deploy_status: null
   # Candidate environments for release branches are added here, e.g.:
   # release-1-0:
   #   branch: release/1.0
