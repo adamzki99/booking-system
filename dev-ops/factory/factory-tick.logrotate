@@ -1,0 +1,11 @@
+# Install under /etc/logrotate.d/ (or user logrotate) for factory tick logs.
+# filelog tolerates copytruncate rotation.
+
+/home/*/.local/state/factory/tick.jsonl {
+    size 10M
+    rotate 5
+    copytruncate
+    missingok
+    notifempty
+    compress
+}
