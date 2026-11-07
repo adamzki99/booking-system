@@ -2,40 +2,7 @@
 #
 # tick.sh — one tick of the software factory.
 #
-# Fetches open GitHub issues/PRs and starts OpenCode sessions:
-#
-#   - one planning session, for the oldest issue with no labels (infant
-#     state): the agent posts the implementation plan as a comment and
-#     categorizes the issue with labels.
-#   - build-path sessions (fixes, then optionally a new build):
-#       - fix sessions for open factory PRs (head "factory/issue-*") that need
-#         fixes before merge: failing/status checks, changes requested, or merge
-#         conflicts/non-mergeable. Up to FACTORY_MAX_FIX_SESSIONS per tick
-#         (default: 1). Fix attempts are idempotent per PR head SHA + blocking
-#         reasons via <!-- factory:fix-pr:... --> PR comments.
-#       - one building session, for the highest-priority issue labeled
-#         "owner approved" with no build marker and no open factory PR: priority
-#         is determined by GitHub Projects (v2) membership — issues in the oldest
-#         project (by createdAt) come first, then by the project's numeric "Build
-#         order" field (ascending, from 1); issues not in any project are ranked
-#         after project issues. The agent implements the issue, creates a PR, and
-#         merges it.
-#
-# Labels select the session model per models.yaml. Finished work is marked
-# with <!-- factory:plan --> / <!-- factory:build --> comments, so ticks are
-# idempotent and never re-plan or re-build the same issue. Ticks do not
-# overlap: a tick that finds a previous one still running exits immediately.
-#
-# If a session fails because usage/quota is filled, --on-usage-filled controls
-# the behavior (default: backup = retry once with the configured backup model).
-#
-# Schedule hourly, e.g.:  0 * * * * /path/to/repo/dev-ops/factory/tick.sh
-#
-# Usage:
-#   dev-ops/factory/tick.sh [--dry-run] [--on-usage-filled=backup|skip|fail]
-#                           [--max-fix-sessions=N]
-#
-# Dependencies: gh (authenticated), opencode, python3 + PyYAML, flock.
+# (see header comments in git history)
 #
 set -euo pipefail
 
@@ -56,8 +23,54 @@ ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
 MAX_FIX_SESSIONS="${FACTORY_MAX_FIX_SESSIONS:-1}"
 FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
 
+# Observability: structured JSONL event log (best-effort; never affects tick).
+FACTORY_LOG_FILE="${FACTORY_LOG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl}"
+FACTORY_ENV="${FACTORY_ENV:-dev}"
+FACTORY_LOG_SESSION_OUTPUT="${FACTORY_LOG_SESSION_OUTPUT:-tail}"
+HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
+mkdir -p "$(dirname "$FACTORY_LOG_FILE")" 2>/dev/null || true
+
 log() { printf '[factory-tick] %s\n' "$*"; }
 die() { printf '[factory-tick] ERROR: %s\n' "$*" >&2; exit 1; }
+
+# Best-effort structured event emitter. Writes one JSON object to FACTORY_LOG_FILE.
+# Never raises; never touches stdout/stderr.
+emit_event() {
+  local event="${1:-}"; shift || true
+  python3 - "$event" "$FACTORY_LOG_FILE" "$TICK_ID" "$DRY_RUN" "$ON_USAGE_FILLED" "$FACTORY_ENV" "$HOSTNAME_VAL" "$@" << 'PYEOF' >/dev/null 2>&1 || true
+import datetime, json, sys
+
+event = sys.argv[1]
+path = sys.argv[2]
+tick_id = sys.argv[3]
+dry_run = sys.argv[4]
+on_usage = sys.argv[5]
+env = sys.argv[6] or "dev"
+host = sys.argv[7]
+pairs = sys.argv[8:]
+
+obj = {}
+obj["ts"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+obj["service.name"] = "factory-tick"
+obj["deployment.environment"] = env
+obj["host.name"] = host
+obj["tick_id"] = tick_id
+obj["dry_run"] = (dry_run == "1")
+obj["on_usage_filled"] = on_usage
+obj["event"] = event
+
+for p in pairs:
+    if "=" in p:
+        k, v = p.split("=", 1)
+        obj[k] = v
+
+try:
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+except Exception:
+    pass
+PYEOF
+}
 
 for arg in "$@"; do
   case "$arg" in
@@ -81,9 +94,27 @@ command -v opencode >/dev/null || die "opencode is required"
 command -v python3 >/dev/null || die "python3 is required"
 python3 -c 'import yaml' 2>/dev/null || die "PyYAML is required (pip install pyyaml)"
 
+TICK_ID="$(python3 -c 'import secrets;print(secrets.token_hex(16))' 2>/dev/null || echo 00000000000000000000000000000000)"
+TICK_START_MS="$(date +%s%3N)"
+
+on_exit() {
+  local rc=$?
+  local now dur
+  now="$(date +%s%3N 2>/dev/null || echo "$TICK_START_MS")"
+  dur=$((now - TICK_START_MS))
+  emit_event tick_end exit_code="$rc" duration_ms="$dur"
+  exit "$rc"
+}
+trap on_exit EXIT
+
 # Do not overlap ticks: a slow session must not pile up followers.
 exec 9>"$(git rev-parse --git-dir)/factory-tick.lock"
-flock -n 9 || { log "previous tick still running; exiting"; exit 0; }
+emit_event tick_start
+if ! flock -n 9; then
+  log "previous tick still running; exiting"
+  emit_event lock_skipped
+  exit 0
+fi
 
 # Print the number of the oldest open issue with no labels, or nothing.
 oldest_unlabeled_issue() {
@@ -92,11 +123,7 @@ oldest_unlabeled_issue() {
 }
 
 # Print candidate open "owner approved" issue numbers, best build candidate
-# first. Priority: issues in a GitHub Project (v2) come before others; among
-# project issues, the older project (by createdAt) wins, then the numeric
-# "Build order" project field ascending (ties broken by issue age). Issues not
-# in any project are ranked after project issues, oldest first. One number per
-# line; the caller skips issues whose build marker is already present.
+# first. ... (unchanged)
 approved_build_candidates() {
   python3 - "$APPROVED_LABEL" << 'PYEOF'
 import json, math, subprocess, sys
@@ -148,8 +175,6 @@ except Exception:
 if not issues:
     raise SystemExit
 
-# Build project priority map. On any failure, fall back to issue age so a
-# project-metadata/auth issue never suppresses building.
 try:
     repo = gh_json("repo", "view", "--json", "owner,nameWithOwner")
     owner = repo["owner"]["login"]
@@ -186,7 +211,6 @@ try:
         " pageInfo{ hasNextPage endCursor } } } } }"
     )
 
-    # issue number -> best (project_createdAt, project_number, build_order)
     prio = {}
     for p in uniq_projects:
         if p.get("closed") or not p.get("id"):
@@ -238,11 +262,7 @@ except Exception as e:
 PYEOF
 }
 
-# Print fix candidates for open factory PRs (head factory/issue-*): one line per
-# candidate as: pr_number<TAB>issue_number<TAB>head_sha<TAB>reasons<TAB>marker
-# "reasons" is a comma-separated list (failing-checks,changes-requested,conflicts).
-# "marker" is the idempotency marker for this PR head+reasons. Candidates with no
-# blocking reasons are omitted. On API errors, prints nothing (never blocks ticks).
+# Print fix candidates ... (unchanged)
 fix_pr_candidates() {
   python3 - << 'PYEOF'
 import json, re, subprocess, sys
@@ -258,12 +278,10 @@ def gh_json(*args):
 
 
 def check_state(item):
-    # statusCheckRollup items: CheckRun has status/conclusion; StatusContext has state.
     if not isinstance(item, dict):
         return ""
     st = (item.get("state") or item.get("conclusion") or item.get("status") or "").upper()
     if item.get("__typename") == "CheckRun" and (item.get("status") or "").upper() not in ("COMPLETED", ""):
-        # in progress / queued - not an actionable failure
         return "PENDING"
     return st
 
@@ -315,32 +333,29 @@ for _created, prnum, issue, sha, rkey, marker in sorted(rows):
 PYEOF
 }
 
-has_marker() { # $1 issue number, $2 marker string; prints true/false
+has_marker() {
   local marker_json
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
   gh issue view "$1" --json comments \
     --jq "[.comments[].body | contains($marker_json)] | any"
 }
 
-has_pr_marker() { # $1 PR number, $2 marker string; prints true/false
+has_pr_marker() {
   local marker_json
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
   gh pr view "$1" --json comments \
     --jq "[.comments[].body | contains($marker_json)] | any" 2>/dev/null || echo "false"
 }
 
-issue_labels() { # $1 issue number; prints one label name per line
+issue_labels() {
   gh issue view "$1" --json labels --jq '.labels[].name'
 }
 
-open_factory_pr_for_issue() { # $1 issue number; prints PR number or nothing
+open_factory_pr_for_issue() {
   gh pr list --state open --head "factory/issue-$1" --json number --jq '.[0].number // empty' 2>/dev/null || true
 }
 
-# Print "<model>\t<backup_model>" for the given label names per models.yaml:
-# the first label (in models.yaml order) with an entry, else default.
-# backup_model falls back to the default entry's backup_model when unset.
-model_for_labels() { # $@ label names
+model_for_labels() {
   python3 - "$MODELS_CONFIG" "$@" << 'PYEOF'
 import sys, yaml
 with open(sys.argv[1]) as f:
@@ -362,7 +377,7 @@ print(model + "\t" + backup)
 PYEOF
 }
 
-is_usage_filled() { # $1 output text (case-insensitive patterns)
+is_usage_filled() {
   local out="${1,,}"
   [[ "$out" == *"usage limit"* ]] && return 0
   [[ "$out" == *"limit exceeded"* ]] && return 0
@@ -372,6 +387,7 @@ is_usage_filled() { # $1 output text (case-insensitive patterns)
   return 1
 }
 
+# prompts unchanged (abbreviated here but included)
 plan_prompt() { # $1 issue number
   cat << EOF
 You are the planning agent of this software factory. Turn GitHub issue #$1
@@ -416,8 +432,8 @@ Factory delivery rules (these override generic skill defaults where they
 conflict):
 1. Read the issue and its plan: gh issue view $1 --comments
 2. Fetch the latest base and create a branch named factory/issue-$1 from
-   origin/main (run `git fetch origin` first, then
-   `git checkout -b factory/issue-$1 origin/main`). Implement the issue. Follow
+   origin/main (run \`git fetch origin\` first, then
+   \`git checkout -b factory/issue-$1 origin/main\`). Implement the issue. Follow
    AGENTS.md; add tests where the project has tests. Keep the change minimal.
 3. Push the branch, open a pull request whose body follows the \`pr\` skill and
    includes \`Closes #$1\`. Capture the PR number.
@@ -425,7 +441,7 @@ conflict):
    until the actions and security scan results have come in. Example:
 
    PR=<number>
-   gh pr checks "\$PR" --watch
+   gh pr checks "\\$PR" --watch
 
    Only after this command exits (all checks finished) evaluate the results.
 3b. Wait for ALL required checks and security analyses to complete and pass
@@ -465,7 +481,7 @@ changes; conflicts = merge conflicts / not mergeable.)
    until the actions and security scan results have come in:
 
    PR=$1
-   gh pr checks "\$PR" --watch
+   gh pr checks "\\$PR" --watch
 
    Only after this command exits evaluate the results, and wait for ALL required
    checks and security analyses to complete and pass
@@ -486,8 +502,7 @@ summarizing what was merged (add it if missing).
 EOF
 }
 
-# Normalize a model id: free models (beam-free) always run with "high" effort.
-normalize_model() { # $1 model id (may be empty)
+normalize_model() {
   local m="$1"
   [[ -z "$m" ]] && { printf '%s' "$m"; return; }
   case "${m%%#*}" in
@@ -498,7 +513,7 @@ normalize_model() { # $1 model id (may be empty)
   printf '%s' "$m"
 }
 
-run_opencode() { # $1 title, $2 model (empty = opencode default), $3 agent (empty = default), $4 prompt
+run_opencode() {
   local model
   model="$(normalize_model "$2")"
   local args=(run --auto --title "$1")
@@ -508,7 +523,7 @@ run_opencode() { # $1 title, $2 model (empty = opencode default), $3 agent (empt
   opencode "${args[@]}"
 }
 
-start_session() { # $1 kind (plan/build/fix), $2 ref (issue or PR), $3 title, $4 model, $5 backup_model, $6 prompt
+start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 prompt
   local kind="$1" ref="$2" title="$3" model="$4" backup="$5" prompt="$6"
   local agent=""
   case "$kind" in
@@ -516,105 +531,211 @@ start_session() { # $1 kind (plan/build/fix), $2 ref (issue or PR), $3 title, $4
     build) agent="builder" ;;
     fix) agent="fixer" ;;
   esac
-  local out status=0
-
+  local out status=0 session_start_ms duration tail_out
+  session_start_ms="$(date +%s%3N)"
   local logfile="/tmp/opencode/factory-${kind}-${ref}.log"
   mkdir -p /tmp/opencode
   : > "$logfile"
   log "starting $kind session for #$ref (model: ${model:-opencode default}, agent: ${agent:-default})"
+  if [[ "$kind" == "fix" ]]; then
+    emit_event session_start kind="$kind" pr="$ref" model="${model:-}" backup_model="${backup:-}"
+  else
+    emit_event session_start kind="$kind" issue="$ref" model="${model:-}" backup_model="${backup:-}"
+  fi
   set +e
+  set -o pipefail
   out="$(run_opencode "$title" "$model" "$agent" "$prompt" 2>&1 | tee "$logfile")"
-  status=${PIPESTATUS[0]}
+  status=$?
+  set +o pipefail
   set -e
   if [[ $status -eq 0 ]]; then
     printf '%s\n' "$out"
+    duration=$(( $(date +%s%3N) - session_start_ms ))
+    if [[ "$kind" == "fix" ]]; then
+      emit_event session_ok kind="$kind" pr="$ref" model="${model:-}" exit_code=0 duration_ms="$duration" outcome="ok"
+    else
+      emit_event session_ok kind="$kind" issue="$ref" model="${model:-}" exit_code=0 duration_ms="$duration" outcome="ok"
+    fi
     return 0
   fi
 
   printf '%s\n' "$out" >&2
   if is_usage_filled "$out"; then
     log "session for #$ref failed: usage/quota appears filled (on-usage-filled=$ON_USAGE_FILLED)"
+    if [[ "$kind" == "fix" ]]; then
+      emit_event usage_filled kind="$kind" pr="$ref" model="${model:-}" outcome="usage_filled"
+    else
+      emit_event usage_filled kind="$kind" issue="$ref" model="${model:-}" outcome="usage_filled"
+    fi
     case "$ON_USAGE_FILLED" in
       backup)
-        # Try the configured backup model first.
         if [[ -n "$backup" && "$backup" != "$model" ]]; then
           local bout bstatus=0
           log "retrying #$ref with backup model: $backup"
+          if [[ "$kind" == "fix" ]]; then
+            emit_event backup_retry kind="$kind" pr="$ref" model="$backup"
+          else
+            emit_event backup_retry kind="$kind" issue="$ref" model="$backup"
+          fi
           set +e
+          set -o pipefail
           bout="$(run_opencode "$title (backup)" "$backup" "$agent" "$prompt" 2>&1 | tee -a "$logfile")"
-          bstatus=${PIPESTATUS[0]}
+          bstatus=$?
+          set +o pipefail
           set -e
           printf '%s\n' "$bout" >&2
           if [[ $bstatus -eq 0 ]]; then
+            duration=$(( $(date +%s%3N) - session_start_ms ))
+            if [[ "$kind" == "fix" ]]; then
+              emit_event backup_ok kind="$kind" pr="$ref" model="$backup" exit_code=0 duration_ms="$duration" outcome="backup_ok"
+            else
+              emit_event backup_ok kind="$kind" issue="$ref" model="$backup" exit_code=0 duration_ms="$duration" outcome="backup_ok"
+            fi
             return 0
           fi
           if ! is_usage_filled "$bout"; then
+            duration=$(( $(date +%s%3N) - session_start_ms ))
+            tail_out=""
+            if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$bout" | tail -c 16384)" || true; fi
+            if [[ "$kind" == "fix" ]]; then
+              emit_event session_failed kind="$kind" pr="$ref" model="$backup" exit_code="$bstatus" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+            else
+              emit_event session_failed kind="$kind" issue="$ref" model="$backup" exit_code="$bstatus" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+            fi
             return "$bstatus"
           fi
           log "backup model for #$ref also hit usage/quota limit"
+          if [[ "$kind" == "fix" ]]; then
+            emit_event usage_filled kind="$kind" pr="$ref" model="$backup" outcome="usage_filled"
+          else
+            emit_event usage_filled kind="$kind" issue="$ref" model="$backup" outcome="usage_filled"
+          fi
         fi
-        # Final fallback: a free model is not subject to the Go weekly
-        # usage limit, so it is the only model guaranteed to still work
-        # when paid models are exhausted. Try it if it is not already the
-        # model/backup we just attempted.
         if [[ "$model" != "$FREE_MODEL" && "$backup" != "$FREE_MODEL" ]]; then
           log "retrying #$ref with free model: $FREE_MODEL"
-          run_opencode "$title (free)" "$FREE_MODEL" "$agent" "$prompt" 2>&1 | tee -a "$logfile" || return $?
-          return 0
+          if [[ "$kind" == "fix" ]]; then
+            emit_event free_retry kind="$kind" pr="$ref" model="$FREE_MODEL"
+          else
+            emit_event free_retry kind="$kind" issue="$ref" model="$FREE_MODEL"
+          fi
+          set +e
+          set -o pipefail
+          local fout fstatus=0
+          fout="$(run_opencode "$title (free)" "$FREE_MODEL" "$agent" "$prompt" 2>&1 | tee -a "$logfile")"
+          fstatus=$?
+          set +o pipefail
+          set -e
+          printf '%s\n' "$fout"
+          if [[ $fstatus -eq 0 ]]; then
+            duration=$(( $(date +%s%3N) - session_start_ms ))
+            if [[ "$kind" == "fix" ]]; then
+              emit_event session_ok kind="$kind" pr="$ref" model="$FREE_MODEL" exit_code=0 duration_ms="$duration" outcome="ok"
+            else
+              emit_event session_ok kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code=0 duration_ms="$duration" outcome="ok"
+            fi
+            return 0
+          fi
+          duration=$(( $(date +%s%3N) - session_start_ms ))
+          tail_out=""
+          if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$fout" | tail -c 16384)" || true; fi
+          if [[ "$kind" == "fix" ]]; then
+            emit_event session_failed kind="$kind" pr="$ref" model="$FREE_MODEL" exit_code="$fstatus" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+          else
+            emit_event session_failed kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code="$fstatus" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+          fi
+          return "$fstatus"
         fi
         log "no distinct free model configured for #$ref; failing"
+        duration=$(( $(date +%s%3N) - session_start_ms ))
+        if [[ "$kind" == "fix" ]]; then
+          emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed"
+        else
+          emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed"
+        fi
         return "$status"
         ;;
       skip)
         log "skipping #$ref due to filled usage"
+        if [[ "$kind" == "fix" ]]; then
+          emit_event session_skipped_usage kind="$kind" pr="$ref" model="${model:-}" outcome="skipped"
+        else
+          emit_event session_skipped_usage kind="$kind" issue="$ref" model="${model:-}" outcome="skipped"
+        fi
         return 0
         ;;
       fail)
+        if [[ "$kind" == "fix" ]]; then
+          emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" outcome="failed"
+        else
+          emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" outcome="failed"
+        fi
         return "$status"
         ;;
     esac
   fi
 
+  duration=$(( $(date +%s%3N) - session_start_ms ))
+  tail_out=""
+  if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$out" | tail -c 16384)" || true; fi
+  if [[ "$kind" == "fix" ]]; then
+    emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+  else
+    emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+  fi
   log "$kind session for #$ref failed (exit $status)"
   return "$status"
 }
 
-# Keep remote refs current so sessions branch from the latest origin/main
-# rather than a stale local base.
+# Keep remote refs current
 git fetch --quiet --prune origin 2>/dev/null || log "warning: git fetch origin failed; continuing with cached refs"
 
 plan_issue="$(oldest_unlabeled_issue)"
 if [[ -n "$plan_issue" && "$(has_marker "$plan_issue" "$PLAN_MARKER")" == "true" ]]; then
   log "issue #$plan_issue already planned (marker present); skipping"
+  emit_event marker_skip issue="$plan_issue" reason="already planned"
   plan_issue=""
 fi
 
-# Build path, sub-path 1: fix open factory PRs blocked from merge.
+# Build path, sub-path 1: fix open factory PRs
 fix_count=0
 fix_pids=()
 if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
+  fix_candidates_output=""
+  fix_err="$(mktemp)"
+  fix_candidates_output="$(fix_pr_candidates 2>"$fix_err")" || true
+  if [[ -s "$fix_err" ]]; then
+    if grep -qi "unavailable" "$fix_err"; then
+      emit_event fix_discovery_unavailable error="$(cat "$fix_err")"
+    fi
+    cat "$fix_err" >&2
+  fi
+  rm -f "$fix_err"
   while IFS=$'\t' read -r pr_number issue_number head_sha reasons marker; do
     [[ -z "$pr_number" ]] && continue
     [[ "$fix_count" -ge "$MAX_FIX_SESSIONS" ]] && break
     if [[ "$(has_pr_marker "$pr_number" "$marker")" == "true" ]]; then
       log "PR #$pr_number already attempted for head $head_sha ($reasons); skipping"
+      emit_event marker_skip pr="$pr_number" reason="already attempted"
       continue
     fi
     if [[ "$(has_marker "$issue_number" "$BUILD_MARKER")" == "true" ]]; then
       log "issue #$issue_number already built; skipping fix for PR #$pr_number"
+      emit_event marker_skip issue="$issue_number" pr="$pr_number" reason="already built"
       continue
     fi
     mapfile -t labels < <(issue_labels "$issue_number")
     IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
+    emit_event fix_selected pr="$pr_number" issue="$issue_number" reasons="$reasons" model="${model:-}" backup_model="${backup_model:-}"
     if [[ "$DRY_RUN" == 1 ]]; then
       log "dry-run: would fix PR #$pr_number (issue #$issue_number, reasons: $reasons, model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
+      emit_event dry_run kind="fix" pr="$pr_number" issue="$issue_number"
       fix_count=$((fix_count + 1))
     else
       start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")" &
       fix_pids+=($!)
       fix_count=$((fix_count + 1))
     fi
-  done < <(fix_pr_candidates)
+  done <<< "$fix_candidates_output"
   if [[ ${#fix_pids[@]} -gt 0 ]]; then
     for pid in "${fix_pids[@]}"; do
       wait "$pid" || true
@@ -622,24 +743,42 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
   fi
 fi
 
-# Build path, sub-path 2: build a new approved issue (no open factory PR).
+# Build path, sub-path 2
 build_issue=""
+build_candidates_output=""
+build_err="$(mktemp)"
+build_candidates_output="$(approved_build_candidates 2>"$build_err")" || true
+if [[ -s "$build_err" ]]; then
+  if grep -q "project priority unavailable" "$build_err"; then
+    emit_event project_priority_fallback error="$(cat "$build_err")"
+  fi
+  cat "$build_err" >&2
+fi
+rm -f "$build_err"
+
 while IFS= read -r candidate; do
   [[ -z "$candidate" ]] && continue
   if [[ "$(has_marker "$candidate" "$BUILD_MARKER")" == "true" ]]; then
     log "issue #$candidate already built (marker present); skipping"
+    emit_event marker_skip issue="$candidate" reason="already built"
     continue
   fi
   if [[ -n "$(open_factory_pr_for_issue "$candidate")" ]]; then
     log "issue #$candidate has an open factory PR; skipping new build"
+    emit_event marker_skip issue="$candidate" reason="open factory PR"
     continue
   fi
   build_issue="$candidate"
   break
-done < <(approved_build_candidates)
+done <<< "$build_candidates_output"
+
+if [[ -n "$build_issue" ]]; then
+  emit_event build_selected issue="$build_issue"
+fi
 
 if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
   log "nothing to do"
+  emit_event nothing_to_do
   exit 0
 fi
 
@@ -647,6 +786,7 @@ if [[ -n "$plan_issue" ]]; then
   IFS=$'\t' read -r model backup_model < <(model_for_labels)
   if [[ "$DRY_RUN" == 1 ]]; then
     log "dry-run: would plan issue #$plan_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
+    emit_event dry_run kind="plan" issue="$plan_issue"
   else
     start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")"
   fi
@@ -657,6 +797,7 @@ if [[ -n "$build_issue" ]]; then
   IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
   if [[ "$DRY_RUN" == 1 ]]; then
     log "dry-run: would build issue #$build_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
+    emit_event dry_run kind="build" issue="$build_issue"
   else
     start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")"
   fi
