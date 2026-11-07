@@ -56,12 +56,27 @@ The system owner only. Capabilities are a superset of the super user's.
 
 ## SigNoz / telemetry
 
-The backend exports traces and metrics via OTLP/HTTP. SigNoz (APM) is run
-separately from this compose stack. Configure the collector endpoint with the
-`OTEL_EXPORTER_OTLP_ENDPOINT` environment variable (SigNoz collector listens
-on port 4318 for OTLP/HTTP). Set `OTEL_SERVICE_NAME` to override the service
-name (defaults to `booking-backend`). Leaving `OTEL_EXPORTER_OTLP_ENDPOINT`
-unset disables export; the backend logs a warning and runs with no-op providers.
+The backend exports traces and metrics via OTLP/HTTP. SigNoz (APM) runs as a
+**persistent dev-ops service** under `dev-ops/signoz/` (separate compose
+project, independent of `booking-*` environments). Bring it up once on the dev
+machine:
+
+```sh
+docker compose -f dev-ops/signoz/docker-compose.yml up -d
+```
+
+Configure the collector endpoint with `OTEL_EXPORTER_OTLP_ENDPOINT` (OTLP/HTTP,
+port 4318). For booking stacks running in Docker on the same host, the default
+`http://host.docker.internal:4318` reaches the host-published collector (the
+backend service includes `host.docker.internal:host-gateway`). Use
+`http://<signoz-host>:4318` when the collector runs elsewhere. Set
+`OTEL_SERVICE_NAME` to override the service name (defaults to
+`booking-backend`). Leaving `OTEL_EXPORTER_OTLP_ENDPOINT` empty disables
+export; the backend logs a warning and runs with no-op providers.
+
+SigNoz UI: `http://<host>:3301` (override with `SIGNOZ_UI_PORT`). Data persists
+in named volumes across restarts and host reboots. Stop SigNoz with
+`docker compose -f dev-ops/signoz/docker-compose.yml down` (keeps volumes).
 
 ## Sidecar
 
@@ -71,8 +86,9 @@ It is stateless and called by the backend over REST.
 ## Running
 
 Everything is packaged in `docker-compose.yml` (Caddy, frontend, backend,
-sidecar, PostgreSQL; Authelia is opt-in via the `authelia` profile; SigNoz
-runs separately).
+sidecar, PostgreSQL; Authelia is opt-in via the `authelia` profile). SigNoz
+(APM) is provisioned separately as a persistent dev-ops service — see
+[SigNoz / telemetry](#signoz--telemetry) and `dev-ops/signoz/`.
 
 ### Prerequisites
 

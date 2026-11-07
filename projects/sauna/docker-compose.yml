@@ -1,8 +1,9 @@
 # Sauna Booking System — deployment compose file.
 #
 # Combines the generic booking product (../../product) with the sauna-specific
-# sidecar and configuration. SigNoz (APM) is deployed separately; the backend
-# and frontend emit OTLP telemetry to its collector.
+# sidecar and configuration. SigNoz (APM) runs as a persistent dev-ops service
+# (see ../../dev-ops/signoz/); the backend exports OTLP telemetry to its
+# collector when OTEL_EXPORTER_OTLP_ENDPOINT is set.
 
 services:
   caddy:
@@ -41,6 +42,8 @@ services:
       SIDECAR_URL: ${SIDECAR_URL:-http://sidecar:8081}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-booking-backend}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

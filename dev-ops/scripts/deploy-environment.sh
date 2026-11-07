@@ -204,6 +204,37 @@ recover_issue() {
 }
 
 COMPOSE_FILE="$DEPLOY_DIR/projects/sauna/docker-compose.yml"
+SAUNA_ENV="$DEPLOY_DIR/projects/sauna/.env"
+# Populate OTEL endpoint by default for QA/other envs when unset (persistent
+# SigNoz lives in dev-ops/signoz; host-published collector on 4318).
+if [[ -f "$SAUNA_ENV" ]]; then
+  python3 - "$SAUNA_ENV" <<'PY'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    lines = f.readlines()
+found = False
+out = []
+for line in lines:
+    if line.startswith('OTEL_EXPORTER_OTLP_ENDPOINT='):
+        found = True
+        key, _, val = line.partition('=')
+        if val.strip() in ('', '""', "''"):
+            out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318\n')
+        else:
+            out.append(line)
+    else:
+        out.append(line)
+if not found:
+    if out and not out[-1].endswith('\n'):
+        out[-1] += '\n'
+    out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318\n')
+if out != lines:
+    with open(path, 'w') as f:
+        f.writelines(out)
+PY
+fi
+
 export PORT="$PORT"
 export COMPOSE_PROJECT_NAME="booking-${ENV_NAME}"
 
