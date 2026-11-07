@@ -12,13 +12,17 @@ services:
     volumes:
       - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
+      - frontend-dist:/srv
     depends_on:
       - frontend
       - backend
 
   frontend:
     build: ../../product/frontend
-    # React SPA, served as static files behind Caddy.
+    volumes:
+      - frontend-dist:/srv
+    # React SPA, served as static files behind Caddy: the container populates
+    # the shared frontend-dist volume from its build output.
 
   backend:
     build: ../../product/backend
@@ -57,4 +61,5 @@ services:
 
 volumes:
   caddy-data:
+  frontend-dist:
   postgres-data:
