@@ -6,9 +6,8 @@ import { cancelBooking, createBooking, listBookings } from "../api/bookings";
 import { useSession } from "../auth/SessionContext";
 
 function canCancel(user: User | null, booking: Booking): boolean {
-  // Issue #11 scope: basic cancel-own in the UI; cancelling other users'
-  // bookings is super-user tooling (#12).
   if (!user) return false;
+  if (user.role === "super" || user.role === "admin") return true;
   return booking.userId === user.id;
 }
 

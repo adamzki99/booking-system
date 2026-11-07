@@ -43,3 +43,8 @@ export function createBooking(interval: { start: string; end: string }): Promise
 export function cancelBooking(id: string): Promise<void> {
   return post(`/api/bookings/${encodeURIComponent(id)}/cancel`);
 }
+
+/** Blocks a time period for basic-user bookings (super users only). */
+export function blockTimePeriod(interval: { start: string; end: string }): Promise<void> {
+  return post("/api/blocked-periods", interval);
+}
