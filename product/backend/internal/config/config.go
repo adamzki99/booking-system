@@ -18,6 +18,9 @@ type Config struct {
 	SMTPUsername string
 	SMTPPassword string
 	SMTPFrom     string
+
+	OTLPEndpoint    string
+	OTELServiceName string
 }
 
 // Load reads configuration from the environment.
@@ -38,6 +41,10 @@ func Load() Config {
 	if emailMode == "" {
 		emailMode = "log"
 	}
+	serviceName := os.Getenv("OTEL_SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "booking-backend"
+	}
 	return Config{
 		Port:          port,
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
@@ -50,5 +57,8 @@ func Load() Config {
 		SMTPUsername: os.Getenv("SMTP_USERNAME"),
 		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:     os.Getenv("SMTP_FROM"),
+
+		OTLPEndpoint:    os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		OTELServiceName: serviceName,
 	}
 }

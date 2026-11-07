@@ -21,6 +21,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 	"github.com/adamzki99/booking-system/product/backend/internal/sample"
 	"github.com/adamzki99/booking-system/product/backend/internal/server"
+	"github.com/adamzki99/booking-system/product/backend/internal/telemetry"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,6 +32,12 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
+
+	telShutdown, err := telemetry.Init(context.Background(), cfg)
+	if err != nil {
+		logger.Error("configure telemetry", "err", err)
+		os.Exit(1)
+	}
 
 	mailer, err := email.New(cfg, logger)
 	if err != nil {
@@ -107,6 +114,13 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("shutdown error", "err", err)
+	}
+	if telShutdown != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := telShutdown(shutdownCtx); err != nil {
+			slog.Error("telemetry shutdown", "err", err)
+		}
 	}
 	if pool != nil {
 		pool.Close()
