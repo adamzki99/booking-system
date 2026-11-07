@@ -65,7 +65,15 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   if (res.status === 204) {
     return undefined as T;
   }
-  return (await res.json()) as T;
+  const text = await res.text();
+  if (!text) {
+    return undefined as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return undefined as T;
+  }
 }
 
 /** Extracts a user-displayable message from a thrown error. */
@@ -84,4 +92,10 @@ export function post<T>(path: string, payload?: unknown): Promise<T> {
   // RequestInit["body"] type only.
   const body = payload === undefined ? undefined : (payload as BodyInit);
   return request<T>(path, { method: "POST", body });
+}
+
+/** Convenience PATCH with a JSON body. */
+export function patch<T>(path: string, payload?: unknown): Promise<T> {
+  const body = payload === undefined ? undefined : (payload as BodyInit);
+  return request<T>(path, { method: "PATCH", body });
 }

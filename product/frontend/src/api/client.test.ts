@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, getToken, post, request, setToken } from "./client";
+import { ApiError, getToken, patch, post, request, setToken } from "./client";
 
 const fetchMock = vi.fn();
 
@@ -77,5 +77,22 @@ describe("API client", () => {
       message: "Unauthorized", // statusText from the Response object
       status: 401,
     });
+  });
+
+  it("patches JSON bodies with a content-type header", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { email: "new@b.se" }));
+
+    const result = await patch<{ email: string }>("/api/users/me/email", {
+      email: "new@b.se",
+    });
+
+    expect(result).toEqual({ email: "new@b.se" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/users/me/email");
+    expect(init.method).toBe("PATCH");
+    expect(init.body).toBe(JSON.stringify({ email: "new@b.se" }));
+    expect(new Headers(init.headers).get("Content-Type")).toBe(
+      "application/json",
+    );
   });
 });

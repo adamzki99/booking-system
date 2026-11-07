@@ -39,3 +39,6 @@ export function verify(email: string, code: string): Promise<string> {
 export function currentUser(): Promise<User> {
   return get<User>("/api/users/me");
 }
+
+/** Alias for currentUser() (plan naming). */
+export const getMe = currentUser;

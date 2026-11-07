@@ -1,7 +1,9 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { RequireSession } from "./RequireSession";
+import Account from "./pages/Account";
 import Calendar from "./pages/Calendar";
 import Login from "./pages/Login";
+import Users from "./pages/Users";
 
 export default function App() {
   return (
@@ -12,6 +14,22 @@ export default function App() {
         element={
           <RequireSession>
             <Calendar />
+          </RequireSession>
+        }
+      />
+      <Route
+        path="/account"
+        element={
+          <RequireSession>
+            <Account />
+          </RequireSession>
+        }
+      />
+      <Route
+        path="/users"
+        element={
+          <RequireSession>
+            <Users />
           </RequireSession>
         }
       />
