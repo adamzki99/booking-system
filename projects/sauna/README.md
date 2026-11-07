@@ -71,8 +71,55 @@ It is stateless and called by the backend over REST.
 ## Running
 
 Everything is packaged in `docker-compose.yml` (Caddy, frontend, backend,
-sidecar, PostgreSQL, Authelia; SigNoz runs separately). A single setup script
-for provisioning a server is TBD — see `../../dev-ops/`.
+sidecar, PostgreSQL; Authelia is opt-in via the `authelia` profile; SigNoz
+runs separately).
+
+### Prerequisites
+
+- Docker Engine + Docker Compose plugin (or run the setup script below, which
+  installs them).
+
+### Quick start from a clean checkout
+
+```sh
+cp .env.example .env
+# edit .env: set POSTGRES_PASSWORD, DATABASE_URL, PUBLIC_BASE_URL, etc.
+docker compose up -d --build
+```
+
+### One-command provisioning (fresh Linux host)
+
+```sh
+sudo ./setup.sh
+```
+
+The script installs Docker if missing, clones/updates the repo into
+`/opt/booking-system`, creates `.env` from `.env.example` when absent, builds
+and starts the stack, then prints the Caddy URL and `docker compose ps`.
+
+### Service / health endpoints
+
+- Caddy (entrypoint): `http://<host>:${PORT:-8080}`
+- Backend health: `http://<host>:${PORT:-8080}/api/...` (direct: backend:8080 `/healthz`)
+- Sidecar health: sidecar:8081 `/healthz`
+
+### Logs / stop / update
+
+```sh
+docker compose logs -f
+docker compose down
+docker compose up -d --build   # rebuild after changes
+```
+
+### Authelia (optional)
+
+Authelia is disabled by default. Start it with:
+
+```sh
+docker compose --profile authelia up -d
+```
+
+### Cloudflare Tunnel
 
 For exposing a self-hosted instance publicly over HTTPS via Cloudflare Tunnels,
 follow [`../../dev-ops/self-hosting-cloudflare-tunnel.md`](../../dev-ops/self-hosting-cloudflare-tunnel.md).
