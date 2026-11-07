@@ -12,17 +12,25 @@ services:
     volumes:
       - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
-      - frontend-dist:/srv
+      - frontend-dist:/srv:ro
     depends_on:
-      - frontend
-      - backend
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
 
   frontend:
     build: ../../product/frontend
     volumes:
       - frontend-dist:/srv
-    # React SPA, served as static files behind Caddy: the container populates
-    # the shared frontend-dist volume from its build output.
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /srv/index.html"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: "no"
 
   backend:
     build: ../../product/backend
@@ -34,14 +42,17 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-booking-backend}
     depends_on:
-      - postgres
-      - sidecar
+      postgres:
+        condition: service_healthy
+      sidecar:
+        condition: service_started
+    restart: unless-stopped
 
   sidecar:
     build: ./sidecar
     environment:
       PORT: "8081"
-    # Stateless sauna-specific functions, exposed via REST to the backend.
+    restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
@@ -53,11 +64,19 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-booking}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-booking} -d ${POSTGRES_DB:-booking}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
   authelia:
     image: authelia/authelia:latest
+    profiles: ["authelia"]
     volumes:
       - ./config/authelia:/config:ro
+    restart: unless-stopped
 
 volumes:
   caddy-data:
