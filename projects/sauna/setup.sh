@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # Provision a fresh Linux host and start the sauna booking stack.
+#
+# NOTE: This script only does ONE-TIME provisioning + first boot. It does NOT
+# handle the redeploy cycle, health-checked deploys, branch tracking, or
+# scheduled updates. For that use dev-ops/scripts/deploy-environment.sh (e.g.
+# "deploy-environment.sh qa"), which is meant to run on a cron schedule
+# (0 0,12 * * *) for the QA environment. See dev-ops/README.md.
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
