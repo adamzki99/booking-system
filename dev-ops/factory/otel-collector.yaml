@@ -1,0 +1,46 @@
+# OpenTelemetry Collector (contrib) config for the software factory.
+# Runs as a user systemd unit on the cron host (NOT beside SigNoz).
+# Tails the factory tick JSONL log and exports OTLP to the separately
+# deployed SigNoz instance.
+#
+# Environment variables:
+#   FACTORY_LOG_FILE       - path to tick.jsonl (must match tick.sh)
+#   SIGNOZ_OTLP_ENDPOINT   - SigNoz OTLP HTTP endpoint, e.g. http://host:4318
+#   SIGNOZ_INGESTION_KEY   - optional SigNoz ingestion key
+
+receivers:
+  filelog:
+    include:
+      - ${env:FACTORY_LOG_FILE}
+    start_at: end
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.ts
+          layout: "%Y-%m-%dT%H:%M:%S.%fZ"
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+  resource:
+    attributes:
+      - key: service.name
+        value: factory-tick
+        action: upsert
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+
+exporters:
+  otlphttp/signoz:
+    endpoint: ${env:SIGNOZ_OTLP_ENDPOINT}
+    headers:
+      signoz-ingestion-key: ${env:SIGNOZ_INGESTION_KEY}
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/signoz]

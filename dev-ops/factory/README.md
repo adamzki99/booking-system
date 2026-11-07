@@ -82,3 +82,33 @@ One or more per issue, for categorization only — they do not select a model:
 - `models.yaml` — label → model selection for factory sessions (`model` plus
   optional `backup_model` per entry / `default`). Fix sessions use the related
   issue's labels.
+
+## Observability
+
+`tick.sh` appends one JSON object per event to a user-writable JSONL file:
+`FACTORY_LOG_FILE` (default `${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl`).
+Human output on stdout/stderr is unchanged; the two streams never share a file.
+
+Environment variables:
+- `FACTORY_LOG_FILE` — JSONL destination.
+- `FACTORY_ENV` — `deployment.environment` value (default `dev`).
+- `FACTORY_LOG_SESSION_OUTPUT` — set to `metadata` to disable retained
+  `opencode` output on failure (default retains last 16 KiB).
+
+Cron (keep human output separate):
+```
+0 * * * * /path/to/repo/dev-ops/factory/tick.sh >> "$HOME/.local/state/factory/tick.log" 2>&1
+```
+
+Ship to SigNoz via `otelcol-contrib` running as a **user** systemd unit on the
+cron host (not beside SigNoz), using `dev-ops/factory/otel-collector.yaml`
+(`filelog` receiver → OTLP/HTTP). Required env: `FACTORY_LOG_FILE`,
+`SIGNOZ_OTLP_ENDPOINT`, optional `SIGNOZ_INGESTION_KEY`.
+
+Log rotation: install `dev-ops/factory/factory-tick.logrotate`
+(`size 10M`, `rotate 5`, `copytruncate`).
+
+SigNoz "Factory" dashboard + alerts:
+1. any `session_failed` or `tick_end` with nonzero `exit_code` in the last hour;
+2. `count(tick_start) == 0` over 2h (dead-man's switch);
+3. repeated `usage_filled`/`backup_failed` (>=3/hour), plus repeated `lock_skipped`.
