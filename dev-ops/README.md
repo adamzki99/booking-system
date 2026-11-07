@@ -49,6 +49,21 @@ The dev machine runs a cron entry that deploys `main` to QA twice daily:
   distinct port on the dev machine. Ports are recorded in
   [`environments.yaml`](environments.yaml).
 
+## SigNoz (APM)
+
+[SigNoz](signoz/) runs as a **persistent** dev-ops service (separate compose
+project, `name: signoz`) so environment deploys/restarts do not affect it. Bring
+it up once on the dev machine:
+
+```sh
+docker compose -f dev-ops/signoz/docker-compose.yml up -d
+```
+
+The OTLP/HTTP collector is published on host port `4318`. Booking backends
+default to `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318` (see
+`projects/sauna/.env.example` and [signoz/README.md](signoz/README.md)). Data
+persists in named volumes across restarts and host reboots.
+
 ## Code quality
 
 ### Semgrep AppSec Platform (Option 1)
