@@ -111,6 +111,50 @@ Skills already present are skipped. Each vendored skill carries a `.source`
 file recording its origin (repo, path, ref). Review licenses and content before
 merging — skills are instructions loaded by the factory agents.
 
+## Agentic Playwright testing (dev/QA only)
+
+A testing agent can drive the UI against the QA/dev environment using Playwright
+running inside a Docker container. Because login is passwordless (email code),
+the agent fetches the current 6-character code from the backend's Compose logs.
+
+### Environment variables
+
+- `BOOKING_DEV_SSH` — SSH target for the dev server (e.g. `user@host`), used
+  when the script is not running on the dev server itself. Never committed.
+- `TEST_USER_EMAIL` — email of an existing QA user account used for tests.
+- `DEPLOY_DIR` (optional) — override the deploy checkout path
+  (default `/opt/booking-system-<env>`).
+
+### Retrieve a login code
+
+```sh
+dev-ops/scripts/get-login-code.sh <email> [--env qa] [--request] [--local] [--from-file FILE]
+```
+
+- Resolves env → port from `environments.yaml`; compose project `booking-<env>`.
+- Detects whether it runs on the dev server (Docker compose backend present or
+  `DEPLOY_DIR` exists); otherwise connects over SSH using `BOOKING_DEV_SSH`.
+- `--request` first POSTs to `/api/auth/request-code`, then polls logs ~15 s.
+- Only the code is printed to stdout; diagnostics go to stderr.
+- Refuses unknown env names and any env matching `prod`.
+
+### Run Playwright tests
+
+```sh
+dev-ops/scripts/run-playwright.sh [--env qa] [spec...]
+```
+
+Single entry point: requests + fetches the code, builds the Playwright image,
+then runs the suite in a container with `BASE_URL`, `TEST_USER_EMAIL` and
+`LOGIN_CODE` passed as env vars (code never written to a file). HTML/JUnit
+reporters are disabled so codes do not leak into artifacts.
+
+### Security
+
+- Dev/QA only. Never enable in production; `prod` env names are rejected.
+- Codes are passed as environment variables only and are not persisted to files
+  or CI artifacts.
+
 ## Self-hosting
 
 - [Self-hosting with Cloudflare Tunnels (HTTPS-compliant)](self-hosting-cloudflare-tunnel.md)
