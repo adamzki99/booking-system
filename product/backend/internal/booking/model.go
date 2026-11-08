@@ -51,6 +51,11 @@ var (
 	// ErrBlockedPeriodsUnavailable indicates the blocked-periods read model is
 	// not wired up.
 	ErrBlockedPeriodsUnavailable = errors.New("booking: blocked periods unavailable")
+	// ErrBookingRuleViolation indicates the booking violates deployment rules.
+	ErrBookingRuleViolation = errors.New("booking: booking rule violation")
+	// ErrBookingRulesUnavailable indicates the deployment rules service is
+	// not available.
+	ErrBookingRulesUnavailable = errors.New("booking: booking rules unavailable")
 	// ErrForbidden indicates the caller is not allowed to act.
 	ErrForbidden = errors.New("booking: forbidden")
 )

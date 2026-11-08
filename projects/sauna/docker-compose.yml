@@ -55,6 +55,7 @@ services:
     build: ./sidecar
     environment:
       PORT: "8081"
+      BOOKING_TIMEZONE: ${BOOKING_TIMEZONE:-Europe/Stockholm}
     restart: unless-stopped
 
   postgres:

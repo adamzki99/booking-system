@@ -114,3 +114,12 @@ func (f *fakeExecutor) Execute(_ context.Context, cmd command.Command) error {
 	f.last = cmd
 	return f.err
 }
+
+// fakeRules is an in-memory BookingRules for tests.
+type fakeRules struct {
+	err error
+}
+
+func (f *fakeRules) ValidateBooking(_ context.Context, _, _ time.Time) error {
+	return f.err
+}

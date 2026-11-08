@@ -8,7 +8,8 @@ import (
 
 // Config holds runtime configuration populated from environment variables.
 type Config struct {
-	Port int
+	Port            int
+	BookingTimezone string
 }
 
 // Load reads configuration from the environment.
@@ -19,5 +20,9 @@ func Load() Config {
 			port = n
 		}
 	}
-	return Config{Port: port}
+	tz := os.Getenv("BOOKING_TIMEZONE")
+	if tz == "" {
+		tz = "Europe/Stockholm"
+	}
+	return Config{Port: port, BookingTimezone: tz}
 }

@@ -298,10 +298,12 @@ func TestBookingHTTPStatus(t *testing.T) {
 		{nil, http.StatusOK},
 		{ErrInvalidInterval, http.StatusBadRequest},
 		{ErrStartInPast, http.StatusBadRequest},
+		{ErrBookingRuleViolation, http.StatusBadRequest},
 		{ErrNotOwner, http.StatusForbidden},
 		{ErrForbidden, http.StatusForbidden},
 		{ErrBookingNotFound, http.StatusNotFound},
 		{ErrDoubleBooking, http.StatusConflict},
+		{ErrBookingRulesUnavailable, http.StatusServiceUnavailable},
 		{ErrAlreadyCancelled, http.StatusConflict},
 		{context.Canceled, http.StatusInternalServerError},
 	}

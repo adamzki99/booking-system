@@ -99,7 +99,7 @@ func (f *fakeBlockedReader) List(_ context.Context) ([]BlockedPeriod, error) {
 func TestHandleCreateBookingRejectsBlockedPeriodForBasicUser(t *testing.T) {
 	bookings := &fakeBookingsReader{byID: map[string]Booking{}}
 	blocked := &fakeBlockedReader{overlap: true}
-	handler := handleCreateBooking(bookings, blocked, basicResolver())
+	handler := handleCreateBooking(bookings, blocked, basicResolver(), nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	_, err := handler(context.Background(), CreateBooking{
@@ -119,7 +119,7 @@ func TestHandleCreateBookingAllowsSuperOverBlockedPeriod(t *testing.T) {
 	users := &fakeUserResolver{byID: map[string]user.User{
 		"super-1": {ID: "super-1", Email: "super@example.com", Role: user.RoleSuper},
 	}}
-	handler := handleCreateBooking(bookings, blocked, users)
+	handler := handleCreateBooking(bookings, blocked, users, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	events, err := handler(context.Background(), CreateBooking{
@@ -139,7 +139,7 @@ func TestHandleCreateBookingAllowsSuperOverBlockedPeriod(t *testing.T) {
 func TestHandleCreateBookingAllowsBasicOutsideBlockedPeriod(t *testing.T) {
 	bookings := &fakeBookingsReader{byID: map[string]Booking{}}
 	blocked := &fakeBlockedReader{overlap: false}
-	handler := handleCreateBooking(bookings, blocked, basicResolver())
+	handler := handleCreateBooking(bookings, blocked, basicResolver(), nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	events, err := handler(context.Background(), CreateBooking{

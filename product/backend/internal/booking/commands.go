@@ -53,10 +53,10 @@ func (CancelAnyBooking) CommandType() string { return CancelAnyBookingCommandTyp
 
 // Register wires the booking and blocked-period commands and projections into
 // the registry. users is the user directory used for role checks.
-func Register(r *registry.Registry, users Directory) (*BookingsProjection, *BlockedPeriodsProjection) {
+func Register(r *registry.Registry, users Directory, rules BookingRules) (*BookingsProjection, *BlockedPeriodsProjection) {
 	bookings := NewBookingsProjection(r.DB())
 	blocked := NewBlockedPeriodsProjection(r.DB())
-	r.RegisterCommand(CreateBookingCommandType, handleCreateBooking(bookings, blocked, users))
+	r.RegisterCommand(CreateBookingCommandType, handleCreateBooking(bookings, blocked, users, rules))
 	r.RegisterCommand(CancelOwnBookingCommandType, handleCancelOwnBooking(bookings))
 	r.RegisterCommand(CancelAnyBookingCommandType, handleCancelAnyBooking(bookings, users))
 	r.RegisterCommand(BlockTimePeriodCommandType, handleBlockTimePeriod(users))
@@ -65,7 +65,7 @@ func Register(r *registry.Registry, users Directory) (*BookingsProjection, *Bloc
 	return bookings, blocked
 }
 
-func handleCreateBooking(bookings bookingsReader, blocked blockedReader, users Directory) command.Handler {
+func handleCreateBooking(bookings bookingsReader, blocked blockedReader, users Directory, rules BookingRules) command.Handler {
 	return func(ctx context.Context, cmd command.Command) ([]eventstore.Event, error) {
 		var c CreateBooking
 		switch typed := cmd.(type) {
@@ -86,6 +86,11 @@ func handleCreateBooking(bookings bookingsReader, blocked blockedReader, users D
 		now := time.Now().UTC()
 		if err := ValidateInterval(c.Start, c.End, now); err != nil {
 			return nil, err
+		}
+		if rules != nil {
+			if err := rules.ValidateBooking(ctx, c.Start, c.End); err != nil {
+				return nil, err
+			}
 		}
 		overlaps, err := bookings.HasOverlap(ctx, c.Start, c.End)
 		if err != nil {

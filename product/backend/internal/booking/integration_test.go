@@ -37,7 +37,7 @@ func newBookingTestApp(t *testing.T) *bookingTestApp {
 		t.Fatal(err)
 	}
 	users := user.Register(app)
-	bookings, blocked := booking.Register(app, users)
+	bookings, blocked := booking.Register(app, users, nil)
 	return &bookingTestApp{pool: pool, store: store, app: app, bookings: bookings, blocked: blocked}
 }
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -14,22 +15,32 @@ import (
 )
 
 // Deps holds the dependencies required by the HTTP server. The sidecar is
-// stateless, so this is intentionally empty for now.
-type Deps struct{}
+// stateless, so this is intentionally small.
+type Deps struct {
+	// Timezone is the IANA timezone name used for the single-day rule.
+	Timezone string
+}
 
 // NewMux builds the HTTP router.
-func NewMux(_ ...Deps) *http.ServeMux {
+func NewMux(deps ...Deps) *http.ServeMux {
+	loc := bookingLocation(deps...)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("POST /functions/echo", handleEcho)
+	mux.HandleFunc("POST /functions/validate-booking", handleValidateBooking(loc))
 	return mux
 }
 
 // New creates an *http.Server wired with sensible timeouts.
-func New(cfg config.Config, logger *slog.Logger, _ ...Deps) *http.Server {
+func New(cfg config.Config, logger *slog.Logger, deps ...Deps) *http.Server {
+	if len(deps) == 0 {
+		deps = []Deps{{Timezone: cfg.BookingTimezone}}
+	} else if deps[0].Timezone == "" {
+		deps[0].Timezone = cfg.BookingTimezone
+	}
 	return &http.Server{
 		Addr:         ":" + strconv.Itoa(cfg.Port),
-		Handler:      NewMux(),
+		Handler:      NewMux(deps...),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -60,6 +71,62 @@ func handleEcho(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, echoResponse{Result: req.Input})
+}
+
+type validateBookingRequest struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+type validateBookingResponse struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+func handleValidateBooking(loc *time.Location) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req validateBookingRequest
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Start == "" || req.End == "" {
+			writeError(w, http.StatusBadRequest, "start and end are required")
+			return
+		}
+		start, err1 := time.Parse(time.RFC3339, req.Start)
+		end, err2 := time.Parse(time.RFC3339, req.End)
+		if err1 != nil || err2 != nil {
+			writeError(w, http.StatusBadRequest, "invalid start or end time")
+			return
+		}
+		if !start.Before(end) {
+			writeError(w, http.StatusBadRequest, "start must be before end")
+			return
+		}
+		if start.In(loc).Format("2006-01-02") != end.In(loc).Format("2006-01-02") {
+			writeError(w, http.StatusBadRequest, "booking must be within a single day")
+			return
+		}
+		writeJSON(w, http.StatusOK, validateBookingResponse{
+			Start: start.Format(time.RFC3339),
+			End:   end.Format(time.RFC3339),
+		})
+	}
+}
+
+func bookingLocation(deps ...Deps) *time.Location {
+	tz := "Europe/Stockholm"
+	if len(deps) > 0 && deps[0].Timezone != "" {
+		tz = deps[0].Timezone
+	} else if v := os.Getenv("BOOKING_TIMEZONE"); v != "" {
+		tz = v
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 func decodeJSON(r *http.Request, dst any) error {
