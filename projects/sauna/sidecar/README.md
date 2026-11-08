@@ -12,9 +12,9 @@ product so the product can be reused for other booking applications.
 - `GET /healthz` — liveness check.
 - `POST /functions/echo` — echo `{input}`.
 - `POST /functions/validate-booking` — validates a booking interval against the
-  sauna booking method (a single time period within one calendar day). Request:
-  `{"start":"<RFC3339>","end":"<RFC3339>"}`. Returns 200 with the echoed
-  interval on success, 400 with `{"error":"..."}` otherwise.
+  sauna booking rules (single day, no overlap beyond capacity). Request:
+  `{"start":"<RFC3339>","end":"<RFC3339>","capacity":1,"existing":[...]}`.
+  Returns 200 with `{"allowed":true}` or `{"allowed":false,"code":...,"message":...}`.
 
 ## Configuration
 

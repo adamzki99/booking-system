@@ -65,11 +65,11 @@ func main() {
 		sample.Register(app)
 		projections := auth.Register(app)
 		userProjections := user.Register(app)
-		var rules booking.BookingRules
+		var validator booking.BookingValidator
 		if cfg.SidecarURL != "" {
-			rules = sidecar.NewRulesClient(cfg.SidecarURL, logger)
+			validator = sidecar.NewClient(cfg.SidecarURL, logger)
 		}
-		bookings, blocked := booking.Register(app, userProjections, rules)
+		bookings, blocked := booking.Register(app, userProjections, validator)
 		booking.RegisterNotify(app, mailer, userProjections, bookings, logger)
 		broadcast.Register(app, userProjections)
 		broadcast.RegisterNotify(app, mailer, userProjections, logger)

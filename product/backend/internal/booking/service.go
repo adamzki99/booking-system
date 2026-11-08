@@ -32,6 +32,11 @@ type BookingRules interface {
 	ValidateBooking(ctx context.Context, start, end time.Time) error
 }
 
+// BookingValidator validates a candidate booking against deployment-specific rules.
+type BookingValidator interface {
+	ValidateBooking(ctx context.Context, candidate Booking, existing []Booking) error
+}
+
 // BookingService orchestrates booking commands, read-back, and the calendar.
 type BookingService struct {
 	commands commandExecutor

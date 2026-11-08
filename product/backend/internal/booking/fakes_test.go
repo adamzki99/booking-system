@@ -123,3 +123,14 @@ type fakeRules struct {
 func (f *fakeRules) ValidateBooking(_ context.Context, _, _ time.Time) error {
 	return f.err
 }
+
+// fakeValidator is an in-memory BookingValidator for tests.
+type fakeValidator struct {
+	err error
+	got []Booking
+}
+
+func (f *fakeValidator) ValidateBooking(_ context.Context, candidate Booking, existing []Booking) error {
+	f.got = existing
+	return f.err
+}

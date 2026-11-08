@@ -26,7 +26,7 @@ func TestValidateBookingHappyPath(t *testing.T) {
 	c := NewRulesClient(ts.URL, nil)
 	start := time.Now().Add(time.Hour)
 	end := start.Add(time.Hour)
-	if err := c.ValidateBooking(context.Background(), start, end); err != nil {
+	if err := c.ValidateBooking(context.Background(), booking.Booking{Start: start, End: end}, nil); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }
@@ -41,7 +41,7 @@ func TestValidateBookingRuleViolation(t *testing.T) {
 	c := NewRulesClient(ts.URL, nil)
 	start := time.Now().Add(time.Hour)
 	end := start.Add(time.Hour)
-	err := c.ValidateBooking(context.Background(), start, end)
+	err := c.ValidateBooking(context.Background(), booking.Booking{Start: start, End: end}, nil)
 	if !errors.Is(err, booking.ErrBookingRuleViolation) {
 		t.Fatalf("expected ErrBookingRuleViolation, got %v", err)
 	}
@@ -57,14 +57,14 @@ func TestValidateBookingUnavailable(t *testing.T) {
 	c := NewRulesClient(ts.URL, nil)
 	start := time.Now().Add(time.Hour)
 	end := start.Add(time.Hour)
-	err := c.ValidateBooking(context.Background(), start, end)
+	err := c.ValidateBooking(context.Background(), booking.Booking{Start: start, End: end}, nil)
 	if !errors.Is(err, booking.ErrBookingRulesUnavailable) {
 		t.Fatalf("expected ErrBookingRulesUnavailable, got %v", err)
 	}
 
 	// connection refused
 	c2 := NewRulesClient("http://127.0.0.1:1", nil)
-	err2 := c2.ValidateBooking(context.Background(), start, end)
+	err2 := c2.ValidateBooking(context.Background(), booking.Booking{Start: start, End: end}, nil)
 	if !errors.Is(err2, booking.ErrBookingRulesUnavailable) {
 		t.Fatalf("expected ErrBookingRulesUnavailable, got %v", err2)
 	}
