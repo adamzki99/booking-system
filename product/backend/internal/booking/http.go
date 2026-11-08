@@ -23,17 +23,17 @@ func bookingHTTPStatus(err error) int {
 	switch {
 	case err == nil:
 		return http.StatusOK
-	case errors.Is(err, ErrInvalidInterval), errors.Is(err, ErrStartInPast), errors.Is(err, ErrBookingRuleViolation):
+	case errors.Is(err, ErrInvalidInterval), errors.Is(err, ErrStartInPast):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrNotOwner), errors.Is(err, ErrForbidden):
 		return http.StatusForbidden
 	case errors.Is(err, ErrBookingNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrDoubleBooking), errors.Is(err, ErrAlreadyCancelled):
+	case errors.Is(err, ErrDoubleBooking), errors.Is(err, ErrAlreadyCancelled), errors.Is(err, ErrBookingRejected):
 		return http.StatusConflict
 	case errors.Is(err, ErrBlockedPeriod):
 		return http.StatusConflict
-	case errors.Is(err, ErrBlockedPeriodsUnavailable), errors.Is(err, ErrBookingRulesUnavailable):
+	case errors.Is(err, ErrBlockedPeriodsUnavailable), errors.Is(err, ErrBookingRulesUnavailable), errors.Is(err, ErrSidecarUnavailable):
 		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError

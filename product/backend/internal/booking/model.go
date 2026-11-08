@@ -51,11 +51,14 @@ var (
 	// ErrBlockedPeriodsUnavailable indicates the blocked-periods read model is
 	// not wired up.
 	ErrBlockedPeriodsUnavailable = errors.New("booking: blocked periods unavailable")
-	// ErrBookingRuleViolation indicates the booking violates deployment rules.
-	ErrBookingRuleViolation = errors.New("booking: booking rule violation")
-	// ErrBookingRulesUnavailable indicates the deployment rules service is
-	// not available.
-	ErrBookingRulesUnavailable = errors.New("booking: booking rules unavailable")
+	// ErrBookingRejected indicates the sidecar rejected the booking (conflict/capacity).
+	ErrBookingRejected = errors.New("booking: booking rejected")
+	// ErrSidecarUnavailable indicates the sidecar is not available.
+	ErrSidecarUnavailable = errors.New("booking: sidecar unavailable")
+	// ErrBookingRuleViolation is an alias kept for compatibility.
+	ErrBookingRuleViolation = ErrBookingRejected
+	// ErrBookingRulesUnavailable is an alias kept for compatibility.
+	ErrBookingRulesUnavailable = ErrSidecarUnavailable
 	// ErrForbidden indicates the caller is not allowed to act.
 	ErrForbidden = errors.New("booking: forbidden")
 )

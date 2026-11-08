@@ -284,8 +284,8 @@ func TestHandleCancelOwnBookingRejectsUnknown(t *testing.T) {
 
 func TestHandleCreateBookingRejectsRuleViolation(t *testing.T) {
 	bookings := &fakeBookingsReader{}
-	rules := &fakeRules{err: ErrBookingRuleViolation}
-	handler := handleCreateBooking(bookings, nil, nil, rules)
+	validator := &fakeValidator{err: ErrBookingRejected}
+	handler := handleCreateBooking(bookings, nil, nil, validator)
 
 	start := time.Now().Add(24 * time.Hour)
 	_, err := handler(context.Background(), CreateBooking{
@@ -293,7 +293,7 @@ func TestHandleCreateBookingRejectsRuleViolation(t *testing.T) {
 		Start:  start,
 		End:    start.Add(time.Hour),
 	})
-	if !errors.Is(err, ErrBookingRuleViolation) {
+	if !errors.Is(err, ErrBookingRejected) {
 		t.Fatalf("expected ErrBookingRuleViolation, got %v", err)
 	}
 }

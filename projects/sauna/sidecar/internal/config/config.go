@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Port            int
 	BookingTimezone string
+	Capacity        int
 }
 
 // Load reads configuration from the environment.
@@ -24,5 +25,11 @@ func Load() Config {
 	if tz == "" {
 		tz = "Europe/Stockholm"
 	}
-	return Config{Port: port, BookingTimezone: tz}
+	capacity := 1
+	if v := os.Getenv("SAUNA_CAPACITY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			capacity = n
+		}
+	}
+	return Config{Port: port, BookingTimezone: tz, Capacity: capacity}
 }
