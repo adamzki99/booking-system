@@ -55,6 +55,7 @@ func NewMux(deps Deps) *http.ServeMux {
 	mux.Handle("POST /users/{id}/remove", protect(deps.Middleware, user.HandleRemoveUser(deps.UserService)))
 	mux.Handle("PATCH /users/me/email", protect(deps.Middleware, user.HandleChangeOwnEmail(deps.UserService)))
 	mux.Handle("PATCH /users/{id}/address", protect(deps.Middleware, user.HandleChangeUserAddress(deps.UserService)))
+	mux.Handle("PATCH /users/{id}/role", protect(deps.Middleware, user.HandleChangeUserRole(deps.UserService)))
 
 	// Booking endpoints (all require a valid session).
 	mux.Handle("GET /bookings", protect(deps.Middleware, booking.HandleListBookings(deps.BookingService)))

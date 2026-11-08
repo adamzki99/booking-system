@@ -35,6 +35,15 @@ export function changeUserAddress(id: string, address: string): Promise<User> {
   return patch<RawUser>(`/api/users/${encodeURIComponent(id)}/address`, { address });
 }
 
+/** Changes a user's role (admin only). */
+export function changeUserRole(id: string, role: string): Promise<User> {
+  return patch<RawUser>(`/api/users/${encodeURIComponent(id)}/role`, { role });
+}
+
+/** Alias matching common naming. */
+export const updateUserRole = changeUserRole;
+export const setUserRole = changeUserRole;
+
 /** Alias matching the plan's naming. */
 export const updateEmail = updateMyEmail;
 export const changeAddress = changeUserAddress;

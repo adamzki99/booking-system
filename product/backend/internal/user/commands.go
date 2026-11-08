@@ -23,6 +23,8 @@ const (
 	ChangeOwnEmailCommandType = "user.ChangeOwnEmail"
 	// ChangeUserAddressCommandType identifies ChangeUserAddress commands.
 	ChangeUserAddressCommandType = "user.ChangeUserAddress"
+	// ChangeUserRoleCommandType identifies ChangeUserRole commands.
+	ChangeUserRoleCommandType = "user.ChangeUserRole"
 	// SeedUserCommandType identifies SeedUser commands.
 	SeedUserCommandType = "user.SeedUser"
 )
@@ -74,6 +76,17 @@ type ChangeUserAddress struct {
 // CommandType implements command.Command.
 func (ChangeUserAddress) CommandType() string { return ChangeUserAddressCommandType }
 
+// ChangeUserRole changes a user's role (admin only).
+type ChangeUserRole struct {
+	UserID         string
+	Role           Role
+	NewRole        Role
+	RequesterEmail string
+}
+
+// CommandType implements command.Command.
+func (ChangeUserRole) CommandType() string { return ChangeUserRoleCommandType }
+
 // SeedUserCommand creates a user with a given role (dev seeding only).
 type SeedUserCommand struct {
 	Email string
@@ -95,6 +108,7 @@ func Register(r *registry.Registry) *UsersProjection {
 	r.RegisterCommand(RemoveUserCommandType, handleRemoveUser(users))
 	r.RegisterCommand(ChangeOwnEmailCommandType, handleChangeOwnEmail(users))
 	r.RegisterCommand(ChangeUserAddressCommandType, handleChangeUserAddress(users))
+	r.RegisterCommand(ChangeUserRoleCommandType, handleChangeUserRole(users))
 	r.RegisterCommand(SeedUserCommandType, handleSeedUser(users))
 	r.RegisterProjection(users)
 	return users
@@ -259,8 +273,14 @@ func handleRemoveUser(users *UsersProjection) command.Handler {
 		if !target.Active {
 			return nil, ErrNotRemovable
 		}
-		if target.Role != RoleBasic {
-			return nil, ErrTargetNotBasic
+		if reqUser.Role.AtLeast(RoleAdmin) {
+			if target.Role == RoleAdmin {
+				return nil, ErrNotRemovable
+			}
+		} else {
+			if target.Role != RoleBasic {
+				return nil, ErrTargetNotBasic
+			}
 		}
 
 		now := time.Now().UTC()
@@ -408,6 +428,68 @@ func handleChangeUserAddress(users *UsersProjection) command.Handler {
 			AggregateType: AggregateType,
 			AggregateID:   target.ID,
 			EventType:     UserAddressChangedEventType,
+			Payload:       payload,
+			OccurredAt:    now,
+		}}, nil
+	}
+}
+
+func handleChangeUserRole(users *UsersProjection) command.Handler {
+	return func(ctx context.Context, cmd command.Command) ([]eventstore.Event, error) {
+		var c ChangeUserRole
+		switch typed := cmd.(type) {
+		case ChangeUserRole:
+			c = typed
+		case *ChangeUserRole:
+			if typed == nil {
+				return nil, errors.New("user: command is nil")
+			}
+			c = *typed
+		default:
+			return nil, fmt.Errorf("user: expected ChangeUserRole, got %T", cmd)
+		}
+
+		requesterEmail, err := NormalizeEmail(c.RequesterEmail)
+		if err != nil {
+			return nil, ErrForbidden
+		}
+		reqUser, err := users.GetByEmail(ctx, requesterEmail)
+		if err != nil || !reqUser.Role.AtLeast(RoleAdmin) {
+			return nil, ErrForbidden
+		}
+
+		target, err := users.GetByID(ctx, c.UserID)
+		if err != nil {
+			if errors.Is(err, ErrUserNotFound) {
+				return nil, ErrUserNotFound
+			}
+			return nil, err
+		}
+
+		newRole := c.Role
+		if newRole == "" {
+			newRole = c.NewRole
+		}
+		if err := ValidateRole(newRole); err != nil {
+			return nil, err
+		}
+
+		now := time.Now().UTC()
+		payload, err := json.Marshal(UserRoleChangedPayload{
+			UserID:    target.ID,
+			OldRole:   target.Role,
+			NewRole:   newRole,
+			Role:      newRole,
+			ChangedBy: requesterEmail,
+			ChangedAt: now,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("user: marshal event: %w", err)
+		}
+		return []eventstore.Event{{
+			AggregateType: AggregateType,
+			AggregateID:   target.ID,
+			EventType:     UserRoleChangedEventType,
 			Payload:       payload,
 			OccurredAt:    now,
 		}}, nil

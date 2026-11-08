@@ -220,6 +220,49 @@ func HandleChangeUserAddress(svc *UserService) http.HandlerFunc {
 	}
 }
 
+// HandleChangeUserRole changes a user's role (admin only).
+func HandleChangeUserRole(svc *UserService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeUserError(w, http.StatusServiceUnavailable, "user unavailable")
+			return
+		}
+		caller, ok := auth.FromContext(r.Context())
+		if !ok {
+			writeUserError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		id := r.PathValue("id")
+		role, ok2 := svc.RoleOf(r.Context(), caller)
+		if !ok2 || !role.AtLeast(RoleAdmin) {
+			writeUserError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		var body struct {
+			Role    string `json:"role"`
+			NewRole string `json:"newRole"`
+			Newrole string `json:"new_role"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeUserError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		targetRole := body.Role
+		if targetRole == "" {
+			targetRole = body.NewRole
+		}
+		if targetRole == "" {
+			targetRole = body.Newrole
+		}
+		updated, err := svc.ChangeUserRole(r.Context(), id, targetRole, caller)
+		if err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		writeUserJSON(w, http.StatusOK, userToMap(updated))
+	}
+}
+
 func userToMap(u User) map[string]any {
 	m := map[string]any{
 		"id":         u.ID,

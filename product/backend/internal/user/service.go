@@ -179,3 +179,59 @@ func (s *UserService) ChangeUserAddress(ctx context.Context, userID, address, re
 func (s *UserService) ChangeAddress(ctx context.Context, userID, address, requesterEmail string) (User, error) {
 	return s.ChangeUserAddress(ctx, userID, address, requesterEmail)
 }
+
+// ChangeUserRole changes a user's role (admin only).
+func (s *UserService) ChangeUserRole(ctx context.Context, userID string, role any, requesterEmail string) (User, error) {
+	r, err := toRole(role)
+	if err != nil {
+		return User{}, err
+	}
+	if err := ValidateRole(r); err != nil {
+		return User{}, err
+	}
+	if err := s.commands.Execute(ctx, ChangeUserRole{
+		UserID:         userID,
+		Role:           r,
+		NewRole:        r,
+		RequesterEmail: requesterEmail,
+	}); err != nil {
+		return User{}, err
+	}
+	u, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return User{}, err
+	}
+	return u, nil
+}
+
+// toRole converts a role-like value to Role.
+func toRole(v any) (Role, error) {
+	switch t := v.(type) {
+	case Role:
+		return t, nil
+	case string:
+		return Role(t), nil
+	case *Role:
+		if t == nil {
+			return "", ErrInvalidRole
+		}
+		return *t, nil
+	default:
+		return "", ErrInvalidRole
+	}
+}
+
+// ChangeRole is an alias for ChangeUserRole.
+func (s *UserService) ChangeRole(ctx context.Context, userID string, role any, requesterEmail string) (User, error) {
+	return s.ChangeUserRole(ctx, userID, role, requesterEmail)
+}
+
+// UpdateUserRole is an alias for ChangeUserRole.
+func (s *UserService) UpdateUserRole(ctx context.Context, userID string, role any, requesterEmail string) (User, error) {
+	return s.ChangeUserRole(ctx, userID, role, requesterEmail)
+}
+
+// SetUserRole is an alias for ChangeUserRole.
+func (s *UserService) SetUserRole(ctx context.Context, userID string, role any, requesterEmail string) (User, error) {
+	return s.ChangeUserRole(ctx, userID, role, requesterEmail)
+}
