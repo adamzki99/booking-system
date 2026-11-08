@@ -21,6 +21,9 @@ type Config struct {
 
 	OTLPEndpoint    string
 	OTELServiceName string
+
+	DevMode       bool
+	SeedUsersFile string
 }
 
 // Load reads configuration from the environment.
@@ -45,6 +48,16 @@ func Load() Config {
 	if serviceName == "" {
 		serviceName = "booking-backend"
 	}
+	devMode := false
+	if v := os.Getenv("DEV_MODE"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err == nil {
+			devMode = b
+		} else {
+			// accept "true"/"1" loosely? test uses "true"
+			devMode = (v == "true" || v == "1" || v == "yes")
+		}
+	}
 	return Config{
 		Port:          port,
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
@@ -60,5 +73,8 @@ func Load() Config {
 
 		OTLPEndpoint:    os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		OTELServiceName: serviceName,
+
+		DevMode:       devMode,
+		SeedUsersFile: os.Getenv("SEED_USERS_FILE"),
 	}
 }

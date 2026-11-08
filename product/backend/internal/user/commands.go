@@ -23,6 +23,8 @@ const (
 	ChangeOwnEmailCommandType = "user.ChangeOwnEmail"
 	// ChangeUserAddressCommandType identifies ChangeUserAddress commands.
 	ChangeUserAddressCommandType = "user.ChangeUserAddress"
+	// SeedUserCommandType identifies SeedUser commands.
+	SeedUserCommandType = "user.SeedUser"
 )
 
 // BootstrapAdmin creates the first admin user.
@@ -72,6 +74,15 @@ type ChangeUserAddress struct {
 // CommandType implements command.Command.
 func (ChangeUserAddress) CommandType() string { return ChangeUserAddressCommandType }
 
+// SeedUserCommand creates a user with a given role (dev seeding only).
+type SeedUserCommand struct {
+	Email string
+	Role  Role
+}
+
+// CommandType implements command.Command.
+func (SeedUserCommand) CommandType() string { return SeedUserCommandType }
+
 // defaultUsers is the projection registered by Register; used by package-level helpers.
 var defaultUsers *UsersProjection
 
@@ -84,6 +95,7 @@ func Register(r *registry.Registry) *UsersProjection {
 	r.RegisterCommand(RemoveUserCommandType, handleRemoveUser(users))
 	r.RegisterCommand(ChangeOwnEmailCommandType, handleChangeOwnEmail(users))
 	r.RegisterCommand(ChangeUserAddressCommandType, handleChangeUserAddress(users))
+	r.RegisterCommand(SeedUserCommandType, handleSeedUser(users))
 	r.RegisterProjection(users)
 	return users
 }
@@ -396,6 +408,60 @@ func handleChangeUserAddress(users *UsersProjection) command.Handler {
 			AggregateType: AggregateType,
 			AggregateID:   target.ID,
 			EventType:     UserAddressChangedEventType,
+			Payload:       payload,
+			OccurredAt:    now,
+		}}, nil
+	}
+}
+
+func handleSeedUser(users *UsersProjection) command.Handler {
+	return func(ctx context.Context, cmd command.Command) ([]eventstore.Event, error) {
+		var su SeedUserCommand
+		switch typed := cmd.(type) {
+		case SeedUserCommand:
+			su = typed
+		case *SeedUserCommand:
+			if typed == nil {
+				return nil, errors.New("user: command is nil")
+			}
+			su = *typed
+		default:
+			return nil, fmt.Errorf("user: expected SeedUserCommand, got %T", cmd)
+		}
+
+		email, err := NormalizeEmail(su.Email)
+		if err != nil {
+			return nil, err
+		}
+		if err := ValidateRole(su.Role); err != nil {
+			return nil, err
+		}
+
+		if existing, err := users.GetByEmail(ctx, email); err == nil {
+			// already exists; do not overwrite
+			_ = existing
+			return nil, nil
+		} else if !errors.Is(err, ErrUserNotFound) {
+			return nil, err
+		}
+
+		now := time.Now().UTC()
+		id := NewID()
+		payload, err := json.Marshal(UserCreatedPayload{
+			UserID:    id,
+			Email:     email,
+			Role:      su.Role,
+			Address:   "",
+			CreatedBy: "system-seed",
+			CreatedAt: now,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("user: marshal event: %w", err)
+		}
+		return []eventstore.Event{{
+			AggregateType: AggregateType,
+			AggregateID:   id,
+			EventType:     UserCreatedEventType,
 			Payload:       payload,
 			OccurredAt:    now,
 		}}, nil
