@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -132,6 +133,19 @@ func TestRequestCodeRateLimited(t *testing.T) {
 		}
 	}
 	resp, _ := request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"alice@example.com"}`, nil)
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusTooManyRequests)
+	}
+}
+
+func TestCalendarFeedRateLimited(t *testing.T) {
+	ts, _ := newTestServer(t)
+	for i := 0; i < 30; i++ {
+		if resp, _ := request(t, ts, http.MethodGet, fmt.Sprintf("/calendar/unknown-token-%d.ics", i), "", nil); resp.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("request %d status = %d, want %d", i+1, resp.StatusCode, http.StatusServiceUnavailable)
+		}
+	}
+	resp, _ := request(t, ts, http.MethodGet, "/calendar/unknown-token-30.ics", "", nil)
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusTooManyRequests)
 	}
