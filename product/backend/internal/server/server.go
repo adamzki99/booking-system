@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -35,6 +36,8 @@ type Deps struct {
 	CalendarTokenService *ical.Service
 	CalendarTokens       *ical.CalendarTokenProjection
 	Bookings             *booking.BookingsProjection
+
+	SidecarURL string
 }
 
 // NewMux builds the HTTP router.
@@ -68,6 +71,9 @@ func NewMux(deps Deps) *http.ServeMux {
 
 	// Regenerate calendar token (authenticated).
 	mux.Handle("POST /account/calendar-token", protect(deps.Middleware, ical.HandleRegenerateToken(icalServiceFromDeps(deps), deps.UserService)))
+
+	// Chrome info (authenticated; sourced from sidecar).
+	mux.Handle("GET /chrome", protect(deps.Middleware, handleChrome(deps.SidecarURL)))
 	return mux
 }
 
@@ -152,6 +158,43 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"email": email})
+}
+
+type chromeResponse struct {
+	Header string `json:"header"`
+	Footer string `json:"footer"`
+}
+
+func handleChrome(sidecarURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if sidecarURL == "" {
+			writeJSON(w, http.StatusOK, chromeResponse{})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, sidecarURL+"/functions/chrome", nil)
+		if err != nil {
+			writeJSON(w, http.StatusOK, chromeResponse{})
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			writeJSON(w, http.StatusOK, chromeResponse{})
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			writeJSON(w, http.StatusOK, chromeResponse{})
+			return
+		}
+		var out chromeResponse
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			writeJSON(w, http.StatusOK, chromeResponse{})
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
 }
 
 func protect(mw *auth.SessionMiddleware, next http.HandlerFunc) http.Handler {

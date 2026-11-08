@@ -26,6 +26,7 @@ func NewMux(deps ...Deps) *http.ServeMux {
 	loc := bookingLocation(deps...)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("GET /functions/chrome", handleChrome)
 	mux.HandleFunc("POST /functions/echo", handleEcho)
 	mux.HandleFunc("POST /functions/validate-booking", handleValidateBooking(loc))
 	return mux
@@ -127,6 +128,18 @@ func bookingLocation(deps ...Deps) *time.Location {
 		return time.UTC
 	}
 	return loc
+}
+
+type chromeResponse struct {
+	Header string `json:"header"`
+	Footer string `json:"footer"`
+}
+
+func handleChrome(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, chromeResponse{
+		Header: "Sauna booking system",
+		Footer: "Homeowner association sauna",
+	})
 }
 
 func decodeJSON(r *http.Request, dst any) error {
