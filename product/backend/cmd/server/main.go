@@ -21,6 +21,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 	"github.com/adamzki99/booking-system/product/backend/internal/sample"
 	"github.com/adamzki99/booking-system/product/backend/internal/server"
+	"github.com/adamzki99/booking-system/product/backend/internal/sidecar"
 	"github.com/adamzki99/booking-system/product/backend/internal/telemetry"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 
@@ -64,7 +65,11 @@ func main() {
 		sample.Register(app)
 		projections := auth.Register(app)
 		userProjections := user.Register(app)
-		bookings, blocked := booking.Register(app, userProjections)
+		var rules booking.BookingRules
+		if cfg.SidecarURL != "" {
+			rules = sidecar.NewRulesClient(cfg.SidecarURL, logger)
+		}
+		bookings, blocked := booking.Register(app, userProjections, rules)
 		booking.RegisterNotify(app, mailer, userProjections, bookings, logger)
 		broadcast.Register(app, userProjections)
 		broadcast.RegisterNotify(app, mailer, userProjections, logger)

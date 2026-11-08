@@ -12,7 +12,7 @@ import (
 
 func TestHandleCreateBookingEmitsCreatedEvent(t *testing.T) {
 	bookings := &fakeBookingsReader{byID: map[string]Booking{}}
-	handler := handleCreateBooking(bookings, nil, nil)
+	handler := handleCreateBooking(bookings, nil, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	end := start.Add(time.Hour)
@@ -52,7 +52,7 @@ func TestHandleCreateBookingEmitsCreatedEvent(t *testing.T) {
 
 func TestHandleCreateBookingGeneratesID(t *testing.T) {
 	bookings := &fakeBookingsReader{}
-	handler := handleCreateBooking(bookings, nil, nil)
+	handler := handleCreateBooking(bookings, nil, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	events, err := handler(context.Background(), CreateBooking{
@@ -70,7 +70,7 @@ func TestHandleCreateBookingGeneratesID(t *testing.T) {
 
 func TestHandleCreateBookingRejectsDoubleBooking(t *testing.T) {
 	bookings := &fakeBookingsReader{overlap: true}
-	handler := handleCreateBooking(bookings, nil, nil)
+	handler := handleCreateBooking(bookings, nil, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	_, err := handler(context.Background(), CreateBooking{
@@ -85,7 +85,7 @@ func TestHandleCreateBookingRejectsDoubleBooking(t *testing.T) {
 
 func TestHandleCreateBookingRejectsInvalidInterval(t *testing.T) {
 	bookings := &fakeBookingsReader{}
-	handler := handleCreateBooking(bookings, nil, nil)
+	handler := handleCreateBooking(bookings, nil, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	_, err := handler(context.Background(), CreateBooking{
@@ -100,7 +100,7 @@ func TestHandleCreateBookingRejectsInvalidInterval(t *testing.T) {
 
 func TestHandleCreateBookingRequiresUser(t *testing.T) {
 	bookings := &fakeBookingsReader{}
-	handler := handleCreateBooking(bookings, nil, nil)
+	handler := handleCreateBooking(bookings, nil, nil, nil)
 
 	start := time.Now().Add(24 * time.Hour)
 	_, err := handler(context.Background(), CreateBooking{
@@ -279,5 +279,21 @@ func TestHandleCancelOwnBookingRejectsUnknown(t *testing.T) {
 	})
 	if !errors.Is(err, ErrBookingNotFound) {
 		t.Fatalf("expected ErrBookingNotFound, got %v", err)
+	}
+}
+
+func TestHandleCreateBookingRejectsRuleViolation(t *testing.T) {
+	bookings := &fakeBookingsReader{}
+	rules := &fakeRules{err: ErrBookingRuleViolation}
+	handler := handleCreateBooking(bookings, nil, nil, rules)
+
+	start := time.Now().Add(24 * time.Hour)
+	_, err := handler(context.Background(), CreateBooking{
+		UserID: "user-1",
+		Start:  start,
+		End:    start.Add(time.Hour),
+	})
+	if !errors.Is(err, ErrBookingRuleViolation) {
+		t.Fatalf("expected ErrBookingRuleViolation, got %v", err)
 	}
 }
