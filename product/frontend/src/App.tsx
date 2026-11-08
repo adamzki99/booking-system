@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { RequireSession } from "./RequireSession";
+import AppShell from "./components/AppShell";
 import Account from "./pages/Account";
 import Calendar from "./pages/Calendar";
 import Login from "./pages/Login";
@@ -13,7 +14,9 @@ export default function App() {
         path="/"
         element={
           <RequireSession>
-            <Calendar />
+            <AppShell>
+              <Calendar />
+            </AppShell>
           </RequireSession>
         }
       />
@@ -21,7 +24,9 @@ export default function App() {
         path="/account"
         element={
           <RequireSession>
-            <Account />
+            <AppShell>
+              <Account />
+            </AppShell>
           </RequireSession>
         }
       />
@@ -29,7 +34,9 @@ export default function App() {
         path="/users"
         element={
           <RequireSession>
-            <Users />
+            <AppShell>
+              <Users />
+            </AppShell>
           </RequireSession>
         }
       />

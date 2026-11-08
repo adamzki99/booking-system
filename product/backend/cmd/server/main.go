@@ -108,6 +108,8 @@ func main() {
 		logger.Info("event store and projections ready")
 	}
 
+	deps.SidecarURL = cfg.SidecarURL
+
 	srv := server.New(cfg, logger, deps)
 	logger.Info("starting server", "port", cfg.Port)
 
