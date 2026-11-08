@@ -76,6 +76,13 @@ func main() {
 		}
 
 		userService := user.NewService(app.Commands, userProjections)
+		if n, err := user.SeedDevUsers(context.Background(), userService, cfg.DevMode, cfg.SeedUsersFile); err != nil {
+			pool.Close()
+			logger.Error("seed dev users", "err", err)
+			os.Exit(1)
+		} else if n > 0 {
+			logger.Info("seeded dev users", "count", n)
+		}
 		bookingService := booking.NewService(app.Commands, bookings, userProjections, blocked)
 		broadcastService := broadcast.NewService(app.Commands, userProjections)
 		icalService := ical.NewService(app.Commands, icalProjections)
