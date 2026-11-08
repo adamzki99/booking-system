@@ -16,12 +16,15 @@ const (
 	UserEmailChangedEventType = "user.email_changed"
 	// UserAddressChangedEventType records an address change.
 	UserAddressChangedEventType = "user.address_changed"
+	// UserRoleChangedEventType records a role change.
+	UserRoleChangedEventType = "user.role_changed"
 
 	// Aliases.
 	CreatedEventType        = "user.created"
 	RemovedEventType        = "user.removed"
 	EmailChangedEventType   = "user.email_changed"
 	AddressChangedEventType = "user.address_changed"
+	RoleChangedEventType    = "user.role_changed"
 )
 
 // UserCreatedPayload is the payload for user.created events.
@@ -53,6 +56,16 @@ type UserEmailChangedPayload struct {
 type UserAddressChangedPayload struct {
 	UserID    string    `json:"user_id"`
 	Address   string    `json:"address"`
+	ChangedBy string    `json:"changed_by"`
+	ChangedAt time.Time `json:"changed_at"`
+}
+
+// UserRoleChangedPayload is the payload for user.role_changed events.
+type UserRoleChangedPayload struct {
+	UserID    string    `json:"user_id"`
+	OldRole   Role      `json:"old_role"`
+	NewRole   Role      `json:"new_role"`
+	Role      Role      `json:"role"`
 	ChangedBy string    `json:"changed_by"`
 	ChangedAt time.Time `json:"changed_at"`
 }

@@ -86,6 +86,22 @@ func (p *UsersProjection) Apply(ctx context.Context, event eventstore.Event) err
 		if err != nil {
 			return fmt.Errorf("user projection: apply address change event %d: %w", event.ID, err)
 		}
+	case UserRoleChangedEventType:
+		var payload UserRoleChangedPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return fmt.Errorf("user projection: decode event %d: %w", event.ID, err)
+		}
+		role := payload.NewRole
+		if role == "" {
+			role = payload.Role
+		}
+		_, err := p.pool.Exec(ctx,
+			`UPDATE users SET role = $2, updated_at = $3 WHERE id = $1`,
+			payload.UserID, string(role), payload.ChangedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("user projection: apply role change event %d: %w", event.ID, err)
+		}
 	}
 	return nil
 }

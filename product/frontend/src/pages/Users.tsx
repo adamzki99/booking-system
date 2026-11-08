@@ -2,13 +2,17 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { errorMessage } from "../api/client";
 import type { User } from "../api/auth";
-import { listUsers, addUser, removeUser, changeUserAddress } from "../api/users";
+import { listUsers, addUser, removeUser, changeUserAddress, changeUserRole } from "../api/users";
 import { blockTimePeriod } from "../api/bookings";
 import { broadcastMessage } from "../api/broadcast";
 import { useSession } from "../auth/SessionContext";
 
 function isSuper(user: User | null): boolean {
   return user?.role === "super" || user?.role === "admin";
+}
+
+function isAdmin(user: User | null): boolean {
+  return user?.role === "admin";
 }
 
 export default function Users() {
@@ -24,6 +28,10 @@ export default function Users() {
   const [addressUserId, setAddressUserId] = useState("");
   const [addressValue, setAddressValue] = useState("");
 
+  // change role (admin only)
+  const [roleUserId, setRoleUserId] = useState("");
+  const [roleValue, setRoleValue] = useState("basic");
+
   // block period
   const [blockStart, setBlockStart] = useState("");
   const [blockEnd, setBlockEnd] = useState("");
@@ -33,6 +41,7 @@ export default function Users() {
   const [body, setBody] = useState("");
 
   const superUser = isSuper(user);
+  const adminUser = isAdmin(user);
 
   async function refresh() {
     try {
@@ -77,6 +86,18 @@ export default function Users() {
       await refresh();
     } catch (err) {
       setError(errorMessage(err, "could not change address"));
+    }
+  }
+
+  async function onChangeRole(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await changeUserRole(roleUserId, roleValue);
+      setRoleUserId("");
+      setRoleValue("basic");
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err, "could not change role"));
     }
   }
 
@@ -125,7 +146,7 @@ export default function Users() {
               <td>{u.role}</td>
               <td>{u.address}</td>
               <td>{String(u.active)}</td>
-              {superUser && u.role === "basic" && (
+              {superUser && (u.role === "basic" || (adminUser && u.role === "super")) && (
                 <td>
                   <button type="button" onClick={() => void onRemove(u.id)}>
                     Remove
@@ -164,6 +185,27 @@ export default function Users() {
             </label>
             <button type="submit">Change address</button>
           </form>
+
+          {adminUser && (
+            <>
+              <h2>Change role (admin)</h2>
+              <form onSubmit={onChangeRole}>
+                <label>
+                  User id
+                  <input value={roleUserId} onChange={(e) => setRoleUserId(e.target.value)} required />
+                </label>
+                <label>
+                  Role
+                  <select value={roleValue} onChange={(e) => setRoleValue(e.target.value)}>
+                    <option value="basic">basic</option>
+                    <option value="super">super</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </label>
+                <button type="submit">Change role</button>
+              </form>
+            </>
+          )}
 
           <h2>Block time period</h2>
           <form onSubmit={onBlock}>
