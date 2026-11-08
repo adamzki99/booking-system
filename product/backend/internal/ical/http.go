@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -11,7 +12,17 @@ import (
 
 	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/booking"
+	"github.com/adamzki99/booking-system/product/backend/internal/ratelimit"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
+)
+
+// Feed rate limits mirror the auth verify limits: 30 requests per client IP
+// per hour, and 10 requests per token per 15-minute window.
+const (
+	feedIPLimit     = 30
+	feedIPWindow    = time.Hour
+	feedTokenLimit  = 10
+	feedTokenWindow = 15 * time.Minute
 )
 
 // BookingsReader is the part of the bookings read model the feed needs.
@@ -19,17 +30,25 @@ type BookingsReader interface {
 	ListByUser(ctx context.Context, userID string) ([]booking.Booking, error)
 }
 
-// HandleFeed serves the iCal feed for a token.
-func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader) http.HandlerFunc {
+// HandleFeed serves the iCal feed for a token. A non-nil limiter rate limits
+// requests by client IP and token hash and responds 429 when exceeded; a nil
+// limiter disables rate limiting.
+func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if tokens == nil {
-			http.Error(w, "ical unavailable", http.StatusServiceUnavailable)
-			return
-		}
 		token := r.PathValue("token")
 		if token == "" {
 			token = strings.TrimPrefix(r.URL.Path, "/calendar/")
 			token = strings.TrimSuffix(token, ".ics")
+		}
+		if limiter != nil {
+			if !feedAllows(r, token, limiter) {
+				http.Error(w, "rate limited", http.StatusTooManyRequests)
+				return
+			}
+		}
+		if tokens == nil {
+			http.Error(w, "ical unavailable", http.StatusServiceUnavailable)
+			return
 		}
 		userID, err := tokens.UserIDByTokenHash(r.Context(), HashToken(token))
 		if err != nil {
@@ -51,15 +70,39 @@ func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader) http.H
 	}
 }
 
+// feedAllows reports whether the request under the client's IP and the given
+// token may proceed. Denied requests are left uncounted for that key.
+func feedAllows(r *http.Request, token string, limiter *ratelimit.Limiter) bool {
+	if !limiter.Allow(feedIPKey(clientIP(r)), feedIPLimit, feedIPWindow) {
+		return false
+	}
+	if !limiter.Allow(feedTokenKey(HashToken(token)), feedTokenLimit, feedTokenWindow) {
+		return false
+	}
+	return true
+}
+
+func feedIPKey(ip string) string      { return "ical:ip:" + ip }
+func feedTokenKey(hash string) string { return "ical:token:" + hash }
+
+// clientIP extracts the host of the request's remote address.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 // Aliases for handler name.
-func HandleCalendarFeed(tokens *CalendarTokenProjection, bookings BookingsReader) http.HandlerFunc {
-	return HandleFeed(tokens, bookings)
+func HandleCalendarFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter) http.HandlerFunc {
+	return HandleFeed(tokens, bookings, limiter)
 }
-func HandleICalFeed(tokens *CalendarTokenProjection, bookings BookingsReader) http.HandlerFunc {
-	return HandleFeed(tokens, bookings)
+func HandleICalFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter) http.HandlerFunc {
+	return HandleFeed(tokens, bookings, limiter)
 }
-func HandleCalendar(tokens *CalendarTokenProjection, bookings BookingsReader) http.HandlerFunc {
-	return HandleFeed(tokens, bookings)
+func HandleCalendar(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter) http.HandlerFunc {
+	return HandleFeed(tokens, bookings, limiter)
 }
 
 // userResolver resolves a user from an email.

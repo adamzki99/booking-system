@@ -16,6 +16,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/broadcast"
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
 	"github.com/adamzki99/booking-system/product/backend/internal/ical"
+	"github.com/adamzki99/booking-system/product/backend/internal/ratelimit"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -62,8 +63,8 @@ func NewMux(deps Deps) *http.ServeMux {
 	// Broadcast endpoint (super users only; requires a valid session).
 	mux.Handle("POST /broadcast", protect(deps.Middleware, broadcast.HandleBroadcast(deps.BroadcastService)))
 
-	// iCal feed (unauthenticated; token is the credential).
-	mux.HandleFunc("GET /calendar/", ical.HandleFeed(deps.CalendarTokens, deps.Bookings))
+	// iCal feed (unauthenticated; token is the credential; rate limited by IP and token).
+	mux.HandleFunc("GET /calendar/", ical.HandleFeed(deps.CalendarTokens, deps.Bookings, ratelimit.NewLimiter()))
 
 	// Regenerate calendar token (authenticated).
 	mux.Handle("POST /account/calendar-token", protect(deps.Middleware, ical.HandleRegenerateToken(icalServiceFromDeps(deps), deps.UserService)))
