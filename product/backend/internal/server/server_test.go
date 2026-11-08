@@ -35,7 +35,7 @@ func (s *captureSender) Send(_ context.Context, _, _ string, body string) error 
 	return nil
 }
 
-func newTestServer(t *testing.T) (*httptest.Server, *captureSender) {
+func newTestServer(t *testing.T, sidecarURL ...string) (*httptest.Server, *captureSender) {
 	t.Helper()
 	ctx := context.Background()
 	pool := newServerTestPool(t)
@@ -50,6 +50,9 @@ func newTestServer(t *testing.T) (*httptest.Server, *captureSender) {
 	svc := auth.NewService(app.Commands, sender, ratelimit.NewLimiter())
 	mw := auth.NewSessionMiddleware(projections.Sessions)
 	deps := server.Deps{Auth: svc, Middleware: mw}
+	if len(sidecarURL) > 0 {
+		deps.SidecarURL = sidecarURL[0]
+	}
 
 	ts := httptest.NewServer(server.NewMux(deps))
 	t.Cleanup(ts.Close)
@@ -149,6 +152,101 @@ func TestCalendarFeedRateLimited(t *testing.T) {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusTooManyRequests)
 	}
+}
+
+func TestChromeRequiresSession(t *testing.T) {
+	ts, _ := newTestServer(t)
+	resp, _ := request(t, ts, http.MethodGet, "/chrome", "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestChromeFallbackWhenSidecarEmpty(t *testing.T) {
+	ts, sender := newTestServer(t)
+	token := verifyToken(t, ts, sender)
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+
+	resp, body := request(t, ts, http.MethodGet, "/chrome", "", header)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
+	}
+	var out struct {
+		Header string `json:"header"`
+		Footer string `json:"footer"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Header != "" || out.Footer != "" {
+		t.Fatalf("expected empty fallback, got %+v", out)
+	}
+}
+
+func TestChromeProxiesSidecar(t *testing.T) {
+	sidecarTS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/functions/chrome" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"header":"H","footer":"F"}`))
+	}))
+	defer sidecarTS.Close()
+
+	ts, sender := newTestServer(t, sidecarTS.URL)
+	token := verifyToken(t, ts, sender)
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+
+	resp, body := request(t, ts, http.MethodGet, "/chrome", "", header)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
+	}
+	var out struct {
+		Header string `json:"header"`
+		Footer string `json:"footer"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Header != "H" || out.Footer != "F" {
+		t.Fatalf("got %+v, want H/F", out)
+	}
+}
+
+func TestChromeFallbackWhenSidecarErrors(t *testing.T) {
+	sidecarTS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer sidecarTS.Close()
+
+	ts, sender := newTestServer(t, sidecarTS.URL)
+	token := verifyToken(t, ts, sender)
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+
+	resp, body := request(t, ts, http.MethodGet, "/chrome", "", header)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
+	}
+}
+
+func verifyToken(t *testing.T, ts *httptest.Server, sender *captureSender) string {
+	t.Helper()
+	resp, _ := request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"alice@example.com"}`, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("request-code status = %d", resp.StatusCode)
+	}
+	code := sender.body
+	resp, body := request(t, ts, http.MethodPost, "/auth/verify", `{"email":"alice@example.com","code":"`+code+`"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("verify status = %d (body %s)", resp.StatusCode, body)
+	}
+	var verify struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &verify); err != nil {
+		t.Fatal(err)
+	}
+	return verify.Token
 }
 
 func request(t *testing.T, ts *httptest.Server, method, path, body string, header http.Header) (*http.Response, []byte) {

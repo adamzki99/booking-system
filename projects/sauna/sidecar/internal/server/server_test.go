@@ -69,6 +69,26 @@ func TestEchoBadInput(t *testing.T) {
 	}
 }
 
+func TestChrome(t *testing.T) {
+	ts := httptest.NewServer(server.NewMux())
+	defer ts.Close()
+
+	resp, body := doRequest(t, ts, http.MethodGet, "/functions/chrome", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
+	}
+	var out struct {
+		Header string `json:"header"`
+		Footer string `json:"footer"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Header == "" || out.Footer == "" {
+		t.Fatalf("expected non-empty header/footer, got %+v", out)
+	}
+}
+
 func doRequest(t *testing.T, ts *httptest.Server, method, path, body string) (*http.Response, []byte) {
 	t.Helper()
 	var rd io.Reader
