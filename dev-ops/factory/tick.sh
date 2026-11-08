@@ -686,8 +686,25 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   return "$status"
 }
 
-# Keep remote refs current
-git fetch --quiet --prune origin 2>/dev/null || log "warning: git fetch origin failed; continuing with cached refs"
+# Run all factory work in an isolated git worktree so the primary checkout
+# (and any in-progress user work) is never touched by build/fix sessions.
+FACTORY_WORKTREE="${FACTORY_WORKTREE:-${REPO_ROOT%/*}/booking-system-factory-worktree}"
+if [[ ! -e "$FACTORY_WORKTREE/.git" ]]; then
+  git worktree add --detach "$FACTORY_WORKTREE" origin/main 2>/dev/null \
+    || log "warning: could not create factory worktree; continuing in $REPO_ROOT"
+fi
+if [[ -d "$FACTORY_WORKTREE" ]]; then
+  # Keep remote refs current so sessions branch from the latest origin/main
+  # rather than a stale local base.
+  git -C "$FACTORY_WORKTREE" fetch --quiet --prune origin 2>/dev/null \
+    || log "warning: git fetch origin failed in worktree; continuing with cached refs"
+  git -C "$FACTORY_WORKTREE" checkout -f --detach origin/main >/dev/null 2>&1 || true
+  git -C "$FACTORY_WORKTREE" reset --hard origin/main >/dev/null 2>&1 || true
+  git -C "$FACTORY_WORKTREE" clean -fdx >/dev/null 2>&1 || true
+  cd "$FACTORY_WORKTREE"
+else
+  git fetch --quiet --prune origin 2>/dev/null || log "warning: git fetch origin failed; continuing with cached refs"
+fi
 
 plan_issue="$(oldest_unlabeled_issue)"
 if [[ -n "$plan_issue" && "$(has_marker "$plan_issue" "$PLAN_MARKER")" == "true" ]]; then
