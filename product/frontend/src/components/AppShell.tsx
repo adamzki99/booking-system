@@ -9,11 +9,54 @@ export interface AppShellProps {
   children: ReactNode;
 }
 
+const REDEPLOY_TICK_MS = 30_000;
+
+/** Formats the time until the next redeploy, or "" when there is no valid time. */
+export function formatRedeployCountdown(nextRedeploy: string, now: number): string {
+  const target = Date.parse(nextRedeploy);
+  if (Number.isNaN(target)) return "";
+  const diff = target - now;
+  if (diff <= 0) return "Next redeploy due now";
+  const totalMinutes = Math.floor(diff / 60_000);
+  if (totalMinutes < 1) return "Next redeploy in <1m";
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (days === 0 && minutes > 0) parts.push(`${minutes}m`);
+  return `Next redeploy in ${parts.join(" ")}`;
+}
+
+function RedeployIndicator({ nextRedeploy }: { nextRedeploy: string }) {
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!nextRedeploy) return;
+    const id = window.setInterval(() => setNow(Date.now()), REDEPLOY_TICK_MS);
+    return () => window.clearInterval(id);
+  }, [nextRedeploy]);
+
+  const label = formatRedeployCountdown(nextRedeploy, now);
+  if (!label) return null;
+  const target = Date.parse(nextRedeploy);
+  return (
+    <Text
+      fontSize="sm"
+      color="gray.600"
+      data-testid="redeploy-indicator"
+      title={new Date(target).toLocaleString()}
+    >
+      {label}
+    </Text>
+  );
+}
+
 export function AppShell({ children }: AppShellProps) {
   const { logout } = useSession();
   const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(true);
-  const [chrome, setChrome] = useState<ChromeInfo>({ header: "", footer: "" });
+  const [chrome, setChrome] = useState<ChromeInfo>({ header: "", footer: "", nextRedeploy: "" });
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +82,7 @@ export function AppShell({ children }: AppShellProps) {
       <Flex direction="column" gap={4}>
         <Box as="header">
           <Text>{chrome.header}</Text>
+          <RedeployIndicator nextRedeploy={chrome.nextRedeploy} />
         </Box>
         <Button
           size="sm"

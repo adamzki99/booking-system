@@ -22,6 +22,9 @@ type Deps struct {
 	Timezone string
 	// Capacity is the max concurrent overlapping bookings.
 	Capacity int
+	// RedeployTimes lists daily redeploy times in "HH:MM" form, in Timezone.
+	// Empty hides the indicator (e.g. production).
+	RedeployTimes []string
 }
 
 // NewMux builds the HTTP router.
@@ -31,9 +34,13 @@ func NewMux(deps ...Deps) *http.ServeMux {
 	if len(deps) > 0 && deps[0].Capacity != 0 {
 		capacity = deps[0].Capacity
 	}
+	var redeployTimes []string
+	if len(deps) > 0 {
+		redeployTimes = deps[0].RedeployTimes
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.HandleFunc("GET /functions/chrome", handleChrome)
+	mux.HandleFunc("GET /functions/chrome", handleChrome(loc, redeployTimes))
 	mux.HandleFunc("POST /functions/echo", handleEcho)
 	mux.HandleFunc("POST /functions/validate-booking", handleValidateBooking(loc, capacity))
 	return mux
@@ -42,14 +49,19 @@ func NewMux(deps ...Deps) *http.ServeMux {
 // New creates an *http.Server wired with sensible timeouts.
 func New(cfg config.Config, logger *slog.Logger, deps ...Deps) *http.Server {
 	if len(deps) == 0 {
-		deps = []Deps{{Timezone: cfg.BookingTimezone, Capacity: cfg.Capacity}}
-	} else if deps[0].Timezone == "" {
-		deps[0].Timezone = cfg.BookingTimezone
-	}
-	if len(deps) > 0 && deps[0].Capacity == 0 {
-		deps[0].Capacity = cfg.Capacity
+		deps = []Deps{{Timezone: cfg.BookingTimezone, Capacity: cfg.Capacity, RedeployTimes: cfg.RedeployTimes}}
+	} else {
+		if deps[0].Timezone == "" {
+			deps[0].Timezone = cfg.BookingTimezone
+		}
 		if deps[0].Capacity == 0 {
-			deps[0].Capacity = 1
+			deps[0].Capacity = cfg.Capacity
+			if deps[0].Capacity == 0 {
+				deps[0].Capacity = 1
+			}
+		}
+		if len(deps[0].RedeployTimes) == 0 {
+			deps[0].RedeployTimes = cfg.RedeployTimes
 		}
 	}
 	return &http.Server{
@@ -180,15 +192,43 @@ func bookingLocation(deps ...Deps) *time.Location {
 }
 
 type chromeResponse struct {
-	Header string `json:"header"`
-	Footer string `json:"footer"`
+	Header       string `json:"header"`
+	Footer       string `json:"footer"`
+	NextRedeploy string `json:"nextRedeploy"`
 }
 
-func handleChrome(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, chromeResponse{
-		Header: "Sauna booking system",
-		Footer: "Homeowner association sauna",
-	})
+func handleChrome(loc *time.Location, redeployTimes []string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, chromeResponse{
+			Header:       "Sauna booking system",
+			Footer:       "Homeowner association sauna",
+			NextRedeploy: NextRedeploy(time.Now(), redeployTimes, loc),
+		})
+	}
+}
+
+// NextRedeploy returns the next scheduled redeploy time after now as an
+// RFC3339 timestamp, or an empty string when no valid schedule is configured.
+func NextRedeploy(now time.Time, redeployTimes []string, loc *time.Location) string {
+	now = now.In(loc)
+	var next time.Time
+	for _, raw := range redeployTimes {
+		hhmm, err := time.Parse("15:04", raw)
+		if err != nil {
+			continue
+		}
+		candidate := time.Date(now.Year(), now.Month(), now.Day(), hhmm.Hour(), hhmm.Minute(), 0, 0, loc)
+		if !candidate.After(now) {
+			candidate = candidate.AddDate(0, 0, 1)
+		}
+		if next.IsZero() || candidate.Before(next) {
+			next = candidate
+		}
+	}
+	if next.IsZero() {
+		return ""
+	}
+	return next.Format(time.RFC3339)
 }
 
 func decodeJSON(r *http.Request, dst any) error {

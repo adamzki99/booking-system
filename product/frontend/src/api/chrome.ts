@@ -4,6 +4,8 @@ import { get } from "./client";
 export interface ChromeInfo {
   header: string;
   footer: string;
+  /** Next scheduled redeploy (RFC3339), or empty when no schedule is exposed. */
+  nextRedeploy: string;
 }
 
 /** Fetches header/footer content from the backend (which proxies the sidecar). */

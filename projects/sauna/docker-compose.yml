@@ -57,6 +57,9 @@ services:
       PORT: "8081"
       BOOKING_TIMEZONE: ${BOOKING_TIMEZONE:-Europe/Stockholm}
       SAUNA_CAPACITY: ${SAUNA_CAPACITY:-1}
+      # Comma-separated daily redeploy times (HH:MM, BOOKING_TIMEZONE).
+      # Leave empty in production to hide the header countdown.
+      REDEPLOY_TIMES: ${REDEPLOY_TIMES:-}
     restart: unless-stopped
 
   postgres:
