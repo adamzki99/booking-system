@@ -172,13 +172,14 @@ func TestChromeFallbackWhenSidecarEmpty(t *testing.T) {
 		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
 	}
 	var out struct {
-		Header string `json:"header"`
-		Footer string `json:"footer"`
+		Header       string `json:"header"`
+		Footer       string `json:"footer"`
+		NextRedeploy string `json:"nextRedeploy"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Header != "" || out.Footer != "" {
+	if out.Header != "" || out.Footer != "" || out.NextRedeploy != "" {
 		t.Fatalf("expected empty fallback, got %+v", out)
 	}
 }
@@ -189,7 +190,7 @@ func TestChromeProxiesSidecar(t *testing.T) {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"header":"H","footer":"F"}`))
+		_, _ = w.Write([]byte(`{"header":"H","footer":"F","nextRedeploy":"2026-11-10T00:00:00+01:00"}`))
 	}))
 	defer sidecarTS.Close()
 
@@ -202,14 +203,18 @@ func TestChromeProxiesSidecar(t *testing.T) {
 		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
 	}
 	var out struct {
-		Header string `json:"header"`
-		Footer string `json:"footer"`
+		Header       string `json:"header"`
+		Footer       string `json:"footer"`
+		NextRedeploy string `json:"nextRedeploy"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.Header != "H" || out.Footer != "F" {
 		t.Fatalf("got %+v, want H/F", out)
+	}
+	if out.NextRedeploy != "2026-11-10T00:00:00+01:00" {
+		t.Fatalf("nextRedeploy = %q, want pass-through", out.NextRedeploy)
 	}
 }
 

@@ -162,8 +162,9 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 type chromeResponse struct {
-	Header string `json:"header"`
-	Footer string `json:"footer"`
+	Header       string `json:"header"`
+	Footer       string `json:"footer"`
+	NextRedeploy string `json:"nextRedeploy"`
 }
 
 func handleChrome(sidecarURL string) http.HandlerFunc {
