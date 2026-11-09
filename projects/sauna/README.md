@@ -115,7 +115,9 @@ and starts the stack, then prints the Caddy URL and `docker compose ps`.
 
 ### Service / health endpoints
 
-- Caddy (entrypoint): `http://<host>:${PORT:-8080}`
+- Caddy (entrypoint, HTTP): `http://<host>:${PORT:-8080}`
+- Caddy (public, HTTPS): `https://${SITE_ADDRESS:-localhost}` when `SITE_ADDRESS`
+  is set — see [Let's Encrypt TLS](#lets-encrypt-tls).
 - Backend health: `http://<host>:${PORT:-8080}/api/...` (direct: backend:8080 `/healthz`)
 - Sidecar health: sidecar:8081 `/healthz`
 
@@ -141,3 +143,13 @@ For exposing a self-hosted instance publicly over HTTPS via Cloudflare Tunnels,
 follow [`../../dev-ops/self-hosting-cloudflare-tunnel.md`](../../dev-ops/self-hosting-cloudflare-tunnel.md).
 Keep tunnel tokens, public hostnames, and other deployment-specific values in
 sauna deployment config/environment (not in `product/`).
+
+### Let's Encrypt TLS
+
+Each environment serves HTTPS with its own Let's Encrypt certificate, issued and
+auto-renewed by Caddy over ACME. Set `SITE_ADDRESS` (public FQDN), `ACME_EMAIL`,
+and optionally `ACME_CA` (staging) in `.env`; Caddy publishes `80`/`443` for the
+HTTP-01 challenge and stores certificate state in the per-environment
+`caddy-data` volume. See [`../../dev-ops/tls-letsencrypt.md`](../../dev-ops/tls-letsencrypt.md)
+for DNS requirements, staging, rate limits, and verification. With `SITE_ADDRESS`
+unset, Caddy serves an internal self-signed certificate for `localhost`.

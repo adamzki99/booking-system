@@ -9,7 +9,19 @@ services:
   caddy:
     image: caddy:2-alpine
     ports:
+      # ${PORT} is the health-checked HTTP listener used by deploy-environment.sh.
+      # 80/443 are published directly (fixed) so Let's Encrypt can answer the
+      # HTTP-01 challenge on port 80 and serve the issued certificate for
+      # ${SITE_ADDRESS} on 443.
       - "${PORT:-8080}:80"
+      - "80:80"
+      - "443:443"
+    environment:
+      # Defaults keep Caddy valid for local runs: "localhost" serves Caddy's
+      # internal self-signed certificate and no ACME is attempted.
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
+      ACME_CA: ${ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
     volumes:
       - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -87,6 +99,11 @@ services:
     restart: unless-stopped
 
 volumes:
+  # Per-environment certificate store. Each compose project (booking-qa,
+  # booking-prod, ...) gets its own volume, so ACME accounts, certificates and
+  # private keys are never shared between environments. Certificates live at
+  # /data/caddy/certificates inside the caddy container.
   caddy-data:
+    name: ${COMPOSE_PROJECT_NAME:-sauna}-caddy-data
   frontend-dist:
   postgres-data:

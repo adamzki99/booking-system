@@ -1,7 +1,21 @@
 # Sauna booking — Caddy configuration.
 # Serves the React SPA and proxies API calls to the backend.
+#
+# TLS: the public FQDN comes from the SITE_ADDRESS environment variable. Caddy
+# obtains and auto-renews a Let's Encrypt certificate for it (see ACME_EMAIL
+# and ACME_CA in .env.example). Each environment sets its own SITE_ADDRESS and
+# ACME_EMAIL, and its own caddy-data volume holds that environment's ACME
+# account and certificate store, so prod and dev/QA never share certs or keys.
+# When SITE_ADDRESS is empty, docker-compose passes "localhost" instead, for
+# which Caddy serves its internal (self-signed) certificate — no ACME is used.
+# The `:default` fallbacks below mirror docker-compose.yml so this file also
+# validates standalone (e.g. `caddy validate`); keep the two in sync.
+{
+	email {$ACME_EMAIL:admin@localhost}
+	acme_ca {$ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+}
 
-:80 {
+(app) {
 	root /srv
 
 	handle_path /api/* {
@@ -16,4 +30,12 @@
 		try_files {path} /index.html
 		file_server
 	}
+}
+
+{$SITE_ADDRESS:localhost} {
+	import app
+}
+
+:80 {
+	import app
 }

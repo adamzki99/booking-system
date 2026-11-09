@@ -151,6 +151,12 @@ tunneled HTTP origin, update the Caddy/site configuration, certificate handling,
 and Cloudflare SSL/TLS mode accordingly. That is a different operating mode than
 the basic tunnel-to-HTTP-origin setup described here.
 
+For terminating TLS at Caddy with **Let's Encrypt** certificates issued per
+environment (the direct mode, where the host publishes `80`/`443`), see
+[`tls-letsencrypt.md`](tls-letsencrypt.md). Note that when the origin is only
+reachable through a Cloudflare Tunnel, Let's Encrypt's HTTP-01 challenge cannot
+reach Caddy, so that setup needs DNS-01 or a Cloudflare Origin Certificate.
+
 ## 5. Authelia / authentication considerations
 
 Authelia is present in the sauna deployment, but its role is currently TBD
