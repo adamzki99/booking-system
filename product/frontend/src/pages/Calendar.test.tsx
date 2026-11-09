@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render } from "../test-utils";
 import type { Booking } from "../api/auth";
 import { cancelBooking, createBooking, listBookings } from "../api/bookings";
 import { useSession } from "../auth/SessionContext";
