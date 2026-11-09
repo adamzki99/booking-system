@@ -1,5 +1,18 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import {
+  Alert,
+  AlertIcon,
+  Box,
+  Button,
+  Code,
+  FormControl,
+  FormLabel,
+  Heading,
+  Input,
+  Text,
+  VStack,
+} from "@chakra-ui/react";
 import { errorMessage } from "../api/client";
 import type { User } from "../api/auth";
 import { currentUser } from "../api/auth";
@@ -69,41 +82,66 @@ export default function Account() {
   }
 
   return (
-    <main>
-      <h1>Account</h1>
-      {error && <p role="alert">{error}</p>}
-      <section>
-        <h2>Email</h2>
-        <p>{me?.email}</p>
-        <form onSubmit={onChangeEmail}>
-          <label>
-            Email
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </label>
-          <button type="submit" disabled={busy}>
-            Change email
-          </button>
-        </form>
-      </section>
-      <section>
-        <h2>Calendar</h2>
-        {icalUrl && (
-          <>
-            <p>{icalUrl}</p>
-            <button type="button" onClick={() => void onCopy()}>
-              Copy
-            </button>
-          </>
+    <Box as="main">
+      <VStack spacing={6} align="stretch">
+        <Heading as="h1" size="lg">
+          Account
+        </Heading>
+        {error && (
+          <Alert status="error" role="alert">
+            <AlertIcon />
+            {error}
+          </Alert>
         )}
-        <button type="button" onClick={() => void onRegenerate()} disabled={busy}>
-          Regenerate
-        </button>
-      </section>
-    </main>
+        <Box as="section">
+          <Heading as="h2" size="md" mb={2}>
+            Email
+          </Heading>
+          <Text mb={3}>{me?.email}</Text>
+          <Box as="form" onSubmit={onChangeEmail}>
+            <VStack spacing={4} align="stretch">
+              <FormControl>
+                <FormLabel htmlFor="account-email">Email</FormLabel>
+                <Input
+                  id="account-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </FormControl>
+              <Button type="submit" alignSelf="flex-start" isLoading={busy}>
+                Change email
+              </Button>
+            </VStack>
+          </Box>
+        </Box>
+        <Box as="section">
+          <Heading as="h2" size="md" mb={2}>
+            Calendar
+          </Heading>
+          <VStack spacing={3} align="stretch">
+            {icalUrl && (
+              <>
+                <Code p={2} borderRadius="base" wordBreak="break-all">
+                  {icalUrl}
+                </Code>
+                <Button size="sm" variant="outline" alignSelf="flex-start" onClick={() => void onCopy()}>
+                  Copy
+                </Button>
+              </>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              alignSelf="flex-start"
+              onClick={() => void onRegenerate()}
+              isLoading={busy}
+            >
+              Regenerate
+            </Button>
+          </VStack>
+        </Box>
+      </VStack>
+    </Box>
   );
 }

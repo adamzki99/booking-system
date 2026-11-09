@@ -1,5 +1,24 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import {
+  Alert,
+  AlertIcon,
+  Box,
+  Button,
+  FormControl,
+  FormLabel,
+  Heading,
+  Input,
+  Select,
+  Table,
+  Tbody,
+  Textarea,
+  Th,
+  Thead,
+  Tr,
+  Td,
+  VStack,
+} from "@chakra-ui/react";
 import { errorMessage } from "../api/client";
 import type { User } from "../api/auth";
 import { listUsers, addUser, removeUser, changeUserAddress, changeUserRole } from "../api/users";
@@ -127,113 +146,199 @@ export default function Users() {
   }
 
   return (
-    <main>
-      <h1>User directory</h1>
-      {error && <p role="alert">{error}</p>}
-      <table>
-        <thead>
-          <tr>
-            <th>Email</th>
-            <th>Role</th>
-            <th>Address</th>
-            <th>Active</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id}>
-              <td>{u.email}</td>
-              <td>{u.role}</td>
-              <td>{u.address}</td>
-              <td>{String(u.active)}</td>
-              {superUser && (u.role === "basic" || (adminUser && u.role === "super")) && (
-                <td>
-                  <button type="button" onClick={() => void onRemove(u.id)}>
-                    Remove
-                  </button>
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <Box as="main">
+      <VStack spacing={6} align="stretch">
+        <Heading as="h1" size="lg">
+          User directory
+        </Heading>
+        {error && (
+          <Alert status="error" role="alert">
+            <AlertIcon />
+            {error}
+          </Alert>
+        )}
+        <Box overflowX="auto">
+          <Table size="sm" variant="simple">
+            <Thead>
+              <Tr>
+                <Th>Email</Th>
+                <Th>Role</Th>
+                <Th>Address</Th>
+                <Th>Active</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {users.map((u) => (
+                <Tr key={u.id}>
+                  <Td>{u.email}</Td>
+                  <Td>{u.role}</Td>
+                  <Td>{u.address}</Td>
+                  <Td>{String(u.active)}</Td>
+                  {superUser && (u.role === "basic" || (adminUser && u.role === "super")) && (
+                    <Td>
+                      <Button
+                        size="xs"
+                        colorScheme="red"
+                        variant="outline"
+                        onClick={() => void onRemove(u.id)}
+                      >
+                        Remove
+                      </Button>
+                    </Td>
+                  )}
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+        </Box>
 
-      {superUser && (
-        <section>
-          <h2>Add user</h2>
-          <form onSubmit={onAddUser}>
-            <label>
-              Email
-              <input value={newEmail} onChange={(e) => setNewEmail(e.target.value)} required />
-            </label>
-            <label>
-              Address
-              <input value={newAddress} onChange={(e) => setNewAddress(e.target.value)} required />
-            </label>
-            <button type="submit">Add user</button>
-          </form>
+        {superUser && (
+          <VStack as="section" spacing={6} align="stretch">
+            <Box as="form" onSubmit={onAddUser}>
+              <VStack spacing={4} align="stretch">
+                <Heading as="h2" size="md">
+                  Add user
+                </Heading>
+                <FormControl>
+                  <FormLabel htmlFor="new-email">Email</FormLabel>
+                  <Input
+                    id="new-email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel htmlFor="new-address">Address</FormLabel>
+                  <Input
+                    id="new-address"
+                    value={newAddress}
+                    onChange={(e) => setNewAddress(e.target.value)}
+                  />
+                </FormControl>
+                <Button type="submit" alignSelf="flex-start">
+                  Add user
+                </Button>
+              </VStack>
+            </Box>
 
-          <h2>Change address</h2>
-          <form onSubmit={onChangeAddress}>
-            <label>
-              User id
-              <input value={addressUserId} onChange={(e) => setAddressUserId(e.target.value)} required />
-            </label>
-            <label>
-              Address
-              <input value={addressValue} onChange={(e) => setAddressValue(e.target.value)} required />
-            </label>
-            <button type="submit">Change address</button>
-          </form>
+            <Box as="form" onSubmit={onChangeAddress}>
+              <VStack spacing={4} align="stretch">
+                <Heading as="h2" size="md">
+                  Change address
+                </Heading>
+                <FormControl>
+                  <FormLabel htmlFor="address-user-id">User id</FormLabel>
+                  <Input
+                    id="address-user-id"
+                    value={addressUserId}
+                    onChange={(e) => setAddressUserId(e.target.value)}
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel htmlFor="address-value">Address</FormLabel>
+                  <Input
+                    id="address-value"
+                    value={addressValue}
+                    onChange={(e) => setAddressValue(e.target.value)}
+                  />
+                </FormControl>
+                <Button type="submit" alignSelf="flex-start">
+                  Change address
+                </Button>
+              </VStack>
+            </Box>
 
-          {adminUser && (
-            <>
-              <h2>Change role (admin)</h2>
-              <form onSubmit={onChangeRole}>
-                <label>
-                  User id
-                  <input value={roleUserId} onChange={(e) => setRoleUserId(e.target.value)} required />
-                </label>
-                <label>
-                  Role
-                  <select value={roleValue} onChange={(e) => setRoleValue(e.target.value)}>
-                    <option value="basic">basic</option>
-                    <option value="super">super</option>
-                    <option value="admin">admin</option>
-                  </select>
-                </label>
-                <button type="submit">Change role</button>
-              </form>
-            </>
-          )}
+            {adminUser && (
+              <Box as="form" onSubmit={onChangeRole}>
+                <VStack spacing={4} align="stretch">
+                  <Heading as="h2" size="md">
+                    Change role (admin)
+                  </Heading>
+                  <FormControl>
+                    <FormLabel htmlFor="role-user-id">User id</FormLabel>
+                    <Input
+                      id="role-user-id"
+                      value={roleUserId}
+                      onChange={(e) => setRoleUserId(e.target.value)}
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel htmlFor="role-value">Role</FormLabel>
+                    <Select
+                      id="role-value"
+                      value={roleValue}
+                      onChange={(e) => setRoleValue(e.target.value)}
+                    >
+                      <option value="basic">basic</option>
+                      <option value="super">super</option>
+                      <option value="admin">admin</option>
+                    </Select>
+                  </FormControl>
+                  <Button type="submit" alignSelf="flex-start">
+                    Change role
+                  </Button>
+                </VStack>
+              </Box>
+            )}
 
-          <h2>Block time period</h2>
-          <form onSubmit={onBlock}>
-            <label>
-              Start
-              <input type="datetime-local" value={blockStart} onChange={(e) => setBlockStart(e.target.value)} required />
-            </label>
-            <label>
-              End
-              <input type="datetime-local" value={blockEnd} onChange={(e) => setBlockEnd(e.target.value)} required />
-            </label>
-            <button type="submit">Block</button>
-          </form>
+            <Box as="form" onSubmit={onBlock}>
+              <VStack spacing={4} align="stretch">
+                <Heading as="h2" size="md">
+                  Block time period
+                </Heading>
+                <FormControl>
+                  <FormLabel htmlFor="block-start">Start</FormLabel>
+                  <Input
+                    id="block-start"
+                    type="datetime-local"
+                    value={blockStart}
+                    onChange={(e) => setBlockStart(e.target.value)}
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel htmlFor="block-end">End</FormLabel>
+                  <Input
+                    id="block-end"
+                    type="datetime-local"
+                    value={blockEnd}
+                    onChange={(e) => setBlockEnd(e.target.value)}
+                  />
+                </FormControl>
+                <Button type="submit" alignSelf="flex-start">
+                  Block
+                </Button>
+              </VStack>
+            </Box>
 
-          <h2>Broadcast message</h2>
-          <form onSubmit={onBroadcast}>
-            <label>
-              Subject
-              <input value={subject} onChange={(e) => setSubject(e.target.value)} required />
-            </label>
-            <label>
-              Body
-              <textarea value={body} onChange={(e) => setBody(e.target.value)} required />
-            </label>
-            <button type="submit">Broadcast</button>
-          </form>
-        </section>
-      )}
-    </main>
+            <Box as="form" onSubmit={onBroadcast}>
+              <VStack spacing={4} align="stretch">
+                <Heading as="h2" size="md">
+                  Broadcast message
+                </Heading>
+                <FormControl>
+                  <FormLabel htmlFor="broadcast-subject">Subject</FormLabel>
+                  <Input
+                    id="broadcast-subject"
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel htmlFor="broadcast-body">Body</FormLabel>
+                  <Textarea
+                    id="broadcast-body"
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                  />
+                </FormControl>
+                <Button type="submit" alignSelf="flex-start">
+                  Broadcast
+                </Button>
+              </VStack>
+            </Box>
+          </VStack>
+        )}
+      </VStack>
+    </Box>
   );
 }

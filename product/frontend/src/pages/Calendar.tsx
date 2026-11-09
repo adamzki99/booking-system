@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import {
+  Alert,
+  AlertIcon,
+  Box,
+  Button,
+  Flex,
+  FormControl,
+  FormLabel,
+  Heading,
+  Input,
+  List,
+  ListItem,
+  Text,
+  VStack,
+} from "@chakra-ui/react";
 import { errorMessage } from "../api/client";
 import type { Booking, User } from "../api/auth";
 import { cancelBooking, createBooking, listBookings } from "../api/bookings";
@@ -79,53 +94,83 @@ export default function Calendar() {
   const canSubmit = useMemo(() => start !== "" && end !== "", [start, end]);
 
   return (
-    <main>
-      <h1>Booking calendar</h1>
-      <section>
-        <h2>Create booking</h2>
-        <form onSubmit={onSubmit}>
-          <label>
-            Start
-            <input
-              type="datetime-local"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            End
-            <input
-              type="datetime-local"
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              required
-            />
-          </label>
-          <button type="submit" disabled={!canSubmit}>
+    <Box as="main">
+      <VStack spacing={6} align="stretch">
+        <Heading as="h1" size="lg">
+          Booking calendar
+        </Heading>
+        <Box as="section">
+          <Heading as="h2" size="md" mb={3}>
             Create booking
-          </button>
-        </form>
-      </section>
-      <section>
-        <h2>Bookings</h2>
-        {error && <p role="alert">{error}</p>}
-        {error === null && bookings.length === 0 && <p>No bookings yet.</p>}
-        <ul>
-          {bookings.map((booking) => (
-            <li key={booking.id}>
-              <time dateTime={booking.start}>
-                {formatInterval(booking.start, booking.end)}
-              </time>{" "}
-              {canCancel(user, booking) && (
-                <button type="button" onClick={() => void onCancel(booking.id)}>
-                  Cancel booking
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
-    </main>
+          </Heading>
+          <Box as="form" onSubmit={onSubmit}>
+            <VStack spacing={4} align="stretch">
+              <FormControl>
+                <FormLabel htmlFor="start">Start</FormLabel>
+                <Input
+                  id="start"
+                  type="datetime-local"
+                  value={start}
+                  onChange={(e) => setStart(e.target.value)}
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel htmlFor="end">End</FormLabel>
+                <Input
+                  id="end"
+                  type="datetime-local"
+                  value={end}
+                  onChange={(e) => setEnd(e.target.value)}
+                />
+              </FormControl>
+              <Button type="submit" alignSelf="flex-start" isDisabled={!canSubmit}>
+                Create booking
+              </Button>
+            </VStack>
+          </Box>
+        </Box>
+        <Box as="section">
+          <Heading as="h2" size="md" mb={3}>
+            Bookings
+          </Heading>
+          {error && (
+            <Alert status="error" role="alert" mb={3}>
+              <AlertIcon />
+              {error}
+            </Alert>
+          )}
+          {error === null && bookings.length === 0 && (
+            <Text color="gray.600">No bookings yet.</Text>
+          )}
+          <List spacing={2} role="list">
+            {bookings.map((booking) => (
+              <ListItem
+                key={booking.id}
+                role="listitem"
+                borderWidth="1px"
+                borderRadius="base"
+                p={3}
+              >
+                <Flex justify="space-between" align="center" gap={3}>
+                  <Box as="time" dateTime={booking.start}>
+                    {formatInterval(booking.start, booking.end)}
+                  </Box>
+                  {canCancel(user, booking) && (
+                    <Button
+                      size="sm"
+                      colorScheme="red"
+                      variant="outline"
+                      onClick={() => void onCancel(booking.id)}
+                    >
+                      Cancel booking
+                    </Button>
+                  )}
+                </Flex>
+              </ListItem>
+            ))}
+          </List>
+        </Box>
+      </VStack>
+    </Box>
   );
 }

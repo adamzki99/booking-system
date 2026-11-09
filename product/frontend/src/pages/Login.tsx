@@ -1,6 +1,18 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  Alert,
+  AlertIcon,
+  Box,
+  Button,
+  FormControl,
+  FormLabel,
+  Heading,
+  Input,
+  Text,
+  VStack,
+} from "@chakra-ui/react";
 import { errorMessage } from "../api/client";
 import { requestCode } from "../api/auth";
 import { useSession } from "../auth/SessionContext";
@@ -47,45 +59,65 @@ export default function Login() {
   }
 
   return (
-    <main>
-      <h1>Booking</h1>
-      {codeSent ? (
-        <form onSubmit={signIn}>
-          <p>A login code was sent to {email}. The code is valid for 10 minutes.</p>
-          <label>
-            Code
-            <input
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              maxLength={6}
-              autoFocus
-              required
-            />
-          </label>
-          <button type="submit" disabled={busy || code.length !== 6}>
-            Sign in
-          </button>
-          {error && <p role="alert">{error}</p>}
-        </form>
-      ) : (
-        <form onSubmit={requestCodeForEmail}>
-          <p>Sign in with your email — we will send you a one-time code.</p>
-          <label>
-            Email
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoFocus
-              required
-            />
-          </label>
-          <button type="submit" disabled={busy || !email}>
-            Request code
-          </button>
-          {error && <p role="alert">{error}</p>}
-        </form>
-      )}
-    </main>
+    <Box as="main" maxW="md" mx="auto" py={8} px={4}>
+      <VStack spacing={6} align="stretch">
+        <Heading as="h1" size="lg">
+          Booking
+        </Heading>
+        {codeSent ? (
+          <Box as="form" onSubmit={signIn}>
+            <VStack spacing={4} align="stretch">
+              <Text>
+                A login code was sent to {email}. The code is valid for 10 minutes.
+              </Text>
+              <FormControl>
+                <FormLabel htmlFor="code">Code</FormLabel>
+                <Input
+                  id="code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  maxLength={6}
+                  autoFocus
+                />
+              </FormControl>
+              <Button type="submit" isLoading={busy} isDisabled={code.length !== 6}>
+                Sign in
+              </Button>
+              {error && (
+                <Alert status="error" role="alert">
+                  <AlertIcon />
+                  {error}
+                </Alert>
+              )}
+            </VStack>
+          </Box>
+        ) : (
+          <Box as="form" onSubmit={requestCodeForEmail}>
+            <VStack spacing={4} align="stretch">
+              <Text>Sign in with your email — we will send you a one-time code.</Text>
+              <FormControl>
+                <FormLabel htmlFor="email">Email</FormLabel>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoFocus
+                />
+              </FormControl>
+              <Button type="submit" isLoading={busy} isDisabled={!email}>
+                Request code
+              </Button>
+              {error && (
+                <Alert status="error" role="alert">
+                  <AlertIcon />
+                  {error}
+                </Alert>
+              )}
+            </VStack>
+          </Box>
+        )}
+      </VStack>
+    </Box>
   );
 }

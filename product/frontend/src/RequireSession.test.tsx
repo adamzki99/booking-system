@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { render } from "./test-utils";
 import { useSession } from "./auth/SessionContext";
 import { RequireSession } from "./RequireSession";
 
