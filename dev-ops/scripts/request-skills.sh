@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# request-skills.sh — call for the addition of open-source skills to this repo.
+# request-skills.sh — install open-source and repository-local skills.
 #
-# Reads dev-ops/skills.yaml, vendors each missing skill into .opencode/skills/,
+# Reads dev-ops/skills.yaml, installs each missing skill into .opencode/skills/,
 # and (default mode) proposes the addition as a pull request.
 #
 # Usage:
@@ -32,16 +32,16 @@ if [[ "$MODE" == "pr" ]]; then
   git diff --cached --quiet || die "staged changes present; commit or stash first"
 fi
 
-# Emit "id<TAB>repo<TAB>path<TAB>ref" per skill entry.
+# Emit unit-separator-delimited config fields, preserving empty fields.
 read_config() {
   python3 - "$CONFIG" << 'PYEOF'
 import sys, yaml
 with open(sys.argv[1]) as f:
     data = yaml.safe_load(f) or {}
 for s in data.get("skills") or []:
-    row = [str(s.get(k, "") or "") for k in ("id", "repo", "path", "ref")]
-    if all(row[:3]):
-        print("\t".join(row))
+    row = [str(s.get(k, "") or "") for k in ("id", "repo", "path", "ref", "local_path")]
+    if row[0] and (all(row[1:3]) or row[4]):
+        print("\x1f".join(row))
 PYEOF
 }
 
@@ -64,12 +64,32 @@ fetch_skill() { # $1 repo, $2 path, $3 ref, $4 dest
   rm -rf "$tmp"
 }
 
+# Copy one repository-owned skill directory without using the network.
+install_local_skill() { # $1 local path, $2 dest
+  local local_path="$1" dest="$2" src="$REPO_ROOT/$1"
+  [[ -f "$src/SKILL.md" ]] || return 1
+  mkdir -p "$dest" || return 1
+  cp -r "$src/." "$dest/" || return 1
+  printf 'local_path: %s\n' "$local_path" > "$dest/.source"
+}
+
 added=()
-while IFS=$'\t' read -r id repo path ref; do
+while IFS=$'\037' read -r id repo path ref local_path; do
   [[ "$id" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || die "invalid skill id '$id' (use kebab-case)"
   dest="$SKILLS_DIR/$id"
   if [[ -d "$dest" ]]; then
     log "skip '$id' (already present)"
+    continue
+  fi
+  if [[ -n "$local_path" ]]; then
+    [[ -z "$repo" && -z "$path" && -z "$ref" ]] || die "'$id' cannot combine local_path with repo/path/ref"
+    log "installing repository-local '$id' from $local_path"
+    if install_local_skill "$local_path" "$dest"; then
+      added+=("$id")
+    else
+      rm -rf "$dest"
+      log "WARNING: '$id' has no SKILL.md at $local_path — skipped"
+    fi
     continue
   fi
   log "fetching '$id' from $repo ($path${ref:+ @ $ref})"
@@ -83,18 +103,21 @@ while IFS=$'\t' read -r id repo path ref; do
 done < <(read_config)
 
 [[ ${#added[@]} -gt 0 ]] || { log "nothing new to add"; exit 0; }
-log "vendored: ${added[*]}"
+log "installed: ${added[*]}"
 
 [[ "$MODE" == "local" ]] && exit 0
 
 branch="skills/request-$(date +%Y%m%d-%H%M%S)"
 git checkout -b "$branch"
-git add "$SKILLS_DIR"
-git commit --quiet -m "Add open source skills: ${added[*]}"
+git add "$SKILLS_DIR" "$CONFIG"
+if [[ -d "$REPO_ROOT/dev-ops/skills" ]]; then
+  git add "$REPO_ROOT/dev-ops/skills"
+fi
+git commit --quiet -m "Add OpenCode skills: ${added[*]}"
 git push --quiet -u origin "$branch"
 
 {
-  echo "Vendored open-source skills into \`.opencode/skills/\` per \`dev-ops/skills.yaml\`:"
+  echo "Installed OpenCode skills into \`.opencode/skills/\` per \`dev-ops/skills.yaml\`:"
   echo
   for id in "${added[@]}"; do
     src="$(cat "$SKILLS_DIR/$id/.source")"
@@ -102,8 +125,8 @@ git push --quiet -u origin "$branch"
   done
   echo
   echo "## Review checklist"
-  echo "- [ ] Each skill's license permits vendoring; license/notice files are included where required"
+  echo "- [ ] Each open-source skill's license permits vendoring; license/notice files are included where required"
   echo "- [ ] Skill content is trusted (skills are instructions loaded by factory agents)"
-} | gh pr create --base "$BASE_BRANCH" --title "Add open source skills: ${added[*]}" --body-file -
+} | gh pr create --base "$BASE_BRANCH" --title "Add OpenCode skills: ${added[*]}" --body-file -
 
 log "PR opened for: ${added[*]}"

@@ -49,6 +49,79 @@ The dev machine runs a cron entry that deploys `main` to QA twice daily:
   distinct port on the dev machine. Ports are recorded in
   [`environments.yaml`](environments.yaml).
 
+## Agent SSH access to the dev server
+
+[`scripts/dev-server-agent.sh`](scripts/dev-server-agent.sh) provides controlled,
+audited SSH access for a human-supervised OpenCode agent. The accompanying
+`dev-server-ssh` skill contains the operating protocol. This is for **dev/QA
+only**, not production.
+
+Copy [`dev-ops/.env.example`](.env.example) to the gitignored `dev-ops/.env`,
+fill it in locally, and export it without printing it:
+
+```sh
+set -a
+. dev-ops/.env
+set +a
+```
+
+`DEV_SERVER_HOST` is required. The port defaults to `22`, the user defaults to
+the current local user, and `DEV_SERVER_KEY`/`DEV_SERVER_KEY_PATH` falls back to
+`~/.ssh/id_ed25519` then `~/.ssh/id_rsa`. OpenSSH's standard known-hosts files
+are used unless `DEV_SERVER_KNOWN_HOSTS` is set; strict host-key checking is
+always on. `--host`, `--user`, `--port`, `--key`, and `--known-hosts` override
+the environment. Password auth requires `DEV_SERVER_PASSWORD`, `sshpass`, and a
+separate interactive confirmation; never pass a password as an argument.
+
+Validate the local configuration without connecting, run one inspection command,
+or start the interactive agent:
+
+```sh
+dev-ops/scripts/dev-server-agent.sh --self-check
+dev-ops/scripts/dev-server-agent.sh --command 'uptime'
+dev-ops/scripts/dev-server-agent.sh
+```
+
+Command mode captures remote stdout/stderr and preserves the exit status. It
+uses a reusable SSH control connection and checks reachability before running.
+Clearly read-only commands (status, logs, `docker compose ps`, etc.) may run
+without a prompt. Unknown/complex shell and every mutating or potentially
+impactful command require an impact description and explicit controlling-TTY
+`y/N` approval:
+
+```sh
+dev-ops/scripts/dev-server-agent.sh \
+  --command '<approved command>' \
+  --impact '<specific intended impact>'
+```
+
+The default is denial; non-interactive sessions cannot approve mutations. Agent
+mode starts OpenCode **without** `--auto` and instructs it to load the
+`dev-server-ssh` skill and use only this wrapper. The agent must show each exact
+command and impact, ask whenever anything is ambiguous, and never answer its own
+approval prompt or use direct `ssh`/`scp`/`sftp`. The wrapper is an approval and
+audit boundary, not a sandbox.
+
+`DEV_SERVER_ALLOWED_COMMANDS` optionally restricts execution to newline-separated
+exact commands; it never pre-approves a mutation. Actions are appended as JSONL
+to `${XDG_STATE_HOME:-~/.local/state}/booking-system/dev-server-agent.jsonl` (or
+`DEV_SERVER_LOG_FILE`) with actor, target, redacted command, impact, and outcome.
+Do not commit logs or put secrets in commands. Configured secrets are redacted
+from logs and captured output.
+
+Run the wrapper's test suite (uses local fakes, never connects):
+
+```sh
+bash dev-ops/scripts/tests/test-dev-server-agent.sh
+```
+
+Read logs/status, restart dev/QA services, and apply small approved config fixes
+as needed. Never delete data or volumes, edit secrets in place, disable checks,
+or bypass review. Reconcile every persistent server change through a reviewed
+PR. Use [`environments.yaml`](environments.yaml) for ports/services and
+`projects/<name>/` for deployment config; the sauna env example also contains
+empty operator-only `DEV_SERVER_*` entries.
+
 ## SigNoz (APM)
 
 [SigNoz](signoz/) runs as a **persistent** dev-ops service (separate compose
@@ -95,21 +168,24 @@ findings block merging.
 A Semgrep instance also runs on the development server, connected to this repo,
 performing checks on merges into `main` and release branches.
 
-## Open-source skills
+## OpenCode skills
 
-[`scripts/request-skills.sh`](scripts/request-skills.sh) calls for the addition
-of open-source [OpenCode skills](https://opencode.ai/v2/docs/skills/) to this
-repository. It vendors each skill listed in [`skills.yaml`](skills.yaml) into
-`.opencode/skills/` and opens a pull request proposing the addition:
+[`scripts/request-skills.sh`](scripts/request-skills.sh) installs
+[OpenCode skills](https://opencode.ai/v2/docs/skills/) into `.opencode/skills/`
+and opens a pull request proposing additions. Open-source entries in
+[`skills.yaml`](skills.yaml) are vendored from their upstream repositories;
+repository-owned entries such as `dev-server-ssh` use `local_path` and are copied
+from [`dev-ops/skills/`](skills/). Do not edit installed copies by hand.
 
 ```sh
-dev-ops/scripts/request-skills.sh          # vendor + open a PR
-dev-ops/scripts/request-skills.sh --local  # vendor only, no PR
+dev-ops/scripts/request-skills.sh          # install + open a PR
+dev-ops/scripts/request-skills.sh --local  # install only, no PR
 ```
 
-Skills already present are skipped. Each vendored skill carries a `.source`
-file recording its origin (repo, path, ref). Review licenses and content before
-merging — skills are instructions loaded by the factory agents.
+Skills already present are skipped. Each installed skill carries a `.source`
+file recording its upstream origin or repository-local path. Review licenses
+(where applicable) and content before merging — skills are instructions loaded
+by factory agents.
 
 ## Agentic Playwright testing (dev/QA only)
 

@@ -16,9 +16,10 @@ homeowner association. See `README.md` for the stack and
 - `projects/<name>/` — one folder per deployment: documentation, configuration,
   and that deployment's sidecar. `product/` + one `projects/<name>/` = a working app.
 - `dev-ops/` — software factory, environments, code quality.
-- `.opencode/skills/` — vendored open-source OpenCode skills. Do not add skills
-  here by hand; they are managed by `dev-ops/scripts/request-skills.sh` (see
-  `dev-ops/skills.yaml`).
+- `.opencode/skills/` — installed OpenCode skills (vendored open-source and
+  repository-owned). Do not add or edit installed skills here by hand; they are
+  managed by `dev-ops/scripts/request-skills.sh` (see `dev-ops/skills.yaml`).
+  First-party skill sources live in `dev-ops/skills/`.
   **Agent protection:** do not read, browse, or summarize files under
   `.opencode/skills/` unless the user explicitly asks to invoke a skill. Load a
   skill only via the `skill` tool when explicitly requested. Never auto-ingest
