@@ -7,6 +7,9 @@
 #   path: directory inside that repo containing the skill (must contain SKILL.md)
 #   ref:  branch, tag, or commit (optional; defaults to the repo's default branch)
 #
+# Repository-owned skills use local_path instead of repo/path/ref:
+#   local_path: directory in this repository containing SKILL.md
+#
 # Skills are discovered by OpenCode from .opencode/skills/ — see
 # https://opencode.ai/v2/docs/skills/
 
@@ -50,6 +53,9 @@ skills:
   - id: webapp-testing
     repo: https://github.com/anthropics/skills.git
     path: skills/webapp-testing
+
+  - id: dev-server-ssh
+    local_path: dev-ops/skills/dev-server-ssh
 
   # More candidates from https://github.com/anthropics/skills (skills/ dir):
   # docx, pptx, xlsx, mcp-builder, doc-coauthoring, ...
