@@ -760,6 +760,17 @@ if [[ -n "$plan_issue" && "$(has_marker "$plan_issue" "$PLAN_MARKER")" == "true"
   plan_issue=""
 fi
 
+# Acceptance-criteria gate (issue #91): an unlabeled ("infant") issue must
+# capture explicit acceptance criteria before it is picked up by the planning
+# agent. Skip planning (and leave the issue unlabeled) until they are present.
+if [[ -n "$plan_issue" ]]; then
+  if ! dev-ops/scripts/check-acceptance-criteria.sh --issue "$plan_issue" >/dev/null 2>&1; then
+    log "issue #$plan_issue has no acceptance criteria; skipping planning until they are added"
+    emit_event plan_skipped issue="$plan_issue" reason="missing acceptance criteria"
+    plan_issue=""
+  fi
+fi
+
 # Build path, sub-path 1: fix open factory PRs
 fix_count=0
 fix_pids=()
