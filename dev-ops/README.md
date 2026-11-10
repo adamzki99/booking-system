@@ -35,6 +35,18 @@ The dev machine runs a cron entry that deploys `main` to QA twice daily:
   UTC, set `CRON_TZ=<owner timezone>` (e.g. `Europe/Stockholm`) in the crontab.
 - The `flock` in the script makes manual re-runs safe.
 - Logs: `/var/log/booking-qa-deploy.log`.
+- The deploy runs as the deploy user (e.g. `lasrvr`). The cron redirection opens
+  the log file *before* the script starts, so that user must be able to append to
+  it. `/var/log/booking-qa-deploy.log` is created root-owned mode 0644 by
+  default, which makes the deploy silently fail to redirect. Provision it once:
+  ```sh
+  sudo touch /var/log/booking-qa-deploy.log
+  sudo chown lasrvr:lasrvr /var/log/booking-qa-deploy.log
+  sudo chmod 0644 /var/log/booking-qa-deploy.log
+  ```
+  Verify with `sudo -u lasrvr test -w /var/log/booking-qa-deploy.log && echo writable`.
+  Alternatively, redirect to a path the deploy user already owns (e.g.
+  `/home/lasrvr/booking-qa-deploy.log`) and update the cron line above.
 - Manual deploy: `dev-ops/scripts/deploy-environment.sh qa`
 - Dry run: `dev-ops/scripts/deploy-environment.sh qa --dry-run`
 - A failed deployment keeps/creates a GitHub issue titled `QA deployment
