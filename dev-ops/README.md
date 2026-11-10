@@ -137,6 +137,30 @@ default to `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318` (see
 `projects/sauna/.env.example` and [signoz/README.md](signoz/README.md)). Data
 persists in named volumes across restarts and host reboots.
 
+## Agentic issue creation
+
+Use the OpenCode command `/create-github-issue`
+(`.opencode/commands/create-github-issue.md`) to create GitHub issues that
+autonomous agents can implement without clarification. It is based on
+`dev-ops/issue-templates/agentic.md` and validated by
+`dev-ops/scripts/validate-issue-body.sh` before `gh issue create` runs.
+
+Required sections: Problem Statement, Motivation, Relevant Repository Context,
+Functional Requirements, Acceptance Criteria (with measurable checkboxes),
+Implementation Tasks, Testing and Validation, and Constraints and
+Considerations. The validator exits non-zero if any required section is missing
+or empty, or if no acceptance-criteria checkbox is present.
+
+Created issues are left uncategorized (no labels); the factory's planning agent
+posts the implementation plan and applies labels afterward. This preserves
+compatibility with the factory's planning and labeling workflow.
+
+Dry-run validation of a body file:
+
+```sh
+dev-ops/scripts/validate-issue-body.sh /path/to/issue-body.md
+```
+
 ## Code quality
 
 ### Semgrep AppSec Platform (Option 1)

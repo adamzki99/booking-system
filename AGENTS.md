@@ -41,6 +41,13 @@ homeowner association. See `README.md` for the stack and
 
 ## Conventions
 
+- **GitHub issue creation:** use the OpenCode command
+  `.opencode/commands/create-github-issue.md` (slash command
+  `/create-github-issue`) instead of ad hoc `gh issue create`. It fills
+  `dev-ops/issue-templates/agentic.md` and validates the body with
+  `dev-ops/scripts/validate-issue-body.sh` before creation, ensuring required
+  sections and measurable acceptance criteria. See
+  `dev-ops/README.md` for details.
 - Keep changes minimal and follow the existing style of the directory you work in.
 - Update this file if you change the structure, stack, or architecture.
 - **Secrets:** never commit secrets. Use `projects/<name>/.env` (gitignored) with a
