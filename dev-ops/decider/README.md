@@ -30,9 +30,10 @@ docker compose -f dev-ops/decider/docker-compose.yml down
 
 ## Model
 
-- Default model: `StrandsAgents/strands-decider-E2B-gemma4-v1-2610`
-  (override with `DECIDER_MODEL`).
-- CPU-only; E2B is smaller than E4B. GPU not required for Pilot 1.
+- Default model: `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610`
+  (baked into the image built from `Dockerfile`; override by rebuilding with a
+  different model).
+- CPU-only. GPU not required for Pilot 1.
 - Weights are downloaded from Hugging Face on first run into the
   `decider-model-cache` volume.
 

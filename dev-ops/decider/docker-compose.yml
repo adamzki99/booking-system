@@ -24,17 +24,11 @@ x-common: &common
 services:
   decider:
     <<: *common
-    image: strands-labs/strands-decider:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: strands-decider:latest
     container_name: strands-decider
-    environment:
-      - DECIDER_MODEL=${DECIDER_MODEL:-StrandsAgents/strands-decider-E2B-gemma4-v1-2610}
-      - DECIDER_PORT=8000
-    command:
-      - strands-decider
-      - serve
-      - ${DECIDER_MODEL:-StrandsAgents/strands-decider-E2B-gemma4-v1-2610}
-      - --port
-      - "8000"
     ports:
       - "${DECIDER_HOST_PORT:-8090}:8000"
     volumes:

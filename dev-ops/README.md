@@ -282,7 +282,7 @@ separate compose project so booking deploys do not restart it.
 
 - **Bring up:** `docker compose -f dev-ops/decider/docker-compose.yml up -d`
 - **Port:** `8090` (override `DECIDER_HOST_PORT`); container port `8000`.
-- **Model:** `StrandsAgents/strands-decider-E2B-gemma4-v1-2610` (override `DECIDER_MODEL`).
+- **Model:** `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610` (baked into the image built from `dev-ops/decider/Dockerfile`).
 - **Fallback:** triage helper is fail-open; if the service is down or confidence is
   below threshold (default `0.5`), it prints a documented fallback object and exits 0.
 - See `dev-ops/decider/README.md` for details.
