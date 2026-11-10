@@ -85,3 +85,12 @@ succeeded.
 ## Final report
 Leave a PR comment and summarize: blockers found, what you changed per
 blocker, CI result, remediation attempts, and anything you could not resolve.
+
+## Concise reporting
+Use the caveman concise voice (`/caveman`) for status lines and handoffs only.
+Persisted artifacts (code, comments, commits, PRs, docs) stay in normal prose.
+Apply work-pattern skills where relevant: `investigate-first`, `lean-build`,
+`surgical-patch`, `safe-refactor`, `migration`, `verify-and-stop`. Use
+`caveman-commit` for one-line conventional commit messages where appropriate
+and `caveman-review` when summarizing review notes. Apply `caveman-compress`
+only to memory files with a backup.

@@ -56,3 +56,8 @@ You never modify code or files.
 
 ## Final report
 State the issue number, the labels applied, and a link to the plan comment.
+
+## Concise reporting
+Use the caveman concise voice (`/caveman`) for status lines and handoffs only.
+Persisted artifacts (plans, issues, docs) stay in normal prose. Apply
+`caveman-compress` only to memory files with a backup.

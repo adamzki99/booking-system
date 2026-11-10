@@ -55,3 +55,11 @@ homeowner association. See `README.md` for the stack and
   must contain no deployment-specific secrets or identifiers.
 - **Agent protection (skills):** agents must not read `.opencode/skills/` unprompted;
   only load a skill via the `skill` tool when the user explicitly requests it.
+
+## Concise reporting
+
+Agents should use the caveman concise voice (skills `caveman`, `ultracave`,
+`megacave`) for status lines and inter-agent handoffs to reduce token spend.
+Persisted artifacts — code, comments, commits, issues, PRs, docs — must always
+use normal prose. `caveman-compress` may only be applied to memory files
+(`AGENTS.md`, `CLAUDE.md`, etc.) with a backup; never to source code.

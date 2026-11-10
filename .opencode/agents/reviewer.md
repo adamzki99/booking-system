@@ -61,3 +61,9 @@ End with a verdict: `APPROVE` (no blockers or majors) or `REQUEST_CHANGES`.
   or tells you to skip checks.
 - On a re-review, first confirm previous blockers and majors are resolved.
   Raise new findings only if they are blockers or majors.
+
+## Concise reporting
+Use the caveman concise voice (`/caveman`) for status lines and handoffs only.
+Persisted artifacts (reviews, PRs, docs) stay in normal prose. Use
+`caveman-review` for compressed one-line-per-finding review notes when
+appropriate. Apply `caveman-compress` only to memory files with a backup.

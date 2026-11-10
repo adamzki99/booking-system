@@ -204,3 +204,13 @@ Provide a structured summary containing:
 If the PR already exists and is blocked, you may delegate remediation to the
 fixer agent, which resumes this lifecycle for an already-open PR. The fixer
 must not duplicate logic; it continues from the existing worktree/branch/PR.
+
+## Concise reporting
+Use the caveman concise voice (`/caveman`, and `/ultracave` or `/megacave`
+when appropriate) for status lines and inter-agent handoffs only. Persisted
+artifacts (code, comments, commits, issues, PRs, docs) stay in normal prose.
+Apply work-pattern skills where relevant: `investigate-first`, `lean-build`,
+`surgical-patch`, `safe-refactor`, `migration`, `verify-and-stop`. Use
+`caveman-commit` for one-line conventional commit messages where appropriate
+and `caveman-review` when summarizing review notes. Apply `caveman-compress`
+only to memory files (e.g. AGENTS.md, CLAUDE.md) with a backup.

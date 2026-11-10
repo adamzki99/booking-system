@@ -59,3 +59,51 @@ skills:
 
   # More candidates from https://github.com/anthropics/skills (skills/ dir):
   # docx, pptx, xlsx, mcp-builder, doc-coauthoring, ...
+
+  - id: caveman
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/caveman
+
+  - id: ultracave
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/ultracave
+
+  - id: megacave
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/megacave
+
+  - id: investigate-first
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/investigate-first
+
+  - id: lean-build
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/lean-build
+
+  - id: surgical-patch
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/surgical-patch
+
+  - id: safe-refactor
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/safe-refactor
+
+  - id: migration
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/migration
+
+  - id: verify-and-stop
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/verify-and-stop
+
+  - id: caveman-commit
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/caveman-commit
+
+  - id: caveman-review
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/caveman-review
+
+  - id: caveman-compress
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/caveman-compress
