@@ -410,15 +410,12 @@ EOF
 build_prompt() { # $1 issue number
   cat << EOF
 You are the builder agent of this software factory. Implement GitHub issue
-#$1 and land it on the base branch.
+#$1 and land it on the base branch. Follow the builder agent workflow in
+.opencode/agents/builder.md (single owner of the issue-to-merged-PR lifecycle).
 
 Load and follow these OpenCode skills (use the skill tool) as they apply:
-- \`implement\` — build the issue from its spec/plan (state the issue title
-  after fetching it; use TDD at pre-agreed seams when practical; run
-  typechecking and targeted tests regularly; run the full test suite once at
-  the end; run a code review before landing).
-- \`tdd\` — drive red-green-refactor for features/fixes when the project has
-  tests (as \`implement\` directs).
+- \`implement\` — build the issue from its spec/plan.
+- \`tdd\` — drive red-green-refactor when the project has tests.
 - \`code-review\` — review changes before landing when available.
 - \`diagnosing-bugs\` — use for hard bugs or performance regressions.
 - \`domain-modeling\` — use when changing domain terminology, CQRS/event-sourced
@@ -431,29 +428,45 @@ Load and follow these OpenCode skills (use the skill tool) as they apply:
 Factory delivery rules (these override generic skill defaults where they
 conflict):
 1. Read the issue and its plan: gh issue view $1 --comments
-2. Fetch the latest base and create a branch named factory/issue-$1 from
-   origin/main (run \`git fetch origin\` first, then
-   \`git checkout -b factory/issue-$1 origin/main\`). Implement the issue. Follow
-   AGENTS.md; add tests where the project has tests. Keep the change minimal.
-3. Push the branch, open a pull request whose body follows the \`pr\` skill and
-   includes \`Closes #$1\`. Capture the PR number.
-3a. Put yourself in an agent loop that watches the PR with a bash command
-   until the actions and security scan results have come in. Example:
-
-   PR=<number>
-   gh pr checks "\$PR" --watch
-
-   Only after this command exits (all checks finished) evaluate the results.
-3b. Wait for ALL required checks and security analyses to complete and pass
-   (Backend CI: format/vet/test/build, Docker build; Security: govulncheck,
-   secret scan; Semgrep). Run the relevant local checks yourself first
-   (\`gofmt -l .\`, \`go vet ./...\`, \`go test ./...\`, \`go build ./cmd/server\`
-   for backend). Do NOT merge until every check is green and no security
-   finding is outstanding; if any fail, fix them and re-push.
-3b. Only once checks/security are green and the PR is mergeable with no
-   requested changes, merge it (squash) and delete the branch.
-4. Post one comment on the issue summarizing what was merged. The comment
-   body must start with this exact marker line:
+2. Inspect repository/working-tree state with git status in the primary
+   checkout; never modify it. Create an isolated per-issue worktree and a
+   descriptive feature branch (factory/issue-$1) based on the latest
+   origin/main. Reuse an existing worktree/branch if present and verify its
+   state. Keep all changes isolated to the worktree. Persist execution state in
+   <worktree>/.factory-deliver-state.json (gitignored) and mirror milestones
+   as GitHub comments. Track issue URL, base branch, worktree, branch,
+   progress, commits, PR number/URL, CI statuses, remediation attempts,
+   blockers, merge status.
+3. If acceptance criteria are missing/ambiguous, document the blocker and stop.
+4. Implement the smallest change that satisfies the issue. Follow AGENTS.md; add
+   tests where the project has tests. Keep the change minimal.
+5. Review staged changes, commit with clear messages, push the branch.
+6. Draft PR creation: detect an existing PR for the branch first
+   (gh pr list --head factory/issue-$1); reuse it. Otherwise create in draft
+   mode: gh pr create --draft against the base branch. Include Closes #$1.
+   Do not mark ready for review automatically.
+7. CI monitoring: identify checks (gh pr checks), wait (gh pr checks --watch).
+   Distinguish success/failed/pending/cancelled/skipped; do not treat pending
+   as success. Retrieve logs for failures (gh run view, gh run view --log-failed).
+   Run local checks first (gofmt -l ., go vet ./..., go test ./...,
+   go build ./cmd/server for backend). Do not proceed while required checks run
+   or fail.
+8. CI remediation: fix root cause in the worktree, add/update tests, run checks
+   locally, commit and push, wait for CI. Retry at most 3 cycles. Never disable
+   tests, weaken gates, edit CI config to bypass, or make unrelated changes.
+   If unfixable, document root cause and report blocker.
+9. Readiness and merge: verify all required checks passed, acceptance criteria
+   met, no blockers/unrelated changes, reviews/protection satisfied, PR
+   mergeable, no conflicts. If all pass, transition draft to ready if required
+   (gh pr ready), verify again, attempt merge using repo strategy, then verify
+   actual merge via gh pr view --json state,mergedAt. Record final status.
+   If blocked, do not bypass; report the blocking condition and leave PR for
+   human intervention. Distinguish attempt from successful merge.
+10. On successful merge: remove worktree and branch only after GitHub confirms
+    merge and no uncommitted changes remain. On failure/interruption: retain
+    worktree and report path.
+11. Post one comment on the issue summarizing what was merged. The comment
+    body must start with this exact marker line:
 
 $BUILD_MARKER
 EOF
@@ -463,34 +476,42 @@ fix_prompt() { # $1 PR number, $2 issue number, $3 reasons, $4 marker
   cat << EOF
 You are the fix agent of this software factory. Pull request #$1 (for issue
 #$2, branch factory/issue-$2) is open but blocked from merge. Make it
-mergeable.
+mergeable. Resume the builder lifecycle from .opencode/agents/fixer.md rather
+than duplicating logic.
 
 Blocking reasons reported by GitHub: $3
 (failing-checks = status/CI failures; changes-requested = review requested
 changes; conflicts = merge conflicts / not mergeable.)
 
 1. Read context: gh pr view $1 --comments; gh pr checks $1 || true; gh issue view $2 --comments
-2. Check out the PR branch (gh pr checkout $1). Fix the blocking issues with
-   minimal, focused changes. Follow AGENTS.md and the issue plan.
-3. If checks failed, reproduce/fix the failures and ensure relevant tests and
-   checks pass. If changes were requested, address the review comments. If
-   there are merge conflicts, fetch origin and rebase onto the default branch
-   (origin/main) to resolve them.
-4. Push fixes to the PR branch. Re-run/verify the failing checks locally.
-   Put yourself in an agent loop that watches PR #$1 with a bash command
-   until the actions and security scan results have come in:
-
-   PR=$1
-   gh pr checks "\$PR" --watch
-
-   Only after this command exits evaluate the results, and wait for ALL required
-   checks and security analyses to complete and pass
-   (Backend CI, Security, Semgrep). Do NOT merge until every check is green,
-   security analysis is clean, the PR is mergeable, and there are no requested
-   changes. Only then merge it (squash) and delete the branch.
-5. Post one comment on PR #$1 summarizing what you fixed and the merge/result
-   status. The comment body must start with this exact marker line (required
-   for factory idempotency):
+2. Locate/reuse the existing worktree for the PR branch; verify branch and status.
+   Read <worktree>/.factory-deliver-state.json if present and verify against
+   actual Git/GitHub state. Never modify unrelated working directories.
+3. Conflicts: fetch and rebase onto origin/main. Resolve by understanding both
+   sides; never blanket-accept one side. Re-run tests and push with
+   --force-with-lease.
+4. Failing checks: retrieve logs (gh run view, gh run view --log-failed),
+   reproduce/fix root cause in the worktree, add/update tests, run checks
+   locally.
+5. Requested changes: address each comment; if unclear or conflicting, reply on
+   the PR and stop rather than guessing.
+6. Push fixes to the PR branch. Watch CI: gh pr checks $1 --watch. Wait for
+   ALL required checks and security analyses (Backend CI, Security, Semgrep)
+   to complete and pass. Do NOT merge until every check is green, security
+   analysis clean, PR mergeable, and no requested changes.
+7. CI remediation retry limit: 3 cycles. Never disable tests, weaken quality
+   gates, modify CI config to bypass failures, or make unrelated changes.
+8. Readiness: verify required checks, acceptance criteria, no blockers, reviews/
+   protection, mergeability, no conflicts. If blocked by reviews, protection,
+   permissions, conflicts, or policy: do not bypass; report the blocking
+   condition and leave the PR for human intervention.
+9. If eligible, transition draft to ready if required (gh pr ready), verify
+   again, attempt merge using repo strategy, and verify actual merge via
+   gh pr view $1 --json state,mergedAt. Record final status in state file.
+   Distinguish attempt from successfully merged PR.
+10. Post one comment on PR #$1 summarizing what you fixed and the merge/result
+    status. The comment body must start with this exact marker line (required
+    for factory idempotency):
 
 $4
 
@@ -698,9 +719,15 @@ if [[ -d "$FACTORY_WORKTREE" ]]; then
   # rather than a stale local base.
   git -C "$FACTORY_WORKTREE" fetch --quiet --prune origin 2>/dev/null \
     || log "warning: git fetch origin failed in worktree; continuing with cached refs"
-  git -C "$FACTORY_WORKTREE" checkout -f --detach origin/main >/dev/null 2>&1 || true
-  git -C "$FACTORY_WORKTREE" reset --hard origin/main >/dev/null 2>&1 || true
-  git -C "$FACTORY_WORKTREE" clean -fdx >/dev/null 2>&1 || true
+  # Never discard in-progress agent work: only reset/clean when the worktree
+  # is already clean. Interrupted per-issue worktrees are preserved.
+  if [[ -z "$(git -C "$FACTORY_WORKTREE" status --porcelain 2>/dev/null)" ]]; then
+    git -C "$FACTORY_WORKTREE" checkout -f --detach origin/main >/dev/null 2>&1 || true
+    git -C "$FACTORY_WORKTREE" reset --hard origin/main >/dev/null 2>&1 || true
+    git -C "$FACTORY_WORKTREE" clean -fdx >/dev/null 2>&1 || true
+  else
+    log "preserving in-progress changes in $FACTORY_WORKTREE; skipping reset/clean"
+  fi
   cd "$FACTORY_WORKTREE"
 else
   git fetch --quiet --prune origin 2>/dev/null || log "warning: git fetch origin failed; continuing with cached refs"

@@ -17,3 +17,6 @@ build/
 .DS_Store
 .idea/
 .vscode/
+
+# Factory deliver workflow state (per-worktree, gitignored)
+.factory-deliver-state.json
