@@ -53,8 +53,31 @@ The system owner only. Capabilities are a superset of the super user's.
     to the user that made the booking.
 12. The user reads the email with the notice of the cancelled booking.
 
+## Automated E2E tests
 
-## SigNoz / telemetry
+Backend API-level end-to-end tests live in `product/backend/internal/e2e/` and
+cover the happy flow (login -> create booking -> confirmation email) and the
+alternative flow (super user cancels -> cancellation email), including a few
+negative assertions (unauthenticated create returns 401; non-super cancellation
+of another user's booking returns 403).
+
+Run locally (requires Docker for testcontainers):
+
+```sh
+cd product/backend && go test ./internal/e2e/...
+```
+
+If a PostgreSQL instance is already available, set `DATABASE_URL` to skip
+testcontainers:
+
+```sh
+DATABASE_URL="postgres://user:pass@localhost:5432/db?sslmode=disable" \
+  go test ./internal/e2e/...
+```
+
+Browser-level steps from the flows above (login screen, calendar rendering,
+reading email in a mail client) remain a manual verification checklist until
+Playwright and a mail sink are added.
 
 The backend exports traces and metrics via OTLP/HTTP. SigNoz (APM) runs as a
 **persistent dev-ops service** under `dev-ops/signoz/` (separate compose
