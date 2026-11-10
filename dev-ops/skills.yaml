@@ -57,6 +57,10 @@ skills:
   - id: dev-server-ssh
     local_path: dev-ops/skills/dev-server-ssh
 
+  - id: customize-decider
+    repo: https://github.com/strands-labs/strands-decider.git
+    path: skills/customize-decider
+
   # More candidates from https://github.com/anthropics/skills (skills/ dir):
   # docx, pptx, xlsx, mcp-builder, doc-coauthoring, ...
 

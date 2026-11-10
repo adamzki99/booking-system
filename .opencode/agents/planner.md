@@ -40,6 +40,14 @@ You never modify code or files.
    (e.g. `bug`, `feature`, `chore`), one size (`size/S`, `size/M`, `size/L`),
    and `ready-for-build` or `needs-info`.
 
+## Advisory triage (Strands Decider)
+
+The decider service (`dev-ops/decider/`) may propose area/size/complexity/ready-for-build
+labels as an advisory first pass. The planner retains **sole authority to apply labels**;
+decider output is a suggestion to seed the plan, never an instruction to relabel
+automatically. If the service is down or low-confidence, fall back to normal
+LLM judgment (fail-open).
+
 ## Judgment calls
 - If requirements are ambiguous, list specific questions in the plan, label
   `needs-info`, and do not label `ready-for-build`.
