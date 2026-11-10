@@ -67,7 +67,11 @@ One or more per issue, for categorization only — they do not select a model:
 
 ## Files
 
-- `tick.sh` — one factory tick: one planning session plus build-path sessions
+- `tick.sh` — one factory tick: one planning session plus build-path sessions.
+  Planning is gated by `dev-ops/scripts/check-acceptance-criteria.sh`: an unlabeled
+  ("infant") issue without an `## Acceptance Criteria` section containing at
+  least one measurable checkbox is skipped (left unplanned) until criteria are
+  added. See `dev-ops/scripts/tests/test-check-acceptance-criteria.sh`.
   (fix open factory PRs blocked from merge, then optionally build a new approved
   issue; see `--dry-run`, `--max-fix-sessions` / `FACTORY_MAX_FIX_SESSIONS`).
   Finished work carries `<!-- factory:plan -->` / `<!-- factory:build -->`
