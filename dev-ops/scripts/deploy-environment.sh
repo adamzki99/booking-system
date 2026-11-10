@@ -223,7 +223,25 @@ fi
 
 [[ -d "$DEPLOY_DIR/.git" ]] || die "deploy checkout missing: $DEPLOY_DIR"
 
-if [[ -n "$(git -C "$DEPLOY_DIR" status --porcelain)" ]]; then
+# Ensure an interrupted run cannot leave a stale metadata edit behind.
+cleanup_deploy_metadata() {
+  git -C "$DEPLOY_DIR" reset -q HEAD -- dev-ops/environments.yaml >/dev/null 2>&1 || true
+  git -C "$DEPLOY_DIR" checkout -q -- dev-ops/environments.yaml >/dev/null 2>&1 || true
+}
+trap cleanup_deploy_metadata EXIT
+# The deploy script itself maintains dev-ops/environments.yaml and may leave a
+# stale staged or unstaged edit behind if a previous run was interrupted. Such
+# an edit must never block future deploys, so discard it before the clean-checkout
+# guard. Only this metadata file is reconciled; any other local change still
+# aborts the deploy.
+if [[ -n "$(git -C "$DEPLOY_DIR" status --porcelain -- dev-ops/environments.yaml)" ]]; then
+  log "discarding stale local changes to dev-ops/environments.yaml"
+  git -C "$DEPLOY_DIR" reset -q HEAD -- dev-ops/environments.yaml 2>/dev/null || true
+  git -C "$DEPLOY_DIR" checkout -q -- dev-ops/environments.yaml 2>/dev/null || true
+fi
+
+unexpected_changes="$(git -C "$DEPLOY_DIR" status --porcelain | grep -v -F 'dev-ops/environments.yaml' || true)"
+if [[ -n "$unexpected_changes" ]]; then
   die "deploy checkout has unexpected local changes"
 fi
 
