@@ -274,3 +274,15 @@ reporters are disabled so codes do not leak into artifacts.
   guidance, and a validation checklist. Keep tunnel tokens, hostnames, and other
   deployment-specific identifiers in `projects/<name>/` config or environment
   variables, not in `product/`.
+
+## Strands Decider (dev/QA advisory triage)
+
+Persistent service providing `/v1/systemone` for issue triage (Pilot 1). Runs as a
+separate compose project so booking deploys do not restart it.
+
+- **Bring up:** `docker compose -f dev-ops/decider/docker-compose.yml up -d`
+- **Port:** `8090` (override `DECIDER_HOST_PORT`); container port `8000`.
+- **Model:** `StrandsAgents/strands-decider-E2B-gemma4-v1-2610` (override `DECIDER_MODEL`).
+- **Fallback:** triage helper is fail-open; if the service is down or confidence is
+  below threshold (default `0.5`), it prints a documented fallback object and exits 0.
+- See `dev-ops/decider/README.md` for details.

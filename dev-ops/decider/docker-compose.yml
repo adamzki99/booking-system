@@ -1,0 +1,44 @@
+# Persistent Strands Decider service for dev-ops issue triage (Pilot 1).
+#
+# Independent project — restarting/redeploying booking environments (which use
+# COMPOSE_PROJECT_NAME=booking-*) must not affect this stack.
+#
+# Bring up:   docker compose -f dev-ops/decider/docker-compose.yml up -d
+# Logs:       docker compose -f dev-ops/decider/docker-compose.yml logs -f
+# Stop:       docker compose -f dev-ops/decider/docker-compose.yml down
+#             (model weights volume is preserved)
+#
+# Endpoint: http://<host>:8090/v1/systemone
+#
+# CPU-only; E2B model (~few GB). Override model with DECIDER_MODEL.
+
+name: decider
+
+x-common: &common
+  restart: unless-stopped
+  logging:
+    options:
+      max-size: 50m
+      max-file: "3"
+
+services:
+  decider:
+    <<: *common
+    image: strands-labs/strands-decider:latest
+    container_name: strands-decider
+    environment:
+      - DECIDER_MODEL=${DECIDER_MODEL:-StrandsAgents/strands-decider-E2B-gemma4-v1-2610}
+      - DECIDER_PORT=8000
+    command:
+      - strands-decider
+      - serve
+      - ${DECIDER_MODEL:-StrandsAgents/strands-decider-E2B-gemma4-v1-2610}
+      - --port
+      - "8000"
+    ports:
+      - "${DECIDER_HOST_PORT:-8090}:8000"
+    volumes:
+      - decider-model-cache:/root/.cache/huggingface
+
+volumes:
+  decider-model-cache:

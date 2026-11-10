@@ -13,3 +13,6 @@ environments:
   # release-1-0:
   #   branch: release/1.0
   #   port: 8081
+
+# Dev-ops services (persistent, not booking environments):
+#   decider: port 8090 (dev-ops/decider/docker-compose.yml)
