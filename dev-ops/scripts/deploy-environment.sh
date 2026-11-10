@@ -213,7 +213,10 @@ fi
 
 LOCK_FILE="/var/lock/booking-deploy-${ENV_NAME}.lock"
 mkdir -p "$(dirname "$LOCK_FILE")" 2>/dev/null || true
-exec 9>"$LOCK_FILE"
+if ! exec 9>"$LOCK_FILE" 2>/dev/null; then
+  LOCK_FILE="${TMPDIR:-/tmp}/booking-deploy-${ENV_NAME}.lock"
+  exec 9>"$LOCK_FILE"
+fi
 flock -x 9
 
 if [[ ! -d "$DEPLOY_DIR/.git" ]]; then
@@ -234,6 +237,8 @@ trap cleanup_deploy_metadata EXIT
 # an edit must never block future deploys, so discard it before the clean-checkout
 # guard. Only this metadata file is reconciled; any other local change still
 # aborts the deploy.
+git -C "$DEPLOY_DIR" config user.email >/dev/null 2>&1 || git -C "$DEPLOY_DIR" config user.email "deploy@booking-system.local"
+git -C "$DEPLOY_DIR" config user.name >/dev/null 2>&1 || git -C "$DEPLOY_DIR" config user.name "booking-deploy"
 if [[ -n "$(git -C "$DEPLOY_DIR" status --porcelain -- dev-ops/environments.yaml)" ]]; then
   log "discarding stale local changes to dev-ops/environments.yaml"
   git -C "$DEPLOY_DIR" reset -q HEAD -- dev-ops/environments.yaml 2>/dev/null || true
@@ -327,9 +332,10 @@ TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 update_yaml "success" "$DEPLOYED_SHA" "$TS"
 
 cd "$DEPLOY_DIR"
-if ! git diff --quiet -- dev-ops/environments.yaml; then
+if [[ -n "$(git status --porcelain -- dev-ops/environments.yaml)" ]]; then
   git add dev-ops/environments.yaml
-  git commit -m "chore(dev-ops): record ${ENV_NAME} deploy ${DEPLOYED_SHA}" || true
+  git -c user.email="deploy@booking-system.local" -c user.name="booking-deploy" \
+    commit -m "chore(dev-ops): record ${ENV_NAME} deploy ${DEPLOYED_SHA}" || true
   if ! git push origin "$BRANCH" 2>/dev/null; then
     log "WARNING: failed to push metadata update"
   fi
