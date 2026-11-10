@@ -404,6 +404,11 @@ $PLAN_MARKER
    "$APPROVED_LABEL" label — only the repository owner applies it.
 
 Do not modify any code or files.
+
+If a follow-up issue must be filed, use the /create-github-issue command
+(see .opencode/commands/create-github-issue.md) rather than ad hoc
+gh issue create, so the body follows the agentic template and passes
+dev-ops/scripts/validate-issue-body.sh.
 EOF
 }
 
@@ -424,7 +429,22 @@ Load and follow these OpenCode skills (use the skill tool) as they apply:
   work and Playwright/browser verification when relevant.
 - \`pr\` — when opening the pull request, write the PR body in that format
   (Summary, Evidence, Merge Danger). Include \`Closes #$1\` in the body.
+- \`caveman\` — concise reporting style for issue/PR summaries and comments where
+  appropriate.
+- \`investigate-first\`, \`lean-build\`, \`surgical-patch\`, \`safe-refactor\`,
+  \`migration\`, \`verify-and-stop\` — work-pattern skills; apply only when
+  relevant (investigate before changing, minimal build, targeted edits, safe
+  refactors, migrations, stop after verification).
+- \`caveman-commit\`, \`caveman-review\`, \`caveman-compress\` — concise commit
+  messages, PR review, and context compression; use when drafting commits/PR
+  bodies or compressing context.
 
+Apply the skills above conditionally based on the issue; do not force them on
+every issue. If a follow-up issue must be filed, use the
+\`/create-github-issue\` command (see
+\`.opencode/commands/create-github-issue.md\`) rather than ad hoc
+\`gh issue create\`, so the body follows the agentic template and passes
+\`dev-ops/scripts/validate-issue-body.sh\`.
 Factory delivery rules (these override generic skill defaults where they
 conflict):
 1. Read the issue and its plan: gh issue view $1 --comments
