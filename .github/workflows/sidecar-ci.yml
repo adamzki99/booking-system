@@ -1,0 +1,39 @@
+name: Sidecar CI
+
+on:
+  pull_request:
+    paths:
+      - 'projects/sauna/sidecar/**'
+      - '.github/workflows/sidecar-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'projects/sauna/sidecar/**'
+      - '.github/workflows/sidecar-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Sidecar tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: projects/sauna/sidecar
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: projects/sauna/sidecar/go.mod
+          # The sidecar is stdlib-only and has no go.sum, so there is no
+          # module cache to restore. Re-enable with cache-dependency-path
+          # if external dependencies are added.
+          cache: false
+
+      - name: Tests
+        run: go test ./...
