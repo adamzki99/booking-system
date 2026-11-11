@@ -228,11 +228,20 @@ export default function Users() {
                 </Heading>
                 <FormControl>
                   <FormLabel htmlFor="address-user-id">User id</FormLabel>
-                  <Input
+                  <Select
                     id="address-user-id"
+                    aria-label="User"
                     value={addressUserId}
                     onChange={(e) => setAddressUserId(e.target.value)}
-                  />
+                  >
+                    {users
+                      .filter((u) => u.role === "basic")
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.email}
+                        </option>
+                      ))}
+                  </Select>
                 </FormControl>
                 <FormControl>
                   <FormLabel htmlFor="address-value">Address</FormLabel>
@@ -256,11 +265,20 @@ export default function Users() {
                   </Heading>
                   <FormControl>
                     <FormLabel htmlFor="role-user-id">User id</FormLabel>
-                    <Input
+                    <Select
                       id="role-user-id"
+                      aria-label="User"
                       value={roleUserId}
                       onChange={(e) => setRoleUserId(e.target.value)}
-                    />
+                    >
+                      {users
+                        .filter((u) => u.id !== user?.id)
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.email}
+                          </option>
+                        ))}
+                    </Select>
                   </FormControl>
                   <FormControl>
                     <FormLabel htmlFor="role-value">Role</FormLabel>
