@@ -13,6 +13,12 @@
 {
 	email {$ACME_EMAIL:admin@localhost}
 	acme_ca {$ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+	servers {
+		# Trust X-Forwarded-For / X-Forwarded-Proto only from private (Docker)
+		# networks, i.e. the cloudflared connector or a local reverse proxy.
+		# Tighten to the exact proxy CIDR if the topology is known.
+		trusted_proxies static private_ranges
+	}
 }
 
 (app) {
