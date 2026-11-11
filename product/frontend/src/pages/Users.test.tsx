@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../test-utils";
 import { useSession } from "../auth/SessionContext";
+import type { User } from "../api/auth";
 import * as usersApi from "../api/users";
 import Users from "./Users";
 
@@ -25,7 +26,7 @@ const basicUser = { id: "b1", email: "basic@example.com", role: "basic" as const
 const superUser = { id: "s1", email: "super@example.com", role: "super" as const, address: null, active: true };
 const adminUser = { id: "a1", email: "admin@example.com", role: "admin" as const, address: null, active: true };
 
-function stubSession(user: typeof basicUser) {
+function stubSession(user: User) {
   useSessionMock.mockReturnValue({
     user,
     loading: false,
@@ -89,7 +90,7 @@ describe("Users page", () => {
     await screen.findByRole("cell", { name: "basic@example.com" });
     expect(screen.getByText("Change role (admin)")).toBeInTheDocument();
     const selects = screen.getAllByLabelText("User");
-    const roleSelect = selects[selects.length - 1];
+    const roleSelect = selects[selects.length - 1] as HTMLSelectElement;
     const optionValues = Array.from(roleSelect.options).map((o) => o.value);
     expect(optionValues).toContain("b1");
     expect(optionValues).not.toContain("a1");
@@ -124,7 +125,7 @@ describe("Users page", () => {
     render(<Users />);
     await screen.findByRole("cell", { name: "basic@example.com" });
     const selects = screen.getAllByLabelText("User");
-    const addressSelect = selects[0];
+    const addressSelect = selects[0] as HTMLSelectElement;
     const optionValues = Array.from(addressSelect.options).map((o) => o.value);
     expect(optionValues).toEqual(["b1"]);
   });
