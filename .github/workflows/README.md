@@ -21,6 +21,15 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 
 **Notes:** Any failing test or type/build error fails the check. No secrets are required.
 
+## `sidecar-ci.yml`
+
+**Triggers:** `pull_request` and `push` to `main` when `projects/sauna/sidecar/**` or the workflow file changes; `workflow_dispatch`.
+
+**Jobs:**
+- **Sidecar tests** (`projects/sauna/sidecar`): runs `go test ./...` using the sidecar's own `go.mod`. Go version comes from `projects/sauna/sidecar/go.mod`. The sidecar is stdlib-only with no `go.sum`, so Go module caching is disabled (`cache: false`).
+
+**Notes:** Any failing sidecar test fails the check. Sidecar logic stays deployment-specific and is intentionally not coupled to `backend-ci.yml`.
+
 ## `security.yml`
 
 **Triggers:** `pull_request`, `push` to `main`, weekly schedule (Monday 06:17 UTC), `workflow_dispatch`.
