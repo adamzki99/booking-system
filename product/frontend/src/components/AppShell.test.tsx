@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { render } from "../test-utils";
 import { getChrome } from "../api/chrome";
 import { useSession } from "../auth/SessionContext";
@@ -57,6 +58,34 @@ describe("AppShell", () => {
 
     expect(await screen.findByText("Sauna")).toBeInTheDocument();
     expect(screen.queryByTestId("redeploy-indicator")).not.toBeInTheDocument();
+  });
+
+  it("exposes navigation links to every authenticated route", async () => {
+    useSessionMock.mockReturnValue({
+      user: { id: "u1", email: "basic@example.com", role: "basic", address: null, active: true },
+      loading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    getChromeMock.mockResolvedValue({ header: "", footer: "", nextRedeploy: "" });
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="/" element={<AppShell><p>calendar page</p></AppShell>} />
+          <Route path="/account" element={<AppShell><p>account page</p></AppShell>} />
+          <Route path="/users" element={<AppShell><p>users page</p></AppShell>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/users");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("link", { name: "Account" }));
+    expect(await screen.findByText("account page")).toBeInTheDocument();
   });
 });
 

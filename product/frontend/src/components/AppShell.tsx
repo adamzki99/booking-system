@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { Box, Button, Container, Flex, Text } from "@chakra-ui/react";
 import { useSession } from "../auth/SessionContext";
 import { getChrome, type ChromeInfo } from "../api/chrome";
@@ -96,6 +96,11 @@ export function AppShell({ children }: AppShellProps) {
         {drawerOpen && (
           <Box as="aside" data-testid="drawer" px={3} py={2} bg="gray.50" borderRadius="base">
             <Text>Navigation</Text>
+            <Flex as="nav" aria-label="Navigation" direction="column" gap={1} mt={2}>
+              <NavLink to="/">Calendar</NavLink>
+              <NavLink to="/account">Account</NavLink>
+              <NavLink to="/users">Users</NavLink>
+            </Flex>
           </Box>
         )}
         <Box as="main">{children}</Box>
