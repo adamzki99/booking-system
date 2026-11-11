@@ -12,6 +12,15 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 
 **Notes:** `go test ./...` includes integration tests (e.g. `*_integration_test.go`). Those tests use [testcontainers-go](https://golang.testcontainers.org/) and require a working Docker daemon; GitHub-hosted Ubuntu runners provide Docker. There is no separate `services: postgres` job because the backend's integration tests manage their own PostgreSQL containers.
 
+## `frontend-ci.yml`
+
+**Triggers:** `pull_request` and `push` to `main` when `product/frontend/**` or the workflow file changes; `workflow_dispatch`.
+
+**Jobs:**
+- **Install, test, build** (`product/frontend`): installs dependencies with `npm ci` (deterministic, from `package-lock.json`), runs the Vitest suite (`npm test`), and runs the production build (`npm run build`, which runs `tsc --noEmit` then `vite build`). Node 22 is used, matching `product/frontend/Dockerfile`. Dependencies are cached via `actions/setup-node`.
+
+**Notes:** Any failing test or type/build error fails the check. No secrets are required.
+
 ## `security.yml`
 
 **Triggers:** `pull_request`, `push` to `main`, weekly schedule (Monday 06:17 UTC), `workflow_dispatch`.
