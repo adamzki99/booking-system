@@ -1,0 +1,31 @@
+# Sauna booking — optional Cloudflare Tunnel override.
+#
+# Adds a cloudflared connector that carries public HTTPS traffic from Cloudflare
+# to Caddy over the Compose network. Cloudflare terminates TLS; the origin serves
+# plain HTTP on caddy:80. The connector dials out, so it publishes no host ports.
+#
+# Usage (from projects/sauna/):
+#   docker compose -f docker-compose.yml -f docker-compose.cloudflare-tunnel.yml up -d
+#
+# Required in .env (gitignored): CLOUDFLARE_TUNNEL_TOKEN. The Public Hostname
+# route in Cloudflare must point at http://caddy:80. See
+# dev-ops/self-hosting-cloudflare-tunnel.md.
+
+services:
+  caddy:
+    environment:
+      # An http:// site address disables Caddy's automatic HTTPS for this site.
+      # Let's Encrypt is not used behind the tunnel: the origin is not publicly
+      # reachable, so HTTP-01 cannot succeed. Public HTTPS is Cloudflare's job.
+      SITE_ADDRESS: http://localhost
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    # The token is read from TUNNEL_TOKEN so it is not part of the process args.
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in projects/sauna/.env}
+    depends_on:
+      caddy:
+        condition: service_started
+    restart: unless-stopped

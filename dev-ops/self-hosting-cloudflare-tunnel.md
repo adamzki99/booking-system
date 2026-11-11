@@ -59,7 +59,7 @@ projects/<name>/
   .env.example                # documents required variables; no secrets
   .env                        # operator-provided; gitignored
   docker-compose.yml
-  docker-compose.cloudflare-tunnel.yml  # optional override/profile (if added)
+  docker-compose.cloudflare-tunnel.yml  # optional tunnel override (cloudflared)
   config/
 ```
 
@@ -91,32 +91,40 @@ secrets). Never commit it.
 
 ## 3. Run `cloudflared` with Docker Compose
 
-Add an optional connector service or a Compose override in `projects/<name>/`.
-The exact integration may be finalized with issue #14; the following is the
-expected shape:
+The sauna deployment ships an opt-in override,
+`projects/sauna/docker-compose.cloudflare-tunnel.yml`. It is not loaded by default,
+so local and non-tunneled environments are unaffected. Run it alongside the base file:
 
-```yaml
-services:
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      - caddy
-    restart: unless-stopped
+```sh
+cd projects/sauna
+docker compose -f docker-compose.yml -f docker-compose.cloudflare-tunnel.yml up -d
 ```
+
+The override:
+
+- adds a `cloudflared` service that reads `CLOUDFLARE_TUNNEL_TOKEN` from `.env`
+  via `TUNNEL_TOKEN` (the token is not placed in the process arguments). Compose
+  fails fast if the token is unset;
+- sets Caddy's `SITE_ADDRESS` to `http://localhost`, so Caddy serves plain HTTP on
+  `:80` and never attempts Let's Encrypt for the public hostname (see section 4).
 
 Notes:
 
-- Use a Compose profile or a separate override file if the tunnel should be
-  optional for local/non-tunneled environments.
-- Do not publish extra host ports for `cloudflared`; it connects outbound.
-- Pin or regularly update the image according to your operational policy.
+- `cloudflared` publishes no host ports; it connects outbound.
+- The base `docker-compose.yml` still publishes host ports `80` and `443`. If the
+  origin should not be reachable directly, remove those port mappings for this
+  deployment (or firewall them). Traffic must come through the tunnel.
+- The image tag is `latest` in the override. Pin it according to your operational policy.
 
 ## 4. Caddy and HTTPS-compliant behavior
 
-The current sauna Caddyfile (`projects/sauna/config/Caddyfile`) listens on `:80`
+The sauna Caddyfile (`projects/sauna/config/Caddyfile`) listens on `:80`
 and proxies API traffic to the backend. Behind Cloudflare Tunnel, Cloudflare
-provides public HTTPS; Caddy typically remains the HTTP origin.
+provides public HTTPS; Caddy remains the HTTP origin.
+
+With the tunnel override, `SITE_ADDRESS` is `http://localhost`. Without this,
+a bare public hostname would make Caddy obtain a certificate via ACME on `:443`,
+which fails behind an outbound-only tunnel.
 
 To keep behavior **HTTPS-compliant**, ensure the stack treats the *public* request
 as HTTPS:
@@ -124,27 +132,17 @@ as HTTPS:
 - **Forwarded headers:** `cloudflared`/Cloudflare send forwarding headers (including
   the original protocol). Caddy and upstream services must interpret them correctly
   for URL generation, redirects, and security decisions.
-- **Trusted proxies:** configure Caddy to trust the proxy in front of it. In a
-  Docker Compose deployment, trusting private/Docker network ranges is a common
-  starting point; tighten this for your network topology.
+- **Trusted proxies:** the Caddyfile sets `servers { trusted_proxies static private_ranges }`,
+  so forwarded headers are only honored from private (Docker) networks. Tighten this
+  to the exact proxy CIDR for your topology. Note that this applies in direct mode too.
+- **Backend:** `PUBLIC_BASE_URL` is read by the backend's iCal handler, which also
+  honors `X-Forwarded-Proto` and `X-Forwarded-Host`.
 - **No insecure public redirects:** public clients should use `https://` URLs.
   Avoid redirecting users to plain HTTP.
 - **App base URL:** configure the backend/frontend/auth components that generate
   absolute links (emails, callbacks, redirects) with the public HTTPS base URL.
 
-Example Caddy preparation (adapt to the real deployment; this is illustrative):
-
-```caddyfile
-{
-	servers {
-		trusted_proxies static private_ranges
-	}
-}
-
-:80 {
-	# Existing reverse_proxy / file_server config...
-}
-```
+The shipped Caddyfile already contains the `trusted_proxies` setting in its global block.
 
 If you later terminate TLS at Caddy with an origin certificate instead of using a
 tunneled HTTP origin, update the Caddy/site configuration, certificate handling,
@@ -177,6 +175,8 @@ until that architecture decision is finalized.
 
 After deployment, verify:
 
+- [ ] `docker compose -f docker-compose.yml -f docker-compose.cloudflare-tunnel.yml config`
+      succeeds with `CLOUDFLARE_TUNNEL_TOKEN` set, and `cloudflared` is running.
 - [ ] `https://<public-hostname>/` loads without browser TLS/mixed-content errors.
 - [ ] HTTP is not required for normal user access (Cloudflare redirect/HSTS policy
       is intentional and documented).
