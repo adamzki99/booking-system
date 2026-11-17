@@ -31,6 +31,7 @@ describe("AppShell", () => {
       user: null,
       loading: false,
       login: vi.fn(),
+    refresh: vi.fn(),
       logout: vi.fn(),
     });
   });
@@ -65,6 +66,7 @@ describe("AppShell", () => {
       user: { id: "u1", email: "basic@example.com", role: "basic", address: null, active: true },
       loading: false,
       login: vi.fn(),
+    refresh: vi.fn(),
       logout: vi.fn(),
     });
     getChromeMock.mockResolvedValue({ header: "", footer: "", nextRedeploy: "" });

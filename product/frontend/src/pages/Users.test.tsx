@@ -31,6 +31,7 @@ function stubSession(user: User) {
     user,
     loading: false,
     login: vi.fn(),
+    refresh: vi.fn(),
     logout: vi.fn(),
   });
 }

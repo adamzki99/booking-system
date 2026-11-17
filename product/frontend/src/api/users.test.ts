@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addUser,
   changeUserAddress,
+  confirmEmailChange,
   listUsers,
   removeUser,
-  updateMyEmail,
+  requestEmailChange,
   type RawUser,
 } from "./users";
 import type { User } from "./auth";
@@ -50,16 +51,36 @@ describe("users API", () => {
     expect(users[0].active).toBe(true);
   });
 
-  it("changes the signed-in user's email", async () => {
-    const updated: User = { ...RAW, email: "new@example.com" };
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, updated));
+  it("requests an email change and reports the pending address", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(202, {
+        pendingEmail: "new@example.com",
+        pending_email: "new@example.com",
+        expiresAt: "2026-11-17T20:00:00Z",
+        expires_at: "2026-11-17T20:00:00Z",
+      }),
+    );
 
-    const user = await updateMyEmail("new@example.com");
+    const pending = await requestEmailChange("new@example.com");
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/users/me/email");
     expect(init.method).toBe("PATCH");
     expect(init.body).toBe(JSON.stringify({ email: "new@example.com" }));
+    expect(pending.pendingEmail).toBe("new@example.com");
+    expect(pending.expiresAt).toBe("2026-11-17T20:00:00Z");
+  });
+
+  it("confirms the email change with the verification code", async () => {
+    const updated: User = { ...RAW, email: "new@example.com" };
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, updated));
+
+    const user = await confirmEmailChange("123456");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/users/me/email/confirm");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ code: "123456" }));
     expect(user).toEqual(updated);
   });
 

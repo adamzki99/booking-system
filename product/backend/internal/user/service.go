@@ -2,9 +2,13 @@ package user
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 
+	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/command"
+	"github.com/adamzki99/booking-system/product/backend/internal/email"
 )
 
 // commandExecutor runs commands against the event store.
@@ -12,21 +16,43 @@ type commandExecutor interface {
 	Execute(context.Context, command.Command) error
 }
 
+// rateLimiter guards request rates per key.
+type rateLimiter interface {
+	Allow(key string, limit int, window time.Duration) bool
+}
+
+const (
+	// emailChangeCodeTTL is how long an email-change verification code remains valid.
+	emailChangeCodeTTL = 15 * time.Minute
+
+	// emailChangeEmailSubject is the subject of the verification email.
+	emailChangeEmailSubject = "Confirm your new email"
+
+	requestEmailChangeLimit    = 5
+	requestEmailChangeWindow   = 15 * time.Minute
+	requestEmailChangeIPLimit  = 20
+	requestEmailChangeIPWindow = time.Hour
+)
+
 // UserService orchestrates user commands, bootstrap, and role lookups.
 type UserService struct {
 	commands commandExecutor
 	users    *UsersProjection
+	sender   email.Sender
+	limiter  rateLimiter
 	mu       sync.Mutex
 }
 
-// NewService creates a user service.
-func NewService(commands commandExecutor, users *UsersProjection) *UserService {
-	return &UserService{commands: commands, users: users}
+// NewService creates a user service. The sender delivers the verification
+// email for email changes and the limiter (nil disables rate limiting) guards
+// verification emails against abuse.
+func NewService(commands commandExecutor, users *UsersProjection, sender email.Sender, limiter rateLimiter) *UserService {
+	return &UserService{commands: commands, users: users, sender: sender, limiter: limiter}
 }
 
 // NewUserService is an alias for NewService.
-func NewUserService(commands commandExecutor, users *UsersProjection) *UserService {
-	return NewService(commands, users)
+func NewUserService(commands commandExecutor, users *UsersProjection, sender email.Sender, limiter rateLimiter) *UserService {
+	return NewService(commands, users, sender, limiter)
 }
 
 // Users returns the underlying projection.
@@ -131,15 +157,64 @@ func (s *UserService) RemoveUser(ctx context.Context, userID, requesterEmail str
 	})
 }
 
-// ChangeOwnEmail changes a user's email.
-func (s *UserService) ChangeOwnEmail(ctx context.Context, userID, newEmail, requesterEmail string) (User, error) {
+// PendingEmailChange describes an unconfirmed email change request.
+type PendingEmailChange struct {
+	NewEmail  string    `json:"newEmail"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// RequestEmailChange records a pending email change and emails the
+// verification code to the new address. The account's login address is
+// unchanged until the code is confirmed.
+func (s *UserService) RequestEmailChange(ctx context.Context, userID, newEmail, requesterEmail, clientIP string) (PendingEmailChange, error) {
 	normalized, err := NormalizeEmail(newEmail)
 	if err != nil {
-		return User{}, err
+		return PendingEmailChange{}, err
 	}
+	if s.limiter != nil {
+		emailOK := s.limiter.Allow("email-change:email:"+normalized, requestEmailChangeLimit, requestEmailChangeWindow)
+		ipOK := s.limiter.Allow("email-change:ip:"+clientIP, requestEmailChangeIPLimit, requestEmailChangeIPWindow)
+		if !emailOK || !ipOK {
+			return PendingEmailChange{}, ErrEmailChangeRateLimit
+		}
+	}
+	if s.sender == nil {
+		return PendingEmailChange{}, fmt.Errorf("user: no email sender configured")
+	}
+	code, err := auth.GenerateCode()
+	if err != nil {
+		return PendingEmailChange{}, fmt.Errorf("user: generate code: %w", err)
+	}
+	hash, err := auth.HashCode(code)
+	if err != nil {
+		return PendingEmailChange{}, fmt.Errorf("user: hash code: %w", err)
+	}
+	now := time.Now().UTC()
+	expiresAt := now.Add(emailChangeCodeTTL)
 	if err := s.commands.Execute(ctx, ChangeOwnEmail{
 		UserID:         userID,
 		NewEmail:       normalized,
+		RequesterEmail: requesterEmail,
+		CodeHash:       hash,
+		ExpiresAt:      expiresAt,
+	}); err != nil {
+		return PendingEmailChange{}, err
+	}
+	if err := s.sender.Send(ctx, normalized, emailChangeEmailSubject, code); err != nil {
+		return PendingEmailChange{}, fmt.Errorf("user: send verification code: %w", err)
+	}
+	return PendingEmailChange{NewEmail: normalized, ExpiresAt: expiresAt}, nil
+}
+
+// ConfirmEmailChange verifies the code sent to the new address, commits the
+// change, and returns the updated user.
+func (s *UserService) ConfirmEmailChange(ctx context.Context, userID, code, requesterEmail string) (User, error) {
+	if err := auth.ValidateCode(code); err != nil {
+		return User{}, err
+	}
+	if err := s.commands.Execute(ctx, ConfirmOwnEmailChange{
+		UserID:         userID,
+		Code:           code,
 		RequesterEmail: requesterEmail,
 	}); err != nil {
 		return User{}, err
@@ -149,11 +224,6 @@ func (s *UserService) ChangeOwnEmail(ctx context.Context, userID, newEmail, requ
 		return User{}, err
 	}
 	return u, nil
-}
-
-// ChangeEmail is an alias for ChangeOwnEmail.
-func (s *UserService) ChangeEmail(ctx context.Context, userID, newEmail, requesterEmail string) (User, error) {
-	return s.ChangeOwnEmail(ctx, userID, newEmail, requesterEmail)
 }
 
 // ChangeUserAddress changes a basic user's address.

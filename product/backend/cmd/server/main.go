@@ -80,7 +80,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		userService := user.NewService(app.Commands, userProjections)
+		userService := user.NewService(app.Commands, userProjections, mailer, ratelimit.NewLimiter())
 		if n, err := user.SeedDevUsers(context.Background(), userService, cfg.DevMode, cfg.SeedUsersFile); err != nil {
 			pool.Close()
 			logger.Error("seed dev users", "err", err)

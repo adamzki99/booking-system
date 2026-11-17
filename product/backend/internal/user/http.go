@@ -5,6 +5,7 @@ import (
 
 	"errors"
 	"github.com/adamzki99/booking-system/product/backend/internal/auth"
+	"net"
 	"net/http"
 )
 
@@ -28,12 +29,25 @@ func writeUserError(w http.ResponseWriter, status int, msg string) {
 	writeUserJSON(w, status, map[string]string{"error": msg})
 }
 
+// clientIP extracts the host part of the request's remote address.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 func userHTTPStatus(err error) int {
 	switch {
 	case err == nil:
 		return http.StatusOK
-	case errors.Is(err, ErrInvalidEmail), errors.Is(err, ErrInvalidAddress), errors.Is(err, ErrInvalidRole):
+	case errors.Is(err, ErrInvalidEmail), errors.Is(err, ErrInvalidAddress), errors.Is(err, ErrInvalidRole),
+		errors.Is(err, ErrNoPendingEmailChange), errors.Is(err, ErrEmailChangeExpired), errors.Is(err, ErrInvalidChangeCode),
+		errors.Is(err, ErrUnchangedEmail):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrEmailChangeRateLimit):
+		return http.StatusTooManyRequests
 	case errors.Is(err, ErrForbidden), errors.Is(err, ErrPermissionDenied), errors.Is(err, ErrNotAuthorized), errors.Is(err, ErrAccessDenied):
 		return http.StatusForbidden
 	case errors.Is(err, ErrUserNotFound), errors.Is(err, ErrNotFound):
@@ -152,7 +166,9 @@ func HandleRemoveUser(svc *UserService) http.HandlerFunc {
 	}
 }
 
-// HandleChangeOwnEmail changes caller's email (or admin acting).
+// HandleChangeOwnEmail starts a verified email change: it records a pending
+// change and emails a code to the new address. The response is 202 with the
+// pending address; the caller confirms with POST /users/me/email/confirm.
 func HandleChangeOwnEmail(svc *UserService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if svc == nil {
@@ -177,7 +193,46 @@ func HandleChangeOwnEmail(svc *UserService) http.HandlerFunc {
 			writeUserError(w, userHTTPStatus(err), err.Error())
 			return
 		}
-		updated, err := svc.ChangeOwnEmail(r.Context(), u.ID, body.Email, caller)
+		pending, err := svc.RequestEmailChange(r.Context(), u.ID, body.Email, caller, clientIP(r))
+		if err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		writeUserJSON(w, http.StatusAccepted, map[string]any{
+			"pendingEmail":  pending.NewEmail,
+			"pending_email": pending.NewEmail,
+			"expiresAt":     pending.ExpiresAt,
+			"expires_at":    pending.ExpiresAt,
+		})
+	}
+}
+
+// HandleConfirmEmailChange verifies the code sent to the new address and
+// commits the change, returning the updated user.
+func HandleConfirmEmailChange(svc *UserService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeUserError(w, http.StatusServiceUnavailable, "user unavailable")
+			return
+		}
+		caller, ok := auth.FromContext(r.Context())
+		if !ok {
+			writeUserError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		var body struct {
+			Code string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeUserError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		u, err := svc.GetByEmail(r.Context(), caller)
+		if err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		updated, err := svc.ConfirmEmailChange(r.Context(), u.ID, body.Code, caller)
 		if err != nil {
 			writeUserError(w, userHTTPStatus(err), err.Error())
 			return

@@ -11,6 +11,8 @@ interface Session {
   loading: boolean;
   /** Verifies email + code, stores the token and loads the user. */
   login(email: string, code: string): Promise<void>;
+  /** Re-reads the signed-in user so the session matches the account. */
+  refresh(): Promise<void>;
   /** Clears the session. */
   logout(): void;
 }
@@ -52,6 +54,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     async login(email, code) {
       const token = await verify(email, code);
       setToken(token);
+      const u = await currentUser();
+      setUser(u);
+    },
+    async refresh() {
+      if (!getToken()) {
+        return;
+      }
       const u = await currentUser();
       setUser(u);
     },

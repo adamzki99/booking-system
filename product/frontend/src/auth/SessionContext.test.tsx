@@ -83,4 +83,22 @@ describe("useSession", () => {
     expect(result.current.user).toBeNull();
     expect(localStorage.getItem("sauna.session-token")).toBeNull();
   });
+
+  it("refresh reloads the signed-in user", async () => {
+    setToken("tok");
+    currentUserMock.mockResolvedValue(user);
+
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.user).toEqual(user));
+
+    const updated = { ...user, email: "moved@example.com" };
+    currentUserMock.mockResolvedValue(updated);
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(currentUserMock).toHaveBeenCalled();
+    expect(result.current.user).toEqual(updated);
+  });
 });

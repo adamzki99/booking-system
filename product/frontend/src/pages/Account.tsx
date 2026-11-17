@@ -16,14 +16,17 @@ import {
 import { errorMessage } from "../api/client";
 import type { User } from "../api/auth";
 import { currentUser } from "../api/auth";
-import { updateMyEmail } from "../api/users";
+import { confirmEmailChange, requestEmailChange } from "../api/users";
+import type { PendingEmailChange } from "../api/users";
 import { regenerateCalendarUrl } from "../api/calendar";
 import { useSession } from "../auth/SessionContext";
 
 export default function Account() {
-  const { user: sessionUser } = useSession();
+  const { user: sessionUser, refresh } = useSession();
   const [me, setMe] = useState<User | null>(sessionUser);
   const [email, setEmail] = useState(sessionUser?.email ?? "");
+  const [code, setCode] = useState("");
+  const [pending, setPending] = useState<PendingEmailChange | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [icalUrl, setIcalUrl] = useState<string>("");
   const [busy, setBusy] = useState(false);
@@ -45,15 +48,36 @@ export default function Account() {
     };
   }, []);
 
-  async function onChangeEmail(event: FormEvent) {
+  async function onRequestEmailChange(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      const updated = await updateMyEmail(email);
-      setMe(updated);
+      const requested = await requestEmailChange(email);
+      setPending(requested);
+      setCode("");
     } catch (err) {
-      setError(errorMessage(err, "could not change email"));
+      setError(errorMessage(err, "could not request email change"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onConfirmEmailChange(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const updated = await confirmEmailChange(code);
+      setMe(updated);
+      setEmail(updated.email);
+      setPending(null);
+      setCode("");
+      // The stored session now resolves to the new identity; keep the
+      // session context in agreement with the account.
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err, "could not confirm email change"));
     } finally {
       setBusy(false);
     }
@@ -97,23 +121,49 @@ export default function Account() {
           <Heading as="h2" size="md" mb={2}>
             Email
           </Heading>
-          <Text mb={3}>{me?.email}</Text>
-          <Box as="form" onSubmit={onChangeEmail}>
-            <VStack spacing={4} align="stretch">
-              <FormControl>
-                <FormLabel htmlFor="account-email">Email</FormLabel>
-                <Input
-                  id="account-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </FormControl>
-              <Button type="submit" alignSelf="flex-start" isLoading={busy}>
-                Change email
-              </Button>
-            </VStack>
-          </Box>
+          <Text mb={3} data-testid="account-email">
+            {me?.email}
+          </Text>
+          {!pending ? (
+            <Box as="form" onSubmit={onRequestEmailChange}>
+              <VStack spacing={4} align="stretch">
+                <FormControl>
+                  <FormLabel htmlFor="account-email">New email</FormLabel>
+                  <Input
+                    id="account-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </FormControl>
+                <Button type="submit" alignSelf="flex-start" isLoading={busy}>
+                  Send verification code
+                </Button>
+              </VStack>
+            </Box>
+          ) : (
+            <Box as="form" onSubmit={onConfirmEmailChange}>
+              <VStack spacing={4} align="stretch">
+                <Text mb={3}>
+                  A verification code was sent to {pending.pendingEmail}. The
+                  address changes only after you confirm; afterwards the old
+                  address no longer signs in.
+                </Text>
+                <FormControl>
+                  <FormLabel htmlFor="account-code">Verification code</FormLabel>
+                  <Input
+                    id="account-code"
+                    type="text"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                </FormControl>
+                <Button type="submit" alignSelf="flex-start" isLoading={busy}>
+                  Confirm email change
+                </Button>
+              </VStack>
+            </Box>
+          )}
         </Box>
         <Box as="section">
           <Heading as="h2" size="md" mb={2}>

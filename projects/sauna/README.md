@@ -9,7 +9,10 @@ booking product.
 
 - Make bookings.
 - Cancel their own bookings.
-- Change the email connected to their account.
+- Change the email connected to their account. The new address must be
+  verified first: a code is emailed to it, the change only takes effect once
+  that code is confirmed, and the old address stops working as a login
+  afterwards. Active sessions stay valid under the new address.
 - See all other users registered on the platform.
 - Add the booking calendar to their calendar (iCal format).
 

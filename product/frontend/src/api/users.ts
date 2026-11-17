@@ -15,9 +15,24 @@ export function listUsers(): Promise<User[]> {
   return get<RawUser[]>("/api/users");
 }
 
-/** Changes the signed-in user's email. */
-export function updateMyEmail(email: string): Promise<User> {
-  return patch<RawUser>("/api/users/me/email", { email });
+/** The pending state returned after requesting an email change. */
+export interface PendingEmailChange {
+  pendingEmail: string;
+  expiresAt: string;
+}
+
+/**
+ * Starts a verified email change: the backend emails a code to the new
+ * address; the account's login address is unchanged until the code is
+ * confirmed.
+ */
+export function requestEmailChange(email: string): Promise<PendingEmailChange> {
+  return patch<PendingEmailChange>("/api/users/me/email", { email });
+}
+
+/** Confirms an email change with the code sent to the new address. */
+export function confirmEmailChange(code: string): Promise<User> {
+  return post<RawUser>("/api/users/me/email/confirm", { code });
 }
 
 /** Adds a basic user (super users only). */
@@ -45,5 +60,4 @@ export const updateUserRole = changeUserRole;
 export const setUserRole = changeUserRole;
 
 /** Alias matching the plan's naming. */
-export const updateEmail = updateMyEmail;
 export const changeAddress = changeUserAddress;
