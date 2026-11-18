@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/adamzki99/booking-system/product/backend/internal/email"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/notification"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 )
 
@@ -16,19 +16,19 @@ const (
 	cancelledSubject = "Booking cancelled"
 )
 
-// Notifier sends booking confirmation and cancellation emails as a side effect
-// of recorded booking events. Delivery is best-effort: errors are logged and
-// never surfaced, so a failed email cannot roll back an accepted booking.
+// Notifier enqueues booking confirmation and cancellation deliveries as a side
+// effect of recorded booking events. Enqueue failures are logged and never
+// surfaced, so a failed notification cannot roll back an accepted booking.
 type Notifier struct {
-	sender   email.Sender
+	outbox   notification.Enqueuer
 	users    Directory
 	bookings bookingsReader
 	logger   *slog.Logger
 }
 
 // RegisterNotify subscribes the booking notifier to the dispatcher.
-func RegisterNotify(r *registry.Registry, sender email.Sender, users Directory, bookings bookingsReader, logger *slog.Logger) {
-	n := &Notifier{sender: sender, users: users, bookings: bookings, logger: logger}
+func RegisterNotify(r *registry.Registry, outbox notification.Enqueuer, users Directory, bookings bookingsReader, logger *slog.Logger) {
+	n := &Notifier{outbox: outbox, users: users, bookings: bookings, logger: logger}
 	r.Dispatcher.Subscribe(n.Handle)
 }
 
@@ -59,9 +59,14 @@ func (n *Notifier) sendCreated(ctx context.Context, event eventstore.Event) {
 	}
 	body := fmt.Sprintf("Your booking %s is confirmed from %s to %s.",
 		payload.BookingID, payload.Start.Format("2006-01-02 15:04"), payload.End.Format("2006-01-02 15:04"))
-	if err := n.sender.Send(ctx, u.Email, createdSubject, body); err != nil {
-		n.logger.Error("booking notify: send confirmation", "event", event.ID, "to", u.Email, "err", err)
+	item := notification.Item{
+		EventID:        event.ID,
+		Kind:           notification.KindBookingCreated,
+		RecipientEmail: u.Email,
+		Subject:        createdSubject,
+		Body:           body,
 	}
+	notification.EnqueueDelivery(ctx, n.outbox, item, n.logger, event.ID, "booking confirmation")
 }
 
 func (n *Notifier) sendCancelled(ctx context.Context, event eventstore.Event) {
@@ -89,7 +94,12 @@ func (n *Notifier) sendCancelled(ctx context.Context, event eventstore.Event) {
 		return
 	}
 	body := fmt.Sprintf("Your booking %s has been cancelled.", payload.BookingID)
-	if err := n.sender.Send(ctx, u.Email, cancelledSubject, body); err != nil {
-		n.logger.Error("booking notify: send cancellation", "event", event.ID, "to", u.Email, "err", err)
+	item := notification.Item{
+		EventID:        event.ID,
+		Kind:           notification.KindBookingCancelled,
+		RecipientEmail: u.Email,
+		Subject:        cancelledSubject,
+		Body:           body,
 	}
+	notification.EnqueueDelivery(ctx, n.outbox, item, n.logger, event.ID, "booking cancellation")
 }

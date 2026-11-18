@@ -6,36 +6,32 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/notification"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
-type sentEmail struct {
-	to, subject, body string
+type fakeEnqueuer struct {
+	items []notification.Item
+	err   error
 }
 
-type fakeSender struct {
-	mu     sync.Mutex
-	emails []sentEmail
-	err    error
+func (f *fakeEnqueuer) Enqueue(_ context.Context, item notification.Item) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.items = append(f.items, item)
+	return nil
 }
 
-func (f *fakeSender) Send(_ context.Context, to, subject, body string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.emails = append(f.emails, sentEmail{to: to, subject: subject, body: body})
-	return f.err
-}
-
-func testNotifier(t *testing.T, users []user.User) (*Notifier, *fakeSender) {
+func testNotifier(t *testing.T, users []user.User) (*Notifier, *fakeEnqueuer) {
 	t.Helper()
-	sender := &fakeSender{}
-	n := NewNotifier(sender, fakeLister{users: users}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	return n, sender
+	outbox := &fakeEnqueuer{}
+	n := NewNotifier(outbox, fakeLister{users: users}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return n, outbox
 }
 
 type fakeLister struct {
@@ -44,41 +40,42 @@ type fakeLister struct {
 
 func (f fakeLister) List(_ context.Context) ([]user.User, error) { return f.users, nil }
 
-func TestBroadcastNotifierEmailsAllBasicUsers(t *testing.T) {
+func TestBroadcastNotifierEnqueuesAllBasicUsers(t *testing.T) {
 	users := []user.User{
 		{ID: "u1", Email: "alice@example.com", Role: user.RoleBasic, Active: true},
 		{ID: "u2", Email: "bob@example.com", Role: user.RoleBasic, Active: true},
-		// Not reached: super user, inactive user.
+		// Not reached: super user, inactive user, blank email.
 		{ID: "s1", Email: "super@example.com", Role: user.RoleSuper, Active: true},
 		{ID: "u3", Email: "old@example.com", Role: user.RoleBasic, Active: false},
+		{ID: "u4", Email: "   ", Role: user.RoleBasic, Active: true},
 	}
-	n, sender := testNotifier(t, users)
+	n, outbox := testNotifier(t, users)
 
 	event := broadcastEvent(t)
 	if err := n.Handle(context.Background(), []eventstore.Event{event}); err != nil {
 		t.Fatal(err)
 	}
-	if len(sender.emails) != 2 {
-		t.Fatalf("sent %d emails: %+v", len(sender.emails), sender.emails)
+	if len(outbox.items) != 2 {
+		t.Fatalf("enqueued %d items: %+v", len(outbox.items), outbox.items)
 	}
-	var tos []string
-	for _, m := range sender.emails {
-		tos = append(tos, m.to)
-	}
-	if !contains(tos, "alice@example.com") || !contains(tos, "bob@example.com") ||
-		contains(tos, "super@example.com") || contains(tos, "old@example.com") {
-		t.Fatalf("recipients = %v", tos)
-	}
-	for _, m := range sender.emails {
-		if m.subject != "Sauna closed" || m.body == "" {
-			t.Fatalf("message = %+v", m)
+	var recipients []string
+	for _, item := range outbox.items {
+		recipients = append(recipients, item.RecipientEmail)
+		if item.Kind != notification.KindBroadcast || item.EventID != event.ID ||
+			item.Subject != "Sauna closed" || item.Body == "" {
+			t.Fatalf("item = %+v", item)
 		}
+	}
+	if !contains(recipients, "alice@example.com") || !contains(recipients, "bob@example.com") ||
+		contains(recipients, "super@example.com") || contains(recipients, "old@example.com") {
+		t.Fatalf("recipients = %v", recipients)
 	}
 }
 
 func TestBroadcastNotifierIgnoresOtherEvents(t *testing.T) {
-	users := []user.User{{ID: "u1", Email: "alice@example.com", Role: user.RoleBasic, Active: true}}
-	n, sender := testNotifier(t, users)
+	n, outbox := testNotifier(t, []user.User{
+		{ID: "u1", Email: "alice@example.com", Role: user.RoleBasic, Active: true},
+	})
 
 	err := n.Handle(context.Background(), []eventstore.Event{
 		{ID: 1, EventType: "booking.created"},
@@ -86,14 +83,14 @@ func TestBroadcastNotifierIgnoresOtherEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sender.emails) != 0 {
-		t.Fatalf("unexpected emails: %+v", sender.emails)
+	if len(outbox.items) != 0 {
+		t.Fatalf("unexpected items: %+v", outbox.items)
 	}
 }
 
-func TestBroadcastNotifierSwallowsSendError(t *testing.T) {
-	sender := &fakeSender{err: errors.New("smtp down")}
-	n := NewNotifier(sender, fakeLister{users: []user.User{
+func TestBroadcastNotifierToleratesEnqueueError(t *testing.T) {
+	outbox := &fakeEnqueuer{err: errors.New("outbox down")}
+	n := NewNotifier(outbox, fakeLister{users: []user.User{
 		{ID: "u1", Email: "alice@example.com", Role: user.RoleBasic, Active: true},
 	}}, testLogger())
 

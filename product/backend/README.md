@@ -18,6 +18,21 @@ The booking platform backend.
 PostgreSQL. Events are append-only — state is never updated or deleted, only
 derived through projections.
 
+## Notification delivery
+
+Booking confirmations, cancellation notices, and broadcasts are delivered
+through the durable `notification_outbox` table. Notifiers enqueue one row per
+intended delivery; a background worker sends it, retries transient sender
+failures with bounded exponential backoff, and leaves permanently failed rows
+in the table (`status = 'failed'`) for operator inspection. A replayed event
+does not create duplicate rows.
+
+Unlike domain events, outbox rows are mutable delivery work: their status,
+attempt count, and next-attempt time advance as the worker runs. They are
+infrastructure, not domain state — delivery outcomes never mutate, delete, or
+roll back a recorded booking or broadcast event. Login-code and email-change
+mail stay on the synchronous sender path and are not queued.
+
 ## Open decisions
 
 - **Authelia fit:** Authelia is an SSO/2FA portal and does not natively provide

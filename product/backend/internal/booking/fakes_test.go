@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/command"
+	"github.com/adamzki99/booking-system/product/backend/internal/notification"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
@@ -93,15 +94,18 @@ func basicByEmail() *fakeUserResolver {
 	}}
 }
 
-// fakeSender records the most recent email.
-type fakeSender struct {
-	to, subject, body string
-	err               error
+// fakeEnqueuer records enqueued notification work.
+type fakeEnqueuer struct {
+	items []notification.Item
+	err   error
 }
 
-func (f *fakeSender) Send(_ context.Context, to, subject, body string) error {
-	f.to, f.subject, f.body = to, subject, body
-	return f.err
+func (f *fakeEnqueuer) Enqueue(_ context.Context, item notification.Item) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.items = append(f.items, item)
+	return nil
 }
 
 // fakeExecutor records the last executed command.

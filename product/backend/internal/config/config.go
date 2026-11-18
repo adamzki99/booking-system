@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 // Config holds runtime configuration populated from environment variables.
@@ -18,6 +19,12 @@ type Config struct {
 	SMTPUsername string
 	SMTPPassword string
 	SMTPFrom     string
+
+	// Notification delivery policy. Deployment-specific; the product source
+	// only provides safe defaults.
+	EmailMaxAttempts   int
+	EmailRetryBase     time.Duration
+	EmailRetryInterval time.Duration
 
 	OTLPEndpoint    string
 	OTELServiceName string
@@ -48,6 +55,24 @@ func Load() Config {
 	if serviceName == "" {
 		serviceName = "booking-backend"
 	}
+	emailMaxAttempts := 5
+	if v := os.Getenv("EMAIL_MAX_ATTEMPTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			emailMaxAttempts = n
+		}
+	}
+	emailRetryBaseSeconds := 1
+	if v := os.Getenv("EMAIL_RETRY_BASE_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			emailRetryBaseSeconds = n
+		}
+	}
+	emailRetryIntervalSeconds := 5
+	if v := os.Getenv("EMAIL_RETRY_INTERVAL_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			emailRetryIntervalSeconds = n
+		}
+	}
 	devMode := false
 	if v := os.Getenv("DEV_MODE"); v != "" {
 		b, err := strconv.ParseBool(v)
@@ -70,6 +95,10 @@ func Load() Config {
 		SMTPUsername: os.Getenv("SMTP_USERNAME"),
 		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:     os.Getenv("SMTP_FROM"),
+
+		EmailMaxAttempts:   emailMaxAttempts,
+		EmailRetryBase:     time.Duration(emailRetryBaseSeconds) * time.Second,
+		EmailRetryInterval: time.Duration(emailRetryIntervalSeconds) * time.Second,
 
 		OTLPEndpoint:    os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		OTELServiceName: serviceName,
