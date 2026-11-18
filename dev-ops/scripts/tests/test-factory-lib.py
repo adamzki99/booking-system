@@ -62,3 +62,27 @@ def test_usage_reason_output():
     filled, reason = factory.is_usage_filled("boom usage limit now")
     assert filled
     assert "usage" in reason or "limit" in reason
+
+
+def test_fix_candidates_from_prs():
+    prs = [
+        {"isDraft": False, "headRefName": "factory/issue-1", "headRefOid": "abc",
+         "reviewDecision": "CHANGES_REQUESTED", "mergeable": "MERGEABLE",
+         "statusCheckRollup": [], "createdAt": "2026-01-01", "number": 10},
+        {"isDraft": True, "headRefName": "factory/issue-2", "headRefOid": "def",
+         "reviewDecision": "", "mergeable": "", "statusCheckRollup": [], "createdAt": "x", "number": 11},
+    ]
+    rows = factory.fix_candidates_from_prs(prs)
+    assert len(rows) == 1
+    assert rows[0][1] == 10
+    assert "changes-requested" in rows[0][4]
+
+def test_prioritize_issues():
+    issues = [{"number": 2, "createdAt": "b"}, {"number": 1, "createdAt": "a"}]
+    prio = {1: ("2026", 1, 5.0)}
+    out = factory.prioritize_issues(issues, prio)
+    assert out == [1, 2]
+
+def test_has_marker_comments():
+    comments = [{"body": "x <!-- factory:plan --> y"}]
+    assert factory.has_marker_comments(comments, "<!-- factory:plan -->")
