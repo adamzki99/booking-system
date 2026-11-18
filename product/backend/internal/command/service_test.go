@@ -93,6 +93,104 @@ func TestExecutePropagatesPublishError(t *testing.T) {
 	}
 }
 
+func TestExecuteHoldsLockAroundHandlerAppendAndPublish(t *testing.T) {
+	var calls []string
+	recorded := []eventstore.Event{{ID: 7, EventType: "SampleCreated"}}
+	store := &recordingLockStore{calls: &calls, recorded: recorded}
+	publisher := &recordingPublisher{calls: &calls}
+	service := command.NewService(store, publisher)
+	service.Register("CreateSample", func(context.Context, command.Command) ([]eventstore.Event, error) {
+		calls = append(calls, "handler")
+		return []eventstore.Event{{EventType: "SampleCreated"}}, nil
+	})
+
+	if err := service.Execute(context.Background(), lockingCommand("CreateSample")); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"lock", "handler", "append", "publish", "unlock"}; !reflect.DeepEqual(calls, want) {
+		t.Fatalf("expected calls %v, got %v", want, calls)
+	}
+	if store.lockKey != 99 {
+		t.Fatalf("lock key = %d, want 99", store.lockKey)
+	}
+}
+
+func TestExecuteReleasesLockWhenHandlerFails(t *testing.T) {
+	validationErr := errors.New("invalid booking")
+	var calls []string
+	store := &recordingLockStore{calls: &calls}
+	service := command.NewService(store, &recordingPublisher{calls: &calls})
+	service.Register("CreateSample", func(context.Context, command.Command) ([]eventstore.Event, error) {
+		calls = append(calls, "handler")
+		return nil, validationErr
+	})
+
+	err := service.Execute(context.Background(), lockingCommand("CreateSample"))
+	if !errors.Is(err, validationErr) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if want := []string{"lock", "handler", "unlock"}; !reflect.DeepEqual(calls, want) {
+		t.Fatalf("expected calls %v, got %v", want, calls)
+	}
+}
+
+func TestExecuteStopsWhenLockAcquisitionFails(t *testing.T) {
+	lockErr := errors.New("lock unavailable")
+	var calls []string
+	store := &recordingLockStore{calls: &calls, lockErr: lockErr}
+	service := command.NewService(store, &recordingPublisher{calls: &calls})
+	service.Register("CreateSample", func(context.Context, command.Command) ([]eventstore.Event, error) {
+		calls = append(calls, "handler")
+		return []eventstore.Event{{EventType: "SampleCreated"}}, nil
+	})
+
+	err := service.Execute(context.Background(), lockingCommand("CreateSample"))
+	if !errors.Is(err, lockErr) {
+		t.Fatalf("expected lock error, got %v", err)
+	}
+	if want := []string{"lock"}; !reflect.DeepEqual(calls, want) {
+		t.Fatalf("expected calls %v, got %v", want, calls)
+	}
+}
+
+func TestExecuteSkipsLockWhenStoreOrCommandDoesNotOptIn(t *testing.T) {
+	t.Run("store without locking", func(t *testing.T) {
+		var calls []string
+		service := command.NewService(&recordingStore{calls: &calls}, &recordingPublisher{calls: &calls})
+		service.Register("CreateSample", func(context.Context, command.Command) ([]eventstore.Event, error) {
+			return []eventstore.Event{{EventType: "SampleCreated"}}, nil
+		})
+
+		if err := service.Execute(context.Background(), lockingCommand("CreateSample")); err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"append", "publish"}; !reflect.DeepEqual(calls, want) {
+			t.Fatalf("expected calls %v, got %v", want, calls)
+		}
+	})
+
+	t.Run("command without lock key", func(t *testing.T) {
+		var calls []string
+		store := &recordingLockStore{calls: &calls}
+		service := command.NewService(store, &recordingPublisher{calls: &calls})
+		service.Register("CreateSample", func(context.Context, command.Command) ([]eventstore.Event, error) {
+			return []eventstore.Event{{EventType: "SampleCreated"}}, nil
+		})
+
+		if err := service.Execute(context.Background(), testCommand("CreateSample")); err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"append", "publish"}; !reflect.DeepEqual(calls, want) {
+			t.Fatalf("expected calls %v, got %v", want, calls)
+		}
+	})
+}
+
+type lockingCommand string
+
+func (c lockingCommand) CommandType() string { return string(c) }
+func (c lockingCommand) LockKey() int64      { return 99 }
+
 type recordingStore struct {
 	calls    *[]string
 	recorded []eventstore.Event
@@ -102,6 +200,30 @@ type recordingStore struct {
 func (s *recordingStore) Append(_ context.Context, _ ...eventstore.Event) ([]eventstore.Event, error) {
 	*s.calls = append(*s.calls, "append")
 	return s.recorded, s.err
+}
+
+type recordingLockStore struct {
+	calls    *[]string
+	recorded []eventstore.Event
+	lockKey  int64
+	lockErr  error
+}
+
+func (s *recordingLockStore) Append(_ context.Context, _ ...eventstore.Event) ([]eventstore.Event, error) {
+	*s.calls = append(*s.calls, "append")
+	return s.recorded, nil
+}
+
+func (s *recordingLockStore) Lock(_ context.Context, key int64) (func() error, error) {
+	s.lockKey = key
+	*s.calls = append(*s.calls, "lock")
+	if s.lockErr != nil {
+		return nil, s.lockErr
+	}
+	return func() error {
+		*s.calls = append(*s.calls, "unlock")
+		return nil
+	}, nil
 }
 
 type recordingPublisher struct {

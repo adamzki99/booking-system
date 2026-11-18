@@ -33,6 +33,17 @@ type CreateBooking struct {
 // CommandType implements command.Command.
 func (CreateBooking) CommandType() string { return CreateBookingCommandType }
 
+// CreateBookingLockKey is the PostgreSQL advisory lock key that serializes
+// booking creation. A single key means every create-booking decision is
+// serialized, which is required because the overlap check reads the bookings
+// projection rather than a database constraint. Bookings for distinct slots
+// therefore queue behind each other; acceptable at the current capacity of one
+// and revisit if create throughput matters.
+const CreateBookingLockKey int64 = 0x626F6F6B // "book"
+
+// LockKey implements command.LockCommand.
+func (CreateBooking) LockKey() int64 { return CreateBookingLockKey }
+
 // CancelOwnBooking cancels the caller's own booking.
 type CancelOwnBooking struct {
 	BookingID string
