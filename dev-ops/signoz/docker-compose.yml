@@ -161,6 +161,7 @@ services:
       resources:
         limits:
           memory: 512m
+          cpus: "0.5"
     command:
       - --config=/etc/otel-collector-config.yaml
       - --manager-config=/etc/manager-config.yaml
@@ -169,12 +170,26 @@ services:
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
       - ./signoz/otel-collector-opamp-config.yaml:/etc/manager-config.yaml:ro
+      - /:/hostfs:ro
+      - /proc:/hostfs/proc:ro
+      - /sys:/hostfs/sys:ro
     environment:
-      - OTEL_RESOURCE_ATTRIBUTES=host.name=signoz-host,os.type=linux
+      - OTEL_RESOURCE_ATTRIBUTES=os.type=linux
       - LOW_CARDINAL_EXCEPTION_GROUPING=false
+      - HOST_PROC=/hostfs/proc
+      - HOST_SYS=/hostfs/sys
+      - HOST_ETC=/hostfs/etc
+      - HOST_VAR=/hostfs/var
+      - HOST_RUN=/hostfs/run
     ports:
       - "4317:4317" # OTLP gRPC
       - "4318:4318" # OTLP HTTP
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/13133"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       signoz-server:
         condition: service_healthy
