@@ -55,8 +55,8 @@ type AuthService struct {
 	BootstrapAdmin func(context.Context, string) error
 }
 
-// NewService creates an auth service. A nil users directory disables
-// membership enforcement; production wiring always supplies one.
+// NewService creates an auth service. The users directory is required for
+// membership enforcement; a nil directory fails closed.
 func NewService(commands commandExecutor, sender email.Sender, limiter rateLimiter, users userDirectory) *AuthService {
 	return &AuthService{
 		commands: commands,
@@ -68,12 +68,11 @@ func NewService(commands commandExecutor, sender email.Sender, limiter rateLimit
 
 // canLogin reports whether email is allowed to start or complete a login.
 // Active registered users may log in. When no users exist, the first account
-// is allowed through so the admin bootstrap flow can still run. A nil
-// directory leaves legacy callers (e.g. unit tests without a user store)
-// unchanged.
+// is allowed through so the admin bootstrap flow can still run. A missing
+// directory fails closed rather than opening login to everyone.
 func (s *AuthService) canLogin(ctx context.Context, email string) (bool, error) {
 	if s.users == nil {
-		return true, nil
+		return false, nil
 	}
 	active, err := s.users.ActiveByEmail(ctx, email)
 	if err != nil {

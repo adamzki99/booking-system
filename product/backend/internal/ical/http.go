@@ -40,8 +40,8 @@ type UserByIDReader interface {
 
 // HandleFeed serves the iCal feed for a token. A non-nil limiter rate limits
 // requests by client IP and token hash and responds 429 when exceeded; a nil
-// limiter disables rate limiting. A non-nil users directory rejects tokens
-// belonging to unknown or deactivated users with 404.
+// limiter disables rate limiting. The users directory is required: tokens of
+// unknown or deactivated users, and requests without a directory, get 404.
 func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter, users UserByIDReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.PathValue("token")
@@ -65,12 +65,14 @@ func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limite
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		if users != nil {
-			u, err := users.GetByID(r.Context(), userID)
-			if err != nil || !u.Active {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
+		if users == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		u, err := users.GetByID(r.Context(), userID)
+		if err != nil || !u.Active {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
 		}
 		var bs []booking.Booking
 		if bookings != nil {

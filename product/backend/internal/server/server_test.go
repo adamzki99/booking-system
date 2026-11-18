@@ -256,10 +256,22 @@ func TestUnknownSessionCannotAccessProtectedRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	header := http.Header{"Authorization": []string{"Bearer " + token}}
-	for _, path := range []string{"/auth/me", "/users", "/bookings"} {
-		resp, _ := request(t, ts, http.MethodGet, path, "", header)
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/auth/me"},
+		{http.MethodGet, "/users"},
+		{http.MethodGet, "/bookings"},
+		{http.MethodPost, "/users"},
+		{http.MethodPost, "/bookings"},
+		{http.MethodPost, "/broadcast"},
+		{http.MethodPost, "/account/calendar-token"},
+	}
+	for _, route := range routes {
+		resp, _ := request(t, ts, route.method, route.path, "", header)
 		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("GET %s with unknown-email session = %d, want %d", path, resp.StatusCode, http.StatusUnauthorized)
+			t.Fatalf("%s %s with unknown-email session = %d, want %d", route.method, route.path, resp.StatusCode, http.StatusUnauthorized)
 		}
 	}
 }

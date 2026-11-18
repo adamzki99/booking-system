@@ -19,8 +19,8 @@ type SessionMiddleware struct {
 }
 
 // NewSessionMiddleware creates session middleware backed by a sessions read
-// model. A nil users directory skips the active-membership check (legacy
-// callers); production wiring always supplies one.
+// model. The users directory is required; a nil directory rejects every
+// session so the active-membership check cannot be skipped by omission.
 func NewSessionMiddleware(sessions sessionReader, users userDirectory) *SessionMiddleware {
 	return &SessionMiddleware{sessions: sessions, users: users}
 }
@@ -38,12 +38,14 @@ func (m *SessionMiddleware) Middleware(next http.Handler) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if m.users != nil {
-			active, err := m.users.ActiveByEmail(r.Context(), session.Email)
-			if err != nil || !active {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
+		if m.users == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		active, err := m.users.ActiveByEmail(r.Context(), session.Email)
+		if err != nil || !active {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithEmail(r.Context(), session.Email)))
 	})

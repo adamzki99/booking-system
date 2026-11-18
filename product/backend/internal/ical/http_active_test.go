@@ -11,6 +11,14 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
+// activeFeedUsers is a user directory whose users are always active. It keeps
+// token-focused feed tests independent of the users table.
+type activeFeedUsers struct{}
+
+func (activeFeedUsers) GetByID(context.Context, string) (user.User, error) {
+	return user.User{Active: true}, nil
+}
+
 // TestHandleFeedRejectsDeactivatedUsersToken proves a previously valid
 // calendar token stops working once its user is deactivated.
 func TestHandleFeedRejectsDeactivatedUsersToken(t *testing.T) {

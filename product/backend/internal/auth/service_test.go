@@ -172,6 +172,22 @@ func TestVerifyDeactivatedUserRejected(t *testing.T) {
 	}
 }
 
+func TestNilDirectoryFailsClosed(t *testing.T) {
+	exec := &fakeExecutor{}
+	sender := &fakeSender{}
+	svc := auth.NewService(exec, sender, &fakeLimiter{allow: true}, nil)
+
+	if err := svc.RequestCode(context.Background(), "alice@example.com", "1.2.3.4"); err != nil {
+		t.Fatal(err)
+	}
+	if sender.to != "" || exec.last != nil {
+		t.Fatal("no code should be issued without a user directory")
+	}
+	if _, err := svc.Verify(context.Background(), "alice@example.com", "ABC123", "1.2.3.4"); !errors.Is(err, auth.ErrInvalidOrExpiredCode) {
+		t.Fatalf("expected ErrInvalidOrExpiredCode without a directory, got %v", err)
+	}
+}
+
 func TestFirstUserBootstrapsWhenNoUsersExist(t *testing.T) {
 	exec := &fakeExecutor{}
 	sender := &fakeSender{}
