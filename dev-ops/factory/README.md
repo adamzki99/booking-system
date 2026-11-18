@@ -109,6 +109,13 @@ cron host (not beside SigNoz), using `dev-ops/factory/otel-collector.yaml`
 (`filelog` receiver → OTLP/HTTP). Required env: `FACTORY_LOG_FILE`,
 `SIGNOZ_OTLP_ENDPOINT`, optional `SIGNOZ_INGESTION_KEY`.
 
+New hardening knobs (issue #132):
+- `FACTORY_SESSION_TIMEOUT` — per-session timeout in seconds (default 3600).
+- `FACTORY_MAX_FIX_SESSIONS` — fix sessions are serialized to avoid shared worktree races.
+- `FACTORY_CONTAINER_MODE` — set to `1` to scaffold container-per-session execution (disabled by default).
+- `FACTORY_LOG_SESSION_OUTPUT=metadata` redacts retained session output (metadata-only).
+- JSONL events include `schema_version` (currently 1) and enriched fields (tick result, reason codes, durations, session correlation).
+
 Log rotation: install `dev-ops/factory/factory-tick.logrotate`
 (`size 10M`, `rotate 5`, `copytruncate`).
 

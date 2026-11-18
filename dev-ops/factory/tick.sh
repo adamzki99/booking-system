@@ -19,6 +19,7 @@ PLAN_MARKER='<!-- factory:plan -->'
 BUILD_MARKER='<!-- factory:build -->'
 FIX_MARKER_PREFIX='<!-- factory:fix-pr:'
 DRY_RUN=0
+TICK_RC=0
 ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
 MAX_FIX_SESSIONS="${FACTORY_MAX_FIX_SESSIONS:-1}"
 FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
@@ -26,9 +27,11 @@ FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
 # Observability: structured JSONL event log (best-effort; never affects tick).
 FACTORY_LOG_FILE="${FACTORY_LOG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl}"
 FACTORY_ENV="${FACTORY_ENV:-dev}"
+FACTORY_CONTAINER_MODE="${FACTORY_CONTAINER_MODE:-0}"
 FACTORY_LOG_SESSION_OUTPUT="${FACTORY_LOG_SESSION_OUTPUT:-tail}"
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 mkdir -p "$(dirname "$FACTORY_LOG_FILE")" 2>/dev/null || true
+chmod 700 "$(dirname "$FACTORY_LOG_FILE")" 2>/dev/null || true
 
 log() { printf '[factory-tick] %s\n' "$*"; }
 die() { printf '[factory-tick] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -50,6 +53,7 @@ host = sys.argv[7]
 pairs = sys.argv[8:]
 
 obj = {}
+obj["schema_version"] = 1
 obj["ts"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 obj["service.name"] = "factory-tick"
 obj["deployment.environment"] = env
@@ -89,6 +93,7 @@ esac
 [[ "$MAX_FIX_SESSIONS" =~ ^[0-9]+$ ]] || die "invalid --max-fix-sessions value: $MAX_FIX_SESSIONS (use a non-negative integer)"
 
 [[ -f "$MODELS_CONFIG" ]] || die "config not found: $MODELS_CONFIG"
+python3 "$SCRIPT_DIR/lib/factory.py" validate-models "$MODELS_CONFIG" >/dev/null 2>&1 || die "invalid models config: $MODELS_CONFIG"
 command -v gh >/dev/null || die "gh is required"
 command -v opencode >/dev/null || die "opencode is required"
 command -v python3 >/dev/null || die "python3 is required"
@@ -106,6 +111,13 @@ on_exit() {
   exit "$rc"
 }
 trap on_exit EXIT
+on_signal() {
+  local sig="$1"
+  emit_event tick_interrupted signal="$sig"
+  exit 130
+}
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
 
 # Do not overlap ticks: a slow session must not pile up followers.
 exec 9>"$(git rev-parse --git-dir)/factory-tick.lock"
@@ -356,29 +368,21 @@ open_factory_pr_for_issue() {
 }
 
 model_for_labels() {
-  python3 - "$MODELS_CONFIG" "$@" << 'PYEOF'
-import sys, yaml
-with open(sys.argv[1]) as f:
-    entries = (yaml.safe_load(f) or {}).get("labels") or {}
-have = set(sys.argv[2:])
-model = backup = ""
-for name, cfg in entries.items():
-    if name != "default" and name in have and isinstance(cfg, dict):
-        model = cfg.get("model") or ""
-        backup = cfg.get("backup_model") or cfg.get("backup") or ""
-        if model:
-            break
-if not model:
-    model = (entries.get("default") or {}).get("model") or ""
-    backup = backup or (entries.get("default") or {}).get("backup_model") or (entries.get("default") or {}).get("backup") or ""
-if not backup:
-    backup = (entries.get("default") or {}).get("backup_model") or (entries.get("default") or {}).get("backup") or ""
-print(model + "\t" + backup)
-PYEOF
+  python3 "$SCRIPT_DIR/lib/factory.py" model-for-labels "$MODELS_CONFIG" "$@"
 }
+
 
 is_usage_filled() {
   local out="${1,,}"
+  local res reason
+  res="$(printf '%s' "$out" | python3 "$SCRIPT_DIR/lib/factory.py" is-usage-filled - 2>/dev/null)" || res="false	"
+  reason="${res#*$'\t'}"
+  res="${res%%$'\t'*}"
+  if [[ "$res" == "true" ]]; then
+    printf '%s' "$reason" > /dev/null
+    return 0
+  fi
+  # fallback substring checks
   [[ "$out" == *"usage limit"* ]] && return 0
   [[ "$out" == *"limit exceeded"* ]] && return 0
   [[ "$out" == *"rate limit"* ]] && return 0
@@ -386,6 +390,7 @@ is_usage_filled() {
   [[ "$out" == *"usage"* && "$out" == *"exceed"* ]] && return 0
   return 1
 }
+
 
 # prompts unchanged (abbreviated here but included)
 plan_prompt() { # $1 issue number
@@ -554,6 +559,7 @@ normalize_model() {
   printf '%s' "$m"
 }
 
+FACTORY_SESSION_TIMEOUT="${FACTORY_SESSION_TIMEOUT:-3600}"
 run_opencode() {
   local model
   model="$(normalize_model "$2")"
@@ -561,7 +567,11 @@ run_opencode() {
   [[ -n "$model" ]] && args+=(--model "$model")
   [[ -n "$3" ]] && args+=(--agent "$3")
   args+=("$4")
-  opencode "${args[@]}"
+  if [[ "$FACTORY_SESSION_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$FACTORY_SESSION_TIMEOUT" -gt 0 ]]; then
+    timeout --signal=TERM --kill-after=30 "$FACTORY_SESSION_TIMEOUT" opencode "${args[@]}"
+  else
+    opencode "${args[@]}"
+  fi
 }
 
 start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 prompt
@@ -747,6 +757,7 @@ if [[ -d "$FACTORY_WORKTREE" ]]; then
     git -C "$FACTORY_WORKTREE" clean -fdx >/dev/null 2>&1 || true
   else
     log "preserving in-progress changes in $FACTORY_WORKTREE; skipping reset/clean"
+    emit_event dirty_worktree_skipped_reset worktree="$FACTORY_WORKTREE" reason="worktree dirty"
   fi
   cd "$FACTORY_WORKTREE"
 else
@@ -764,15 +775,24 @@ fi
 # capture explicit acceptance criteria before it is picked up by the planning
 # agent. Skip planning (and leave the issue unlabeled) until they are present.
 if [[ -n "$plan_issue" ]]; then
-  if ! dev-ops/scripts/check-acceptance-criteria.sh --issue "$plan_issue" >/dev/null 2>&1; then
+  set +e
+  dev-ops/scripts/check-acceptance-criteria.sh --issue "$plan_issue" >/dev/null 2>&1
+  ac_rc=$?
+  set -e
+  if [[ $ac_rc -eq 1 ]]; then
     log "issue #$plan_issue has no acceptance criteria; skipping planning until they are added"
     emit_event plan_skipped issue="$plan_issue" reason="missing acceptance criteria"
+    plan_issue=""
+  elif [[ $ac_rc -ne 0 ]]; then
+    log "acceptance-criteria checker failed for #$plan_issue (rc=$ac_rc); skipping"
+    emit_event plan_skipped issue="$plan_issue" reason="acceptance criteria checker error" checker_rc="$ac_rc"
     plan_issue=""
   fi
 fi
 
 # Build path, sub-path 1: fix open factory PRs
 fix_count=0
+fix_failures=0
 fix_pids=()
 if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
   fix_candidates_output=""
@@ -798,24 +818,38 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       emit_event marker_skip issue="$issue_number" pr="$pr_number" reason="already built"
       continue
     fi
+    claim_key="${pr_number}-${head_sha}-${reasons}"
+    claim_file="/tmp/factory-claims/${claim_key}.claim"
+    mkdir -p /tmp/factory-claims 2>/dev/null || true
+    if [[ -f "$claim_file" ]]; then
+      oldpid="$(cat "$claim_file" 2>/dev/null || true)"
+      if [[ -n "$oldpid" ]] && kill -0 "$oldpid" 2>/dev/null; then
+        log "PR #$pr_number already claimed by pid $oldpid; skipping"
+        emit_event claim_conflict pr="$pr_number" reason="in-progress claim"
+        continue
+      fi
+    fi
+    echo "$$" > "$claim_file" 2>/dev/null || true
     mapfile -t labels < <(issue_labels "$issue_number")
     IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
     emit_event fix_selected pr="$pr_number" issue="$issue_number" reasons="$reasons" model="${model:-}" backup_model="${backup_model:-}"
     if [[ "$DRY_RUN" == 1 ]]; then
       log "dry-run: would fix PR #$pr_number (issue #$issue_number, reasons: $reasons, model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
       emit_event dry_run kind="fix" pr="$pr_number" issue="$issue_number"
+      rm -f "$claim_file"
       fix_count=$((fix_count + 1))
     else
-      start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")" &
-      fix_pids+=($!)
+      if start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"; then
+        :
+      else
+        fix_failures=$((fix_failures + 1))
+      fi
+      rm -f "$claim_file"
       fix_count=$((fix_count + 1))
     fi
   done <<< "$fix_candidates_output"
-  if [[ ${#fix_pids[@]} -gt 0 ]]; then
-    for pid in "${fix_pids[@]}"; do
-      wait "$pid" || true
-    done
-  fi
+  # fixes are serialized to avoid shared-worktree races; no background wait needed
+  :
 fi
 
 # Build path, sub-path 2
@@ -863,7 +897,7 @@ if [[ -n "$plan_issue" ]]; then
     log "dry-run: would plan issue #$plan_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
     emit_event dry_run kind="plan" issue="$plan_issue"
   else
-    start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")"
+    start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" || TICK_RC=1
   fi
 fi
 
@@ -874,6 +908,13 @@ if [[ -n "$build_issue" ]]; then
     log "dry-run: would build issue #$build_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
     emit_event dry_run kind="build" issue="$build_issue"
   else
-    start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")"
+    start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" || TICK_RC=1
   fi
 fi
+
+if [[ "${fix_failures:-0}" -gt 0 ]]; then TICK_RC=1; fi
+if [[ "${TICK_RC:-0}" -ne 0 ]]; then
+  emit_event tick_result result="failure" fix_failures="$fix_failures"
+  exit "$TICK_RC"
+fi
+emit_event tick_result result="ok" fix_failures="$fix_failures"
