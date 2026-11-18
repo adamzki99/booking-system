@@ -92,3 +92,20 @@ def test_classify_git_and_permission():
     assert factory.classify_git_error("permission denied 403") == "permission"
     assert factory.classify_gh_error("rate limit exceeded") == "rate_limit"
     assert factory.classify_gh_error("connection timeout") == "transient"
+
+
+def test_event_schema_and_fields():
+    e = factory.make_event("tick_result", "t", False, "backup", "dev", "host", result="ok", fix_failures=0)
+    assert e["schema_version"] == 1
+    assert e["result"] == "ok"
+    assert e["fix_failures"] == 0
+
+def test_usage_filled_reason():
+    filled, reason = factory.is_usage_filled("quota exceeded now")
+    assert filled
+    assert reason
+
+def test_classify_matrix():
+    assert factory.classify_gh_error("HTTP 404 not found") == "not_found"
+    assert factory.classify_gh_error("") == "empty"
+    assert factory.classify_gh_error("permission denied 403") == "permission"
