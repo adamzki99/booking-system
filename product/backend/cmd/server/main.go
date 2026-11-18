@@ -17,6 +17,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/email"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 	"github.com/adamzki99/booking-system/product/backend/internal/ical"
+	"github.com/adamzki99/booking-system/product/backend/internal/notification"
 	"github.com/adamzki99/booking-system/product/backend/internal/ratelimit"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 	"github.com/adamzki99/booking-system/product/backend/internal/sample"
@@ -48,6 +49,7 @@ func main() {
 
 	var deps server.Deps
 	var pool *pgxpool.Pool
+	stopNotifications := func() {}
 	if cfg.DatabaseURL != "" {
 		p, err := eventstore.OpenPool(context.Background(), cfg.DatabaseURL)
 		if err != nil {
@@ -70,15 +72,28 @@ func main() {
 			validator = sidecar.NewClient(cfg.SidecarURL, logger)
 		}
 		bookings, blocked := booking.Register(app, userProjections, validator)
-		booking.RegisterNotify(app, mailer, userProjections, bookings, logger)
+		outbox := notification.NewPostgresStore(pool)
+		booking.RegisterNotify(app, outbox, userProjections, bookings, logger)
 		broadcast.Register(app, userProjections)
-		broadcast.RegisterNotify(app, mailer, userProjections, logger)
+		broadcast.RegisterNotify(app, outbox, userProjections, logger)
 		icalProjections := ical.Register(app)
 		if err := app.Projections.CatchUp(context.Background()); err != nil {
 			pool.Close()
 			logger.Error("catch up projections", "err", err)
 			os.Exit(1)
 		}
+
+		workerCtx, cancelWorker := context.WithCancel(context.Background())
+		stopNotifications = cancelWorker
+		worker := notification.NewWorker(outbox, mailer, logger, notification.Policy{
+			MaxAttempts: cfg.EmailMaxAttempts,
+			BaseDelay:   cfg.EmailRetryBase,
+		})
+		go func() {
+			if err := worker.Run(workerCtx, cfg.EmailRetryInterval); err != nil {
+				logger.Error("notification worker stopped", "err", err)
+			}
+		}()
 
 		userService := user.NewService(app.Commands, userProjections, mailer, ratelimit.NewLimiter())
 		if n, err := user.SeedDevUsers(context.Background(), userService, cfg.DevMode, cfg.SeedUsersFile); err != nil {
@@ -136,6 +151,7 @@ func main() {
 			slog.Error("telemetry shutdown", "err", err)
 		}
 	}
+	stopNotifications()
 	if pool != nil {
 		pool.Close()
 	}

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 // Config holds runtime configuration populated from environment variables.
@@ -12,12 +13,15 @@ type Config struct {
 	SidecarURL    string
 	PublicBaseURL string
 
-	EmailMode    string
-	SMTPHost     string
-	SMTPPort     int
-	SMTPUsername string
-	SMTPPassword string
-	SMTPFrom     string
+	EmailMode          string
+	SMTPHost           string
+	SMTPPort           int
+	SMTPUsername       string
+	SMTPPassword       string
+	SMTPFrom           string
+	EmailMaxAttempts   int
+	EmailRetryBase     time.Duration
+	EmailRetryInterval time.Duration
 
 	OTLPEndpoint    string
 	OTELServiceName string
@@ -44,6 +48,9 @@ func Load() Config {
 	if emailMode == "" {
 		emailMode = "log"
 	}
+	emailMaxAttempts := envInt("EMAIL_MAX_ATTEMPTS", 5)
+	emailRetryBase := time.Duration(envInt("EMAIL_RETRY_BASE_SECONDS", 1)) * time.Second
+	emailRetryInterval := time.Duration(envInt("EMAIL_RETRY_INTERVAL_SECONDS", 5)) * time.Second
 	serviceName := os.Getenv("OTEL_SERVICE_NAME")
 	if serviceName == "" {
 		serviceName = "booking-backend"
@@ -64,12 +71,15 @@ func Load() Config {
 		SidecarURL:    os.Getenv("SIDECAR_URL"),
 		PublicBaseURL: os.Getenv("PUBLIC_BASE_URL"),
 
-		EmailMode:    emailMode,
-		SMTPHost:     os.Getenv("SMTP_HOST"),
-		SMTPPort:     smtpPort,
-		SMTPUsername: os.Getenv("SMTP_USERNAME"),
-		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
-		SMTPFrom:     os.Getenv("SMTP_FROM"),
+		EmailMode:          emailMode,
+		SMTPHost:           os.Getenv("SMTP_HOST"),
+		SMTPPort:           smtpPort,
+		SMTPUsername:       os.Getenv("SMTP_USERNAME"),
+		SMTPPassword:       os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:           os.Getenv("SMTP_FROM"),
+		EmailMaxAttempts:   emailMaxAttempts,
+		EmailRetryBase:     emailRetryBase,
+		EmailRetryInterval: emailRetryInterval,
 
 		OTLPEndpoint:    os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		OTELServiceName: serviceName,
@@ -77,4 +87,18 @@ func Load() Config {
 		DevMode:       devMode,
 		SeedUsersFile: os.Getenv("SEED_USERS_FILE"),
 	}
+}
+
+// envInt reads a positive integer from the environment, falling back to the
+// default for absent or invalid values.
+func envInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }
