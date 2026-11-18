@@ -38,21 +38,54 @@ type rateLimiter interface {
 	Allow(key string, limit int, window time.Duration) bool
 }
 
+// userDirectory is the read-only view of registered users needed to decide
+// whether an email may authenticate. It stays primitive so auth does not need
+// to import the user package (user already imports auth).
+type userDirectory interface {
+	ActiveByEmail(ctx context.Context, email string) (bool, error)
+	Count(ctx context.Context) (int, error)
+}
+
 // AuthService orchestrates passwordless login.
 type AuthService struct {
 	commands       commandExecutor
 	sender         email.Sender
 	limiter        rateLimiter
+	users          userDirectory
 	BootstrapAdmin func(context.Context, string) error
 }
 
-// NewService creates an auth service.
-func NewService(commands commandExecutor, sender email.Sender, limiter rateLimiter) *AuthService {
+// NewService creates an auth service. The users directory is required for
+// membership enforcement; a nil directory fails closed.
+func NewService(commands commandExecutor, sender email.Sender, limiter rateLimiter, users userDirectory) *AuthService {
 	return &AuthService{
 		commands: commands,
 		sender:   sender,
 		limiter:  limiter,
+		users:    users,
 	}
+}
+
+// canLogin reports whether email is allowed to start or complete a login.
+// Active registered users may log in. When no users exist, the first account
+// is allowed through so the admin bootstrap flow can still run. A missing
+// directory fails closed rather than opening login to everyone.
+func (s *AuthService) canLogin(ctx context.Context, email string) (bool, error) {
+	if s.users == nil {
+		return false, nil
+	}
+	active, err := s.users.ActiveByEmail(ctx, email)
+	if err != nil {
+		return false, err
+	}
+	if active {
+		return true, nil
+	}
+	count, err := s.users.Count(ctx)
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
 }
 
 // RequestCode issues and emails a one-time login code.
@@ -65,6 +98,15 @@ func (s *AuthService) RequestCode(ctx context.Context, emailAddr, clientIP strin
 	ipOK := s.limiter.Allow(requestCodeIPKey(clientIP), requestCodeIPLimit, requestCodeIPWindow)
 	if !emailOK || !ipOK {
 		return ErrRateLimited
+	}
+	// Unknown and deactivated addresses get no login code and no signal:
+	// the endpoint still returns 204 to the caller.
+	ok, err := s.canLogin(ctx, normalized)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
 	}
 
 	code, err := GenerateCode()
@@ -105,6 +147,13 @@ func (s *AuthService) Verify(ctx context.Context, emailAddr, code, clientIP stri
 	ipOK := s.limiter.Allow(verifyIPKey(clientIP), verifyIPLimit, verifyIPWindow)
 	if !emailOK || !ipOK {
 		return "", ErrRateLimited
+	}
+	ok, err := s.canLogin(ctx, normalized)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", ErrInvalidOrExpiredCode
 	}
 
 	token, tokenHash, err := GenerateToken()

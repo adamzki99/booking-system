@@ -94,7 +94,7 @@ func TestHandleFeedReturnsSharedActiveBookings(t *testing.T) {
 		{ID: "aaaaaaaa-0000-0000-0000-000000000002", Status: booking.StatusActive, Start: start.Add(2 * time.Hour), End: start.Add(3 * time.Hour)},
 	}}
 
-	rec := getFeed(HandleFeed(NewCalendarTokenProjection(pool), reader, nil), "/calendar/"+token+".ics")
+	rec := getFeed(HandleFeed(NewCalendarTokenProjection(pool), reader, nil, activeFeedUsers{}), "/calendar/"+token+".ics")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -126,7 +126,7 @@ func TestHandleFeedRejectsInvalidTokenWithoutListing(t *testing.T) {
 	pool, _ := newFeedTokenFixture(t)
 	reader := &listBookingsFake{}
 
-	rec := getFeed(HandleFeed(NewCalendarTokenProjection(pool), reader, nil), "/calendar/not-a-token.ics")
+	rec := getFeed(HandleFeed(NewCalendarTokenProjection(pool), reader, nil, activeFeedUsers{}), "/calendar/not-a-token.ics")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
@@ -156,7 +156,7 @@ func TestHandleFeedReflectsCancellationOnRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := HandleFeed(NewCalendarTokenProjection(pool), projection, nil)
+	h := HandleFeed(NewCalendarTokenProjection(pool), projection, nil, activeFeedUsers{})
 	rec := getFeed(h, "/calendar/"+token+".ics")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)

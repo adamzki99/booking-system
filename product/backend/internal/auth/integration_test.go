@@ -10,6 +10,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 	"github.com/adamzki99/booking-system/product/backend/internal/ratelimit"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
+	"github.com/adamzki99/booking-system/product/backend/internal/user"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -20,6 +21,7 @@ type testApp struct {
 	pool    *pgxpool.Pool
 	sender  *fakeSender
 	service *auth.AuthService
+	users   *user.UsersProjection
 }
 
 func newTestApp(t *testing.T) *testApp {
@@ -32,9 +34,14 @@ func newTestApp(t *testing.T) *testApp {
 		t.Fatal(err)
 	}
 	auth.Register(app)
+	users := user.Register(app)
 	sender := &fakeSender{}
-	service := auth.NewService(app.Commands, sender, ratelimit.NewLimiter())
-	return &testApp{pool: pool, sender: sender, service: service}
+	service := auth.NewService(app.Commands, sender, ratelimit.NewLimiter(), users)
+	userService := user.NewService(app.Commands, users, sender, nil)
+	service.BootstrapAdmin = func(ctx context.Context, email string) error {
+		return userService.BootstrapAdmin(ctx, email)
+	}
+	return &testApp{pool: pool, sender: sender, service: service, users: users}
 }
 
 func TestRequestCodeCreatesLoginCodeRow(t *testing.T) {
@@ -176,6 +183,64 @@ func TestVerifyRateLimited(t *testing.T) {
 	}
 	if _, err := ta.service.Verify(ctx, "alice@example.com", "AAAAAA", "1.2.3.4"); !errors.Is(err, auth.ErrRateLimited) {
 		t.Fatalf("expected ErrRateLimited, got %v", err)
+	}
+}
+
+func TestBootstrapFirstAdminWhenNoUsersExist(t *testing.T) {
+	ta := newTestApp(t)
+	ctx := context.Background()
+
+	if count, err := ta.users.Count(ctx); err != nil || count != 0 {
+		t.Fatalf("initial user count = %d, err = %v, want 0", count, err)
+	}
+	if err := ta.service.RequestCode(ctx, "first@example.com", "1.2.3.4"); err != nil {
+		t.Fatal(err)
+	}
+	code := ta.sender.body
+	if code == "" {
+		t.Fatal("no code emailed to first user")
+	}
+	token, err := ta.service.Verify(ctx, "first@example.com", code, "1.2.3.4")
+	if err != nil || token == "" {
+		t.Fatalf("bootstrap verify token = %q, err = %v", token, err)
+	}
+
+	u, err := ta.users.GetByEmail(ctx, "first@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !u.Active || !u.Role.AtLeast(user.RoleAdmin) {
+		t.Fatalf("bootstrapped user = %+v, want active admin", u)
+	}
+}
+
+func TestDeactivatedUserCannotRequestOrVerifyCode(t *testing.T) {
+	ta := newTestApp(t)
+	ctx := context.Background()
+
+	if err := ta.service.RequestCode(ctx, "alice@example.com", "1.2.3.4"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ta.service.Verify(ctx, "alice@example.com", ta.sender.body, "1.2.3.4"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ta.pool.Exec(ctx, `UPDATE users SET active = false WHERE email = 'alice@example.com'`); err != nil {
+		t.Fatal(err)
+	}
+	active, err := ta.users.ActiveByEmail(ctx, "alice@example.com")
+	if err != nil || active {
+		t.Fatalf("ActiveByEmail = %v, err = %v, want false", active, err)
+	}
+
+	ta.sender.body = ""
+	if err := ta.service.RequestCode(ctx, "alice@example.com", "1.2.3.4"); err != nil {
+		t.Fatalf("RequestCode should not disclose deactivated account, got %v", err)
+	}
+	if ta.sender.body != "" {
+		t.Fatal("no login code should be emailed to a deactivated user")
+	}
+	if _, err := ta.service.Verify(ctx, "alice@example.com", "ABC123", "1.2.3.4"); !errors.Is(err, auth.ErrInvalidOrExpiredCode) {
+		t.Fatalf("expected ErrInvalidOrExpiredCode for deactivated user, got %v", err)
 	}
 }
 

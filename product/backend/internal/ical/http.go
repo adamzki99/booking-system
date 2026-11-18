@@ -32,10 +32,17 @@ type BookingsReader interface {
 	List(ctx context.Context, from, to *time.Time) ([]booking.Booking, error)
 }
 
+// UserByIDReader resolves the user a calendar token belongs to so the feed can
+// reject tokens of deactivated users.
+type UserByIDReader interface {
+	GetByID(ctx context.Context, id string) (user.User, error)
+}
+
 // HandleFeed serves the iCal feed for a token. A non-nil limiter rate limits
 // requests by client IP and token hash and responds 429 when exceeded; a nil
-// limiter disables rate limiting.
-func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter) http.HandlerFunc {
+// limiter disables rate limiting. The users directory is required: tokens of
+// unknown or deactivated users, and requests without a directory, get 404.
+func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter, users UserByIDReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.PathValue("token")
 		if token == "" {
@@ -53,7 +60,17 @@ func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limite
 			return
 		}
 		// The token authenticates the request; it no longer scopes the feed.
-		if _, err := tokens.UserIDByTokenHash(r.Context(), HashToken(token)); err != nil {
+		userID, err := tokens.UserIDByTokenHash(r.Context(), HashToken(token))
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if users == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		u, err := users.GetByID(r.Context(), userID)
+		if err != nil || !u.Active {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
@@ -98,14 +115,14 @@ func clientIP(r *http.Request) string {
 }
 
 // Aliases for handler name.
-func HandleCalendarFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter) http.HandlerFunc {
-	return HandleFeed(tokens, bookings, limiter)
+func HandleCalendarFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter, users UserByIDReader) http.HandlerFunc {
+	return HandleFeed(tokens, bookings, limiter, users)
 }
-func HandleICalFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter) http.HandlerFunc {
-	return HandleFeed(tokens, bookings, limiter)
+func HandleICalFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter, users UserByIDReader) http.HandlerFunc {
+	return HandleFeed(tokens, bookings, limiter, users)
 }
-func HandleCalendar(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter) http.HandlerFunc {
-	return HandleFeed(tokens, bookings, limiter)
+func HandleCalendar(tokens *CalendarTokenProjection, bookings BookingsReader, limiter *ratelimit.Limiter, users UserByIDReader) http.HandlerFunc {
+	return HandleFeed(tokens, bookings, limiter, users)
 }
 
 // userResolver resolves a user from an email.
@@ -132,7 +149,7 @@ func HandleRegenerateToken(svc *Service, users userResolver) http.HandlerFunc {
 		} else {
 			err = errors.New("user service unavailable")
 		}
-		if err != nil {
+		if err != nil || !u.Active {
 			writeICalError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}

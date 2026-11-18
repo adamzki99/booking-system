@@ -110,12 +110,12 @@ func main() {
 		bookingService := booking.NewService(app.Commands, bookings, userProjections, blocked)
 		broadcastService := broadcast.NewService(app.Commands, userProjections)
 		icalService := ical.NewService(app.Commands, icalProjections)
-		authService := auth.NewService(app.Commands, mailer, ratelimit.NewLimiter())
+		authService := auth.NewService(app.Commands, mailer, ratelimit.NewLimiter(), userProjections)
 		authService.BootstrapAdmin = func(ctx context.Context, email string) error {
 			return userService.BootstrapAdmin(ctx, email)
 		}
 		deps.Auth = authService
-		deps.Middleware = auth.NewSessionMiddleware(projections.Sessions)
+		deps.Middleware = auth.NewSessionMiddleware(projections.Sessions, userProjections)
 		deps.UserService = userService
 		deps.BookingService = bookingService
 		deps.BroadcastService = broadcastService

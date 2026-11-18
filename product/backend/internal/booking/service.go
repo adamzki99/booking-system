@@ -53,7 +53,7 @@ func NewService(commands commandExecutor, bookings bookingsReader, users Directo
 // CreateBooking creates a booking for the authenticated user and returns it.
 func (s *BookingService) CreateBooking(ctx context.Context, email string, start, end time.Time) (Booking, error) {
 	u, err := s.users.GetByEmail(ctx, email)
-	if err != nil {
+	if err != nil || !u.Active {
 		return Booking{}, ErrForbidden
 	}
 	id := NewID()

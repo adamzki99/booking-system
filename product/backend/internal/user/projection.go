@@ -225,6 +225,21 @@ func (p *UsersProjection) Count(ctx context.Context) (int, error) {
 // CountUsers is an alias for Count.
 func (p *UsersProjection) CountUsers(ctx context.Context) (int, error) { return p.Count(ctx) }
 
+// ActiveByEmail reports whether an active user with the given email exists.
+// A missing user is reported as inactive without an error, so callers can use
+// this as an authorization check without distinguishing "unknown" from
+// "deactivated".
+func (p *UsersProjection) ActiveByEmail(ctx context.Context, email string) (bool, error) {
+	var active bool
+	if err := p.pool.QueryRow(ctx, `SELECT active FROM users WHERE email = $1`, email).Scan(&active); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("user projection: active by email: %w", err)
+	}
+	return active, nil
+}
+
 // List returns all users ordered by created_at then id.
 func (p *UsersProjection) List(ctx context.Context) ([]User, error) {
 	rows, err := p.pool.Query(ctx,
