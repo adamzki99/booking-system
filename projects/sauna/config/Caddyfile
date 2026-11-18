@@ -32,6 +32,12 @@
 		reverse_proxy backend:8080
 	}
 
+	# Public iCal feed. The token in the path is the credential; keep the
+	# /calendar/ prefix so the backend receives /calendar/{token}.ics.
+	handle /calendar/* {
+		reverse_proxy backend:8080
+	}
+
 	handle {
 		try_files {path} /index.html
 		file_server

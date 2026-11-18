@@ -26,8 +26,10 @@ const (
 )
 
 // BookingsReader is the part of the bookings read model the feed needs.
+// The shared booking calendar contains all active bookings, not just the
+// token owner's, so the feed reads the unfiltered active-booking list.
 type BookingsReader interface {
-	ListByUser(ctx context.Context, userID string) ([]booking.Booking, error)
+	List(ctx context.Context, from, to *time.Time) ([]booking.Booking, error)
 }
 
 // HandleFeed serves the iCal feed for a token. A non-nil limiter rate limits
@@ -50,14 +52,15 @@ func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limite
 			http.Error(w, "ical unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		userID, err := tokens.UserIDByTokenHash(r.Context(), HashToken(token))
-		if err != nil {
+		// The token authenticates the request; it no longer scopes the feed.
+		if _, err := tokens.UserIDByTokenHash(r.Context(), HashToken(token)); err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
 		var bs []booking.Booking
 		if bookings != nil {
-			bs, err = bookings.ListByUser(r.Context(), userID)
+			var err error
+			bs, err = bookings.List(r.Context(), nil, nil)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
