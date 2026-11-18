@@ -49,3 +49,16 @@ def test_make_event_schema():
     assert e["schema_version"] == 1
     assert e["event"] == "tick_start"
     assert e["foo"] == "bar"
+
+
+def test_validate_invalid_missing_model():
+    try:
+        factory.validate_models({"labels": {"default": {}}})
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError")
+
+def test_usage_reason_output():
+    filled, reason = factory.is_usage_filled("boom usage limit now")
+    assert filled
+    assert "usage" in reason or "limit" in reason

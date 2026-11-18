@@ -28,6 +28,8 @@ FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
 FACTORY_LOG_FILE="${FACTORY_LOG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl}"
 FACTORY_ENV="${FACTORY_ENV:-dev}"
 FACTORY_CONTAINER_MODE="${FACTORY_CONTAINER_MODE:-0}"
+FACTORY_CLAIM_TTL="${FACTORY_CLAIM_TTL:-7200}"
+FACTORY_GH_RETRIES="${FACTORY_GH_RETRIES:-3}"
 FACTORY_LOG_SESSION_OUTPUT="${FACTORY_LOG_SESSION_OUTPUT:-tail}"
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 mkdir -p "$(dirname "$FACTORY_LOG_FILE")" 2>/dev/null || true
@@ -35,6 +37,24 @@ chmod 700 "$(dirname "$FACTORY_LOG_FILE")" 2>/dev/null || true
 
 log() { printf '[factory-tick] %s\n' "$*"; }
 die() { printf '[factory-tick] ERROR: %s\n' "$*" >&2; exit 1; }
+
+classify_gh_text() {
+  printf '%s' "$1" | python3 "$SCRIPT_DIR/lib/factory.py" classify-gh - 2>/dev/null || echo other
+}
+
+gh_retry() {
+  # $1.. command; retries transient failures with backoff
+  local attempt=1 max="$FACTORY_GH_RETRIES" rc=0
+  while :; do
+    "$@" && return 0
+    rc=$?
+    if [[ $attempt -ge $max ]]; then
+      return $rc
+    fi
+    attempt=$((attempt+1))
+    sleep $((attempt*2))
+  done
+}
 
 # Best-effort structured event emitter. Writes one JSON object to FACTORY_LOG_FILE.
 # Never raises; never touches stdout/stderr.
@@ -561,6 +581,10 @@ normalize_model() {
 
 FACTORY_SESSION_TIMEOUT="${FACTORY_SESSION_TIMEOUT:-3600}"
 run_opencode() {
+  if [[ "$FACTORY_CONTAINER_MODE" == "1" ]]; then
+    log "container mode requested: scaffolded execution uses host runtime (docker wiring pending)"
+    emit_event container_mode reason="scaffold-fallback"
+  fi
   local model
   model="$(normalize_model "$2")"
   local args=(run --auto --title "$1")
@@ -797,11 +821,22 @@ fix_pids=()
 if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
   fix_candidates_output=""
   fix_err="$(mktemp)"
-  fix_candidates_output="$(fix_pr_candidates 2>"$fix_err")" || true
-  if [[ -s "$fix_err" ]]; then
-    if grep -qi "unavailable" "$fix_err"; then
-      emit_event fix_discovery_unavailable error="$(cat "$fix_err")"
+  fix_discovery_rc=0
+  for attempt in $(seq 1 "$FACTORY_GH_RETRIES"); do
+    if fix_candidates_output="$(fix_pr_candidates 2>"$fix_err")"; then
+      fix_discovery_rc=0
+      break
     fi
+    fix_discovery_rc=$?
+    err_text="$(cat "$fix_err" 2>/dev/null || true)"
+    category="$(classify_gh_text "$err_text")"
+    emit_event fix_discovery_error attempt="$attempt" category="$category" error="$err_text"
+    if [[ "$category" != "transient" || "$attempt" -ge "$FACTORY_GH_RETRIES" ]]; then
+      break
+    fi
+    sleep $((attempt*2))
+  done
+  if [[ -s "$fix_err" ]]; then
     cat "$fix_err" >&2
   fi
   rm -f "$fix_err"
@@ -822,11 +857,17 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
     claim_file="/tmp/factory-claims/${claim_key}.claim"
     mkdir -p /tmp/factory-claims 2>/dev/null || true
     if [[ -f "$claim_file" ]]; then
-      oldpid="$(cat "$claim_file" 2>/dev/null || true)"
-      if [[ -n "$oldpid" ]] && kill -0 "$oldpid" 2>/dev/null; then
-        log "PR #$pr_number already claimed by pid $oldpid; skipping"
-        emit_event claim_conflict pr="$pr_number" reason="in-progress claim"
-        continue
+      now_ts="$(date +%s)"
+      mtime="$(stat -c %Y "$claim_file" 2>/dev/null || echo 0)"
+      if (( now_ts - mtime > FACTORY_CLAIM_TTL )); then
+        rm -f "$claim_file"
+      else
+        oldpid="$(cat "$claim_file" 2>/dev/null || true)"
+        if [[ -n "$oldpid" ]] && kill -0 "$oldpid" 2>/dev/null; then
+          log "PR #$pr_number already claimed by pid $oldpid; skipping"
+          emit_event claim_conflict pr="$pr_number" reason="in-progress claim"
+          continue
+        fi
       fi
     fi
     echo "$$" > "$claim_file" 2>/dev/null || true
@@ -856,7 +897,21 @@ fi
 build_issue=""
 build_candidates_output=""
 build_err="$(mktemp)"
-build_candidates_output="$(approved_build_candidates 2>"$build_err")" || true
+build_discovery_rc=0
+for attempt in $(seq 1 "$FACTORY_GH_RETRIES"); do
+  if build_candidates_output="$(approved_build_candidates 2>"$build_err")"; then
+    build_discovery_rc=0
+    break
+  fi
+  build_discovery_rc=$?
+  err_text="$(cat "$build_err" 2>/dev/null || true)"
+  category="$(classify_gh_text "$err_text")"
+  emit_event build_discovery_error attempt="$attempt" category="$category" error="$err_text"
+  if [[ "$category" != "transient" || "$attempt" -ge "$FACTORY_GH_RETRIES" ]]; then
+    break
+  fi
+  sleep $((attempt*2))
+done
 if [[ -s "$build_err" ]]; then
   if grep -q "project priority unavailable" "$build_err"; then
     emit_event project_priority_fallback error="$(cat "$build_err")"

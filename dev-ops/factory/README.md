@@ -111,6 +111,9 @@ cron host (not beside SigNoz), using `dev-ops/factory/otel-collector.yaml`
 
 New hardening knobs (issue #132):
 - `FACTORY_SESSION_TIMEOUT` — per-session timeout in seconds (default 3600).
+- `FACTORY_CLAIM_TTL` — claim lease TTL in seconds (default 7200).
+- `FACTORY_GH_RETRIES` — bounded retries for transient gh failures (default 3).
+- `FACTORY_CONTAINER_MODE` — set to `1` to enable scaffolded container mode (host fallback currently).
 - `FACTORY_MAX_FIX_SESSIONS` — fix sessions are serialized to avoid shared worktree races.
 - `FACTORY_CONTAINER_MODE` — set to `1` to scaffold container-per-session execution (disabled by default).
 - `FACTORY_LOG_SESSION_OUTPUT=metadata` redacts retained session output (metadata-only).
