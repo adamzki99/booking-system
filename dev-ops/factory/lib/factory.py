@@ -63,17 +63,25 @@ def model_for_labels(entries, have):
 
 def classify_gh_error(text):
     t = (text or "").lower()
-    if "auth" in t or "401" in t or "not logged" in t or "gh auth" in t:
-        return "auth"
     if "rate limit" in t or "429" in t or "secondary rate" in t:
         return "rate_limit"
-    if any(x in t for x in ("timeout", "timed out", "connection", "network", "502", "503", "504", "econnreset", "tls")):
+    if "auth" in t or "401" in t or "not logged" in t or "gh auth" in t:
+        return "auth"
+    if "403" in t:
+        return "permission"
+    if any(x in t for x in ("timeout", "timed out", "connection", "network", "502", "503", "504", "econnreset", "tls", "dns", "ssl", "temporary failure")):
         return "transient"
     if "not found" in t or "404" in t:
         return "not_found"
+    if "conflict" in t or "409" in t:
+        return "conflict"
     if t.strip() == "":
         return "empty"
     return "other"
+
+
+def classify_git_error(text):
+    return classify_gh_error(text)
 
 
 QUOTA_PATTERNS = [
@@ -196,9 +204,12 @@ def main(argv):
         print(normalize_model(argv[2] if len(argv) > 2 else ""), end="")
         return 0
     if cmd == "classify-gh":
-        # read text from stdin or arg
         text = argv[2] if len(argv) > 2 else sys.stdin.read()
         print(classify_gh_error(text))
+        return 0
+    if cmd == "classify-git":
+        text = argv[2] if len(argv) > 2 else sys.stdin.read()
+        print(classify_git_error(text))
         return 0
     if cmd == "is-usage-filled":
         arg = argv[2] if len(argv) > 2 else "-"

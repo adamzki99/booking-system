@@ -119,6 +119,15 @@ New hardening knobs (issue #132):
 - `FACTORY_LOG_SESSION_OUTPUT=metadata` redacts retained session output (metadata-only).
 - JSONL events include `schema_version` (currently 1) and enriched fields (tick result, reason codes, durations, session correlation).
 
+Sandbox mode:
+- `FACTORY_CONTAINER_MODE=1` enables a bwrap-based per-session sandbox when
+  available (unprivileged user namespaces), with dropped capabilities and
+  isolated PID/IPC/UTS namespaces; otherwise it falls back to host execution.
+- Claim leases use atomic directory creation with TTL (`FACTORY_CLAIM_TTL`).
+- gh/git failures are classified (auth, permission, rate_limit, transient,
+  not_found, conflict, other) and transient operations use bounded retries
+  (`FACTORY_GH_RETRIES`).
+
 Log rotation: install `dev-ops/factory/factory-tick.logrotate`
 (`size 10M`, `rotate 5`, `copytruncate`).
 

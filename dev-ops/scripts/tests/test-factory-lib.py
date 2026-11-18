@@ -86,3 +86,9 @@ def test_prioritize_issues():
 def test_has_marker_comments():
     comments = [{"body": "x <!-- factory:plan --> y"}]
     assert factory.has_marker_comments(comments, "<!-- factory:plan -->")
+
+
+def test_classify_git_and_permission():
+    assert factory.classify_git_error("permission denied 403") == "permission"
+    assert factory.classify_gh_error("rate limit exceeded") == "rate_limit"
+    assert factory.classify_gh_error("connection timeout") == "transient"
