@@ -46,7 +46,7 @@ func newE2EApp(t *testing.T) *e2eApp {
 	sender := &captureSender{}
 	bookings, blocked := booking.Register(app, users, nil)
 	booking.RegisterNotify(app, sender, users, bookings, slog.Default())
-	userService := user.NewService(app.Commands, users)
+	userService := user.NewService(app.Commands, users, sender, nil)
 	bookingService := booking.NewService(app.Commands, bookings, users, blocked)
 	authService := auth.NewService(app.Commands, sender, ratelimit.NewLimiter())
 	if err := app.Projections.CatchUp(ctx); err != nil {

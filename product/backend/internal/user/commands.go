@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/command"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
@@ -56,15 +57,34 @@ type RemoveUser struct {
 // CommandType implements command.Command.
 func (RemoveUser) CommandType() string { return RemoveUserCommandType }
 
-// ChangeOwnEmail changes a user's own email.
+// ChangeOwnEmail requests an email change: it records a pending change with a
+// verification code hash but does not commit the new address.
 type ChangeOwnEmail struct {
 	UserID         string
 	NewEmail       string
 	RequesterEmail string
+	// CodeHash stores the bcrypt hash of the verification code emailed to the
+	// new address; empty is rejected.
+	CodeHash  string
+	ExpiresAt time.Time
 }
 
 // CommandType implements command.Command.
 func (ChangeOwnEmail) CommandType() string { return ChangeOwnEmailCommandType }
+
+// ConfirmOwnEmailChangeCommandType identifies ConfirmOwnEmailChange commands.
+const ConfirmOwnEmailChangeCommandType = "user.ConfirmOwnEmailChange"
+
+// ConfirmOwnEmailChange verifies the code emailed to the new address and
+// commits the email change together with the session re-keying event.
+type ConfirmOwnEmailChange struct {
+	UserID         string
+	Code           string
+	RequesterEmail string
+}
+
+// CommandType implements command.Command.
+func (ConfirmOwnEmailChange) CommandType() string { return ConfirmOwnEmailChangeCommandType }
 
 // ChangeUserAddress changes a basic user's address (super/admin only).
 type ChangeUserAddress struct {
@@ -99,29 +119,38 @@ func (SeedUserCommand) CommandType() string { return SeedUserCommandType }
 // defaultUsers is the projection registered by Register; used by package-level helpers.
 var defaultUsers *UsersProjection
 
+// defaultChanges is the email-change projection registered by Register.
+var defaultChanges *EmailChangesProjection
+
 // Register wires the user commands and projection into the registry.
 func Register(r *registry.Registry) *UsersProjection {
 	users := NewUsersProjection(r.DB())
+	changes := NewEmailChangesProjection(r.DB())
 	defaultUsers = users
+	defaultChanges = changes
 	r.RegisterCommand(BootstrapAdminCommandType, handleBootstrapAdmin(users))
 	r.RegisterCommand(AddUserCommandType, handleAddUser(users))
 	r.RegisterCommand(RemoveUserCommandType, handleRemoveUser(users))
 	r.RegisterCommand(ChangeOwnEmailCommandType, handleChangeOwnEmail(users))
+	r.RegisterCommand(ConfirmOwnEmailChangeCommandType, handleConfirmOwnEmail(users, changes))
 	r.RegisterCommand(ChangeUserAddressCommandType, handleChangeUserAddress(users))
 	r.RegisterCommand(ChangeUserRoleCommandType, handleChangeUserRole(users))
 	r.RegisterCommand(SeedUserCommandType, handleSeedUser(users))
 	r.RegisterProjection(users)
+	r.RegisterProjection(changes)
 	return users
 }
 
 // Projections bundles user read models (for parity with auth).
 type Projections struct {
-	Users *UsersProjection
+	Users        *UsersProjection
+	EmailChanges *EmailChangesProjection
 }
 
 // RegisterWithProjections is an alias returning a Projections wrapper.
 func RegisterWithProjections(r *registry.Registry) *Projections {
-	return &Projections{Users: Register(r)}
+	_ = Register(r)
+	return &Projections{Users: defaultUsers, EmailChanges: defaultChanges}
 }
 
 func handleBootstrapAdmin(users *UsersProjection) command.Handler {
@@ -347,7 +376,99 @@ func handleChangeOwnEmail(users *UsersProjection) command.Handler {
 		if err != nil {
 			return nil, err
 		}
+		if newEmail == target.Email {
+			return nil, ErrUnchangedEmail
+		}
 		if existing, err := users.GetByEmail(ctx, newEmail); err == nil {
+			if existing.ID != target.ID {
+				return nil, ErrDuplicateEmail
+			}
+		} else if !errors.Is(err, ErrUserNotFound) {
+			return nil, err
+		}
+		if c.CodeHash == "" {
+			return nil, ErrInvalidEmail
+		}
+		if c.ExpiresAt.IsZero() || !c.ExpiresAt.After(time.Now().UTC()) {
+			return nil, ErrEmailChangeExpired
+		}
+
+		now := time.Now().UTC()
+		payload, err := json.Marshal(UserEmailChangeRequestedPayload{
+			UserID:      target.ID,
+			OldEmail:    target.Email,
+			NewEmail:    newEmail,
+			CodeHash:    c.CodeHash,
+			ExpiresAt:   c.ExpiresAt,
+			RequestedAt: now,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("user: marshal event: %w", err)
+		}
+		return []eventstore.Event{{
+			AggregateType: AggregateType,
+			AggregateID:   target.ID,
+			EventType:     UserEmailChangeRequestedEventType,
+			Payload:       payload,
+			OccurredAt:    now,
+		}}, nil
+	}
+}
+
+func handleConfirmOwnEmail(users *UsersProjection, changes *EmailChangesProjection) command.Handler {
+	return func(ctx context.Context, cmd command.Command) ([]eventstore.Event, error) {
+		var c ConfirmOwnEmailChange
+		switch typed := cmd.(type) {
+		case ConfirmOwnEmailChange:
+			c = typed
+		case *ConfirmOwnEmailChange:
+			if typed == nil {
+				return nil, errors.New("user: command is nil")
+			}
+			c = *typed
+		default:
+			return nil, fmt.Errorf("user: expected ConfirmOwnEmailChange, got %T", cmd)
+		}
+
+		target, err := users.GetByID(ctx, c.UserID)
+		if err != nil {
+			if errors.Is(err, ErrUserNotFound) {
+				return nil, ErrUserNotFound
+			}
+			return nil, err
+		}
+
+		requesterEmail, err := NormalizeEmail(c.RequesterEmail)
+		if err != nil {
+			return nil, ErrForbidden
+		}
+		reqUser, rerr := users.GetByEmail(ctx, requesterEmail)
+		allowed := false
+		if rerr == nil {
+			if requesterEmail == target.Email {
+				allowed = true
+			}
+			if reqUser.Role.AtLeast(RoleAdmin) {
+				allowed = true
+			}
+		}
+		if !allowed {
+			return nil, ErrForbidden
+		}
+
+		pending, err := changes.Pending(ctx, target.ID)
+		if err != nil {
+			return nil, err
+		}
+		if time.Now().UTC().After(pending.ExpiresAt) {
+			return nil, ErrEmailChangeExpired
+		}
+		if !auth.VerifyCodeHash(c.Code, pending.CodeHash) {
+			return nil, ErrInvalidChangeCode
+		}
+		// The new address may have been claimed after the request was made;
+		// the first confirmed change wins.
+		if existing, err := users.GetByEmail(ctx, pending.NewEmail); err == nil {
 			if existing.ID != target.ID {
 				return nil, ErrDuplicateEmail
 			}
@@ -356,22 +477,41 @@ func handleChangeOwnEmail(users *UsersProjection) command.Handler {
 		}
 
 		now := time.Now().UTC()
-		payload, err := json.Marshal(UserEmailChangedPayload{
+		changedPayload, err := json.Marshal(UserEmailChangedPayload{
 			UserID:    target.ID,
 			OldEmail:  target.Email,
-			NewEmail:  newEmail,
+			NewEmail:  pending.NewEmail,
 			ChangedAt: now,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("user: marshal event: %w", err)
 		}
-		return []eventstore.Event{{
-			AggregateType: AggregateType,
-			AggregateID:   target.ID,
-			EventType:     UserEmailChangedEventType,
-			Payload:       payload,
-			OccurredAt:    now,
-		}}, nil
+		// Keep open sessions valid: they are re-keyed to the new address in the
+		// same transaction as the account change.
+		sessionPayload, err := json.Marshal(auth.SessionIdentityChangedPayload{
+			OldEmail:  target.Email,
+			NewEmail:  pending.NewEmail,
+			ChangedAt: now,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("user: marshal event: %w", err)
+		}
+		return []eventstore.Event{
+			{
+				AggregateType: AggregateType,
+				AggregateID:   target.ID,
+				EventType:     UserEmailChangedEventType,
+				Payload:       changedPayload,
+				OccurredAt:    now,
+			},
+			{
+				AggregateType: auth.AggregateType,
+				AggregateID:   target.ID,
+				EventType:     auth.SessionIdentityChangedEventType,
+				Payload:       sessionPayload,
+				OccurredAt:    now,
+			},
+		}, nil
 	}
 }
 

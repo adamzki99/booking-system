@@ -104,6 +104,13 @@ var (
 	ErrUsersExist          = ErrBootstrapNotAllowed
 	ErrAlreadyBootstrapped = ErrBootstrapNotAllowed
 	ErrNotEmpty            = ErrBootstrapNotAllowed
+
+	ErrNoPendingEmailChange = errors.New("user: no pending email change")
+	ErrEmailChangeExpired   = errors.New("user: email change verification expired")
+	ErrInvalidChangeCode    = errors.New("user: invalid email change code")
+	ErrEmailChangeRateLimit = errors.New("user: email change rate limited")
+	ErrRateLimited          = ErrEmailChangeRateLimit
+	ErrUnchangedEmail       = errors.New("user: email unchanged")
 )
 
 // NormalizeEmail trims, lowercases, and validates an email address.

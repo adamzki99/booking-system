@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
@@ -26,6 +28,7 @@ type userTestApp struct {
 	store   eventstore.Store
 	app     *registry.Registry
 	users   *user.UsersProjection
+	changes *user.EmailChangesProjection
 	service *user.UserService
 }
 
@@ -38,13 +41,14 @@ func newUserTestApp(t *testing.T) *userTestApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	users := user.Register(app)
+	projections := user.RegisterWithProjections(app)
 	return &userTestApp{
 		pool:    pool,
 		store:   store,
 		app:     app,
-		users:   users,
-		service: user.NewService(app.Commands, users),
+		users:   projections.Users,
+		changes: projections.EmailChanges,
+		service: user.NewService(app.Commands, projections.Users, nil, nil),
 	}
 }
 
@@ -406,59 +410,166 @@ func TestChangeUserRoleFallsBackToNewRoleField(t *testing.T) {
 	}
 }
 
-func TestChangeOwnEmail(t *testing.T) {
+func TestChangeOwnEmailRequestRecordsPendingChangeOnly(t *testing.T) {
 	ta := newUserTestApp(t)
 	ctx := context.Background()
 	basicID := ta.seedUser(t, basicEmail, user.RoleBasic)
 
-	updated, err := ta.service.ChangeOwnEmail(ctx, basicID, "Renamed@Example.com", basicEmail)
+	code, err := auth.GenerateCode()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Email != "renamed@example.com" {
-		t.Fatalf("email = %q, want normalized new email", updated.Email)
+	hash, err := auth.HashCode(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiresAt := time.Now().UTC().Add(10 * time.Minute)
+	err = ta.app.Commands.Execute(ctx, user.ChangeOwnEmail{
+		UserID:         basicID,
+		NewEmail:       "Renamed@Example.com",
+		RequesterEmail: basicEmail,
+		CodeHash:       hash,
+		ExpiresAt:      expiresAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The account's login address is unchanged until the code is confirmed.
+	got, err := ta.users.GetByID(ctx, basicID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Email != basicEmail {
+		t.Fatalf("email = %q, want unchanged %q", got.Email, basicEmail)
+	}
+
+	pending, err := ta.changes.Pending(ctx, basicID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.NewEmail != "renamed@example.com" || pending.OldEmail != basicEmail {
+		t.Fatalf("pending change = %+v", pending)
 	}
 
 	events := ta.eventsFor(t, basicID)
-	var found bool
+	var requested bool
 	for _, e := range events {
-		if e.EventType == user.UserEmailChangedEventType {
-			found = true
+		if e.EventType == user.UserEmailChangeRequestedEventType {
+			requested = true
 		}
 	}
-	if !found {
-		t.Fatalf("expected user.email_changed event, got %+v", events)
+	if !requested {
+		t.Fatalf("expected user.email_change_requested event, got %+v", events)
 	}
 }
 
-func TestChangeOwnEmailAuthorizationAndConflicts(t *testing.T) {
+func TestConfirmOwnEmailCommitsVerifiedChange(t *testing.T) {
+	ta := newUserTestApp(t)
+	ctx := context.Background()
+	basicID := ta.seedUser(t, basicEmail, user.RoleBasic)
+
+	code, err := auth.GenerateCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := auth.HashCode(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.Commands.Execute(ctx, user.ChangeOwnEmail{
+		UserID:         basicID,
+		NewEmail:       "renamed@example.com",
+		RequesterEmail: basicEmail,
+		CodeHash:       hash,
+		ExpiresAt:      time.Now().UTC().Add(10 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = ta.app.Commands.Execute(ctx, user.ConfirmOwnEmailChange{
+		UserID:         basicID,
+		Code:           code,
+		RequesterEmail: basicEmail,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ta.users.GetByID(ctx, basicID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Email != "renamed@example.com" {
+		t.Fatalf("email = %q, want renamed@example.com", got.Email)
+	}
+
+	events := ta.eventsFor(t, basicID)
+	var emailChanged bool
+	for _, e := range events {
+		if e.EventType == user.UserEmailChangedEventType {
+			emailChanged = true
+		}
+	}
+	if !emailChanged {
+		t.Fatalf("expected user.email_changed event, got %+v", events)
+	}
+	// The session re-keying event is recorded under the auth aggregate.
+	authEvents, err := ta.store.LoadByAggregate(ctx, auth.AggregateType, basicID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sessionChanged bool
+	for _, e := range authEvents {
+		if e.EventType == auth.SessionIdentityChangedEventType {
+			sessionChanged = true
+		}
+	}
+	if !sessionChanged {
+		t.Fatalf("expected auth.session_identity_changed event, got %+v", authEvents)
+	}
+}
+
+func TestConfirmOwnEmailAuthorizationAndConflicts(t *testing.T) {
 	ta := newUserTestApp(t)
 	ctx := context.Background()
 	ta.seedUser(t, adminEmail, user.RoleAdmin)
 	basicID := ta.seedUser(t, basicEmail, user.RoleBasic)
 	otherID := ta.seedUser(t, "other@example.com", user.RoleBasic)
 
-	// Unrelated basic user cannot change someone else's email.
-	if _, err := ta.service.ChangeOwnEmail(ctx, basicID, "hijack@example.com", "other@example.com"); !errors.Is(err, user.ErrForbidden) {
+	// Unrelated basic user cannot request a change for someone else.
+	err := ta.app.Commands.Execute(ctx, user.ChangeOwnEmail{
+		UserID:         basicID,
+		NewEmail:       "hijack@example.com",
+		RequesterEmail: "other@example.com",
+		CodeHash:       "x",
+		ExpiresAt:      time.Now().UTC().Add(10 * time.Minute),
+	})
+	if !errors.Is(err, user.ErrForbidden) {
 		t.Fatalf("expected ErrForbidden, got %v", err)
 	}
 
-	// Duplicate email is rejected.
-	if _, err := ta.service.ChangeOwnEmail(ctx, otherID, basicEmail, adminEmail); !errors.Is(err, user.ErrDuplicateEmail) {
+	// Duplicate email is rejected at request time.
+	err = ta.app.Commands.Execute(ctx, user.ChangeOwnEmail{
+		UserID:         otherID,
+		NewEmail:       basicEmail,
+		RequesterEmail: adminEmail,
+		CodeHash:       "x",
+		ExpiresAt:      time.Now().UTC().Add(10 * time.Minute),
+	})
+	if !errors.Is(err, user.ErrDuplicateEmail) {
 		t.Fatalf("expected ErrDuplicateEmail, got %v", err)
 	}
 
-	// An admin may change another user's email.
-	updated, err := ta.service.ChangeOwnEmail(ctx, otherID, "moved@example.com", adminEmail)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.Email != "moved@example.com" {
-		t.Fatalf("email = %q, want moved@example.com", updated.Email)
-	}
-
 	// Unknown target user.
-	if _, err := ta.service.ChangeOwnEmail(ctx, "00000000-0000-0000-0000-0000000000ff", "x@example.com", adminEmail); !errors.Is(err, user.ErrUserNotFound) {
+	err = ta.app.Commands.Execute(ctx, user.ChangeOwnEmail{
+		UserID:         "00000000-0000-0000-0000-0000000000ff",
+		NewEmail:       "x@example.com",
+		RequesterEmail: adminEmail,
+		CodeHash:       "x",
+		ExpiresAt:      time.Now().UTC().Add(10 * time.Minute),
+	})
+	if !errors.Is(err, user.ErrUserNotFound) {
 		t.Fatalf("expected ErrUserNotFound, got %v", err)
 	}
 }

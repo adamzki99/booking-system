@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 )
@@ -14,6 +15,31 @@ func postJSON(t *testing.T, url string, body any, token string) *http.Response {
 		t.Fatal(err)
 	}
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func doJSON(t *testing.T, method, url string, body any, token string) *http.Response {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, url, reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +121,115 @@ func TestHappyFlowBookingConfirmationEmail(t *testing.T) {
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated create status = %d, want 401", resp2.StatusCode)
+	}
+}
+
+func TestEmailChangeKeepsSessionValid(t *testing.T) {
+	app := newE2EApp(t)
+	const newEmail = "moved@example.com"
+	token := login(t, app, basicEmail)
+
+	// Step 1: request the change; the account keeps its old login address.
+	resp := doJSON(t, http.MethodPatch, app.Server.URL+"/users/me/email",
+		map[string]string{"email": newEmail}, token)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("request email change status = %d, want 202 (body %s)", resp.StatusCode, body)
+	}
+	var pending struct {
+		PendingEmail string `json:"pendingEmail"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pending); err != nil {
+		t.Fatal(err)
+	}
+	if pending.PendingEmail != newEmail {
+		t.Fatalf("pendingEmail = %q, want %q", pending.PendingEmail, newEmail)
+	}
+
+	// Step 2: confirm with the code emailed to the new address.
+	msg, ok := app.Sender.lastSubject("Confirm your new email")
+	if !ok {
+		t.Fatal("no email change verification email captured")
+	}
+	if msg.To != newEmail {
+		t.Fatalf("verification code sent to %q, want %q", msg.To, newEmail)
+	}
+	resp = postJSON(t, app.Server.URL+"/users/me/email/confirm",
+		map[string]string{"code": msg.Body}, token)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("confirm email change status = %d, want 200 (body %s)", resp.StatusCode, body)
+	}
+
+	// The same session token still identifies the account, now under the new
+	// email, without re-authentication.
+	resp = doJSON(t, http.MethodGet, app.Server.URL+"/users/me", nil, token)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /users/me after change status = %d, want 200", resp.StatusCode)
+	}
+	var me map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&me); err != nil {
+		t.Fatal(err)
+	}
+	if me["email"] != newEmail {
+		t.Fatalf("/users/me email = %v, want %v", me["email"], newEmail)
+	}
+
+	// A protected account action still works with the re-keyed session.
+	resp = postJSON(t, app.Server.URL+"/bookings", map[string]any{
+		"start": futureTime().Format(timeRFC3339()),
+		"end":   futureTime().Add(timeHour()).Format(timeRFC3339()),
+	}, token)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("create booking after email change status = %d, want 201 (body %s)", resp.StatusCode, body)
+	}
+
+	// A reload (fresh request with the stored token) still resolves the new
+	// identity; the old address is gone.
+	resp = doJSON(t, http.MethodGet, app.Server.URL+"/users/me", nil, token)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /users/me after reload status = %d, want 200", resp.StatusCode)
+	}
+	var again map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&again); err != nil {
+		t.Fatal(err)
+	}
+	if again["email"] != newEmail {
+		t.Fatalf("email after reload = %v, want %v", again["email"], newEmail)
+	}
+}
+
+func TestEmailChangeDuplicateRejectedAndAccountUnchanged(t *testing.T) {
+	app := newE2EApp(t)
+	token := login(t, app, superEmail)
+
+	// super@example.com cannot take basic@example.com.
+	resp := doJSON(t, http.MethodPatch, app.Server.URL+"/users/me/email",
+		map[string]string{"email": basicEmail}, token)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("duplicate email change status = %d, want 409 (body %s)", resp.StatusCode, body)
+	}
+
+	// The account is unchanged and no verification email was sent.
+	me := doJSON(t, http.MethodGet, app.Server.URL+"/users/me", nil, token)
+	defer me.Body.Close()
+	var m map[string]any
+	if err := json.NewDecoder(me.Body).Decode(&m); err != nil {
+		t.Fatal(err)
+	}
+	if m["email"] != superEmail {
+		t.Fatalf("email after duplicate request = %v, want %v", m["email"], superEmail)
+	}
+	if _, ok := app.Sender.lastSubject("Confirm your new email"); ok {
+		t.Fatal("no verification email should be sent for a duplicate request")
 	}
 }
 

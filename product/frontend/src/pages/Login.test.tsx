@@ -18,6 +18,7 @@ function stubSession(login: () => Promise<void> = vi.fn().mockResolvedValue(unde
     user: null,
     loading: false,
     login,
+    refresh: vi.fn(),
     logout: vi.fn(),
   });
 }

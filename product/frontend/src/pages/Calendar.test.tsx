@@ -28,6 +28,7 @@ function stubSession(id: string) {
     user: { id, email: "user@example.com", role: "basic", address: null, active: true },
     loading: false,
     login: vi.fn(),
+    refresh: vi.fn(),
     logout: vi.fn(),
   });
 }

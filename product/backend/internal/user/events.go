@@ -12,8 +12,10 @@ const (
 	UserCreatedEventType = "user.created"
 	// UserRemovedEventType records a deactivated user.
 	UserRemovedEventType = "user.removed"
-	// UserEmailChangedEventType records an email change.
+	// UserEmailChangedEventType records a verified email change.
 	UserEmailChangedEventType = "user.email_changed"
+	// UserEmailChangeRequestedEventType records a pending, unverified email change.
+	UserEmailChangeRequestedEventType = "user.email_change_requested"
 	// UserAddressChangedEventType records an address change.
 	UserAddressChangedEventType = "user.address_changed"
 	// UserRoleChangedEventType records a role change.
@@ -50,6 +52,18 @@ type UserEmailChangedPayload struct {
 	OldEmail  string    `json:"old_email"`
 	NewEmail  string    `json:"new_email"`
 	ChangedAt time.Time `json:"changed_at"`
+}
+
+// UserEmailChangeRequestedPayload is the payload for user.email_change_requested
+// events. The code hash is stored instead of the plaintext code so the pending
+// read model never holds a usable credential.
+type UserEmailChangeRequestedPayload struct {
+	UserID      string    `json:"user_id"`
+	OldEmail    string    `json:"old_email"`
+	NewEmail    string    `json:"new_email"`
+	CodeHash    string    `json:"code_hash"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	RequestedAt time.Time `json:"requested_at"`
 }
 
 // UserAddressChangedPayload is the payload for user.address_changed events.

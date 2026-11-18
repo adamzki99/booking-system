@@ -125,9 +125,16 @@ func (p *SessionProjection) Name() string { return "sessions" }
 
 // Apply applies auth events to the sessions read model.
 func (p *SessionProjection) Apply(ctx context.Context, event eventstore.Event) error {
-	if event.EventType != SessionCreatedEventType {
-		return nil
+	switch event.EventType {
+	case SessionCreatedEventType:
+		return p.applySessionCreated(ctx, event)
+	case SessionIdentityChangedEventType:
+		return p.applySessionIdentityChanged(ctx, event)
 	}
+	return nil
+}
+
+func (p *SessionProjection) applySessionCreated(ctx context.Context, event eventstore.Event) error {
 	var payload sessionCreatedPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("auth sessions projection: decode event %d: %w", event.ID, err)
@@ -140,6 +147,23 @@ func (p *SessionProjection) Apply(ctx context.Context, event eventstore.Event) e
 	)
 	if err != nil {
 		return fmt.Errorf("auth sessions projection: apply event %d: %w", event.ID, err)
+	}
+	return nil
+}
+
+// applySessionIdentityChanged re-keys open sessions from the old account email
+// to the verified new one, so existing tokens keep resolving to the account.
+func (p *SessionProjection) applySessionIdentityChanged(ctx context.Context, event eventstore.Event) error {
+	var payload SessionIdentityChangedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("auth sessions projection: decode event %d: %w", event.ID, err)
+	}
+	_, err := p.pool.Exec(ctx,
+		`UPDATE sessions SET email = $1 WHERE email = $2 AND revoked_at IS NULL`,
+		payload.NewEmail, payload.OldEmail,
+	)
+	if err != nil {
+		return fmt.Errorf("auth sessions projection: apply identity change event %d: %w", event.ID, err)
 	}
 	return nil
 }

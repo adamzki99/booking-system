@@ -18,6 +18,105 @@ type UsersProjection struct {
 	Users *UsersProjection
 }
 
+// EmailChange is a row in the email_changes read model.
+type EmailChange struct {
+	UserID      string
+	OldEmail    string
+	NewEmail    string
+	CodeHash    string
+	ExpiresAt   time.Time
+	RequestedAt time.Time
+	ConfirmedAt *time.Time
+}
+
+// Pending reports whether the change has not been confirmed yet.
+func (c EmailChange) Pending() bool { return c.ConfirmedAt == nil }
+
+// EmailChangesProjection maintains the pending email-change read model.
+type EmailChangesProjection struct {
+	pool *pgxpool.Pool
+}
+
+// NewEmailChangesProjection creates a pending email-change read-model projection.
+func NewEmailChangesProjection(pool *pgxpool.Pool) *EmailChangesProjection {
+	return &EmailChangesProjection{pool: pool}
+}
+
+// Name identifies this projection in checkpoint bookkeeping.
+func (p *EmailChangesProjection) Name() string { return "email_changes" }
+
+// Apply applies user events to the email_changes read model.
+func (p *EmailChangesProjection) Apply(ctx context.Context, event eventstore.Event) error {
+	switch event.EventType {
+	case UserEmailChangeRequestedEventType:
+		var payload UserEmailChangeRequestedPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return fmt.Errorf("user email_changes projection: decode event %d: %w", event.ID, err)
+		}
+		_, err := p.pool.Exec(ctx,
+			`INSERT INTO email_changes (user_id, old_email, new_email, code_hash, expires_at, requested_at)
+			 VALUES ($1, $2, $3, $4, $5, $6)
+			 ON CONFLICT (user_id) DO UPDATE
+			 SET old_email = EXCLUDED.old_email,
+			     new_email = EXCLUDED.new_email,
+			     code_hash = EXCLUDED.code_hash,
+			     expires_at = EXCLUDED.expires_at,
+			     requested_at = EXCLUDED.requested_at,
+			     confirmed_at = NULL`,
+			payload.UserID, payload.OldEmail, payload.NewEmail,
+			payload.CodeHash, payload.ExpiresAt, payload.RequestedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("user email_changes projection: apply request event %d: %w", event.ID, err)
+		}
+	case UserEmailChangedEventType:
+		var payload UserEmailChangedPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return fmt.Errorf("user email_changes projection: decode event %d: %w", event.ID, err)
+		}
+		_, err := p.pool.Exec(ctx,
+			`UPDATE email_changes SET confirmed_at = $2 WHERE user_id = $1 AND confirmed_at IS NULL`,
+			payload.UserID, payload.ChangedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("user email_changes projection: apply confirm event %d: %w", event.ID, err)
+		}
+	}
+	return nil
+}
+
+// Reset clears the derived email_changes read model.
+func (p *EmailChangesProjection) Reset(ctx context.Context) error {
+	if _, err := p.pool.Exec(ctx, `TRUNCATE email_changes`); err != nil {
+		return fmt.Errorf("user email_changes projection: reset: %w", err)
+	}
+	return nil
+}
+
+// Pending returns the unconfirmed email change for a user,
+// or ErrNoPendingEmailChange when none exists.
+func (p *EmailChangesProjection) Pending(ctx context.Context, userID string) (EmailChange, error) {
+	var (
+		c           EmailChange
+		confirmedAt *time.Time
+	)
+	err := p.pool.QueryRow(ctx,
+		`SELECT user_id, old_email, new_email, code_hash, expires_at, requested_at, confirmed_at
+		 FROM email_changes WHERE user_id = $1`, userID,
+	).Scan(&c.UserID, &c.OldEmail, &c.NewEmail, &c.CodeHash, &c.ExpiresAt, &c.RequestedAt, &confirmedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return EmailChange{}, ErrNoPendingEmailChange
+		}
+		return EmailChange{}, fmt.Errorf("user email_changes projection: pending: %w", err)
+	}
+	c.ConfirmedAt = confirmedAt
+	if !c.Pending() {
+		return EmailChange{}, ErrNoPendingEmailChange
+	}
+	return c, nil
+}
+
 // NewUsersProjection creates a users read-model projection.
 func NewUsersProjection(pool *pgxpool.Pool) *UsersProjection {
 	p := &UsersProjection{pool: pool}

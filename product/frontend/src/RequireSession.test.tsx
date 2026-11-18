@@ -37,6 +37,7 @@ describe("RequireSession", () => {
       user: null,
       loading: false,
       login: vi.fn(),
+    refresh: vi.fn(),
       logout: vi.fn(),
     });
     renderRoutes();
@@ -55,6 +56,7 @@ describe("RequireSession", () => {
       },
       loading: false,
       login: vi.fn(),
+    refresh: vi.fn(),
       logout: vi.fn(),
     });
     renderRoutes();
@@ -67,6 +69,7 @@ describe("RequireSession", () => {
       user: null,
       loading: true,
       login: vi.fn(),
+    refresh: vi.fn(),
       logout: vi.fn(),
     });
     renderRoutes();
