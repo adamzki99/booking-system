@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 #
-# nightly-cleanup.sh — remove factory git worktrees and factory logs.
+# nightly-cleanup.sh — remove factory git worktrees, session logs, and stale claims.
 #
 # Intended for a nightly cron job (and safe to run manually). It:
 #   - removes registered git worktrees created for factory work that are clean
 #     (no uncommitted/untracked changes), then prunes stale worktree metadata;
-#   - removes factory session logs (factory-*.log) from the log directory.
+#   - removes factory session logs (factory-*.log) from the log directory;
+#   - removes stale factory claim lease directories (*.claim) older than the
+#     retention window (debug/retention path for preserved runtime state).
 #
 # The primary checkout and any dirty/in-progress worktree are left untouched.
 #
@@ -13,16 +15,18 @@
 # does not assume machine- or user-specific paths, and validates prerequisites.
 #
 # Usage:
-#   ./nightly-cleanup.sh [--dry-run] [--logs-days N]
+#   ./nightly-cleanup.sh [--dry-run] [--logs-days N] [--claims-days N]
 #
 # Options:
-#   --dry-run      print actions without changing anything
-#   --logs-days=N  remove factory-*.log files older than N days (default: 1)
+#   --dry-run        print actions without changing anything
+#   --logs-days=N    remove factory-*.log files older than N days (default: 1)
+#   --claims-days=N  remove *.claim dirs older than N days (default: 1)
 #
 # Environment:
-#   FACTORY_WORKTREE  path to the factory's sibling worktree (default: derived
-#                     from the repository root as ../<repo>-factory-worktree)
-#   FACTORY_LOG_DIR   directory containing factory-*.log files (default: /tmp/opencode)
+#   FACTORY_WORKTREE   path to the factory's sibling worktree (default: derived
+#                      from the repository root as ../<repo>-factory-worktree)
+#   FACTORY_LOG_DIR    directory containing factory-*.log files (default: /tmp/opencode)
+#   FACTORY_CLAIM_DIR  directory containing claim leases (default: /tmp/factory-claims)
 #
 set -euo pipefail
 
@@ -32,13 +36,15 @@ die()  { printf '[factory-cleanup] ERROR: %s\n' "$*" >&2; exit 1; }
 
 DRY_RUN=0
 LOGS_DAYS=1
+CLAIMS_DAYS=1
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --logs-days=*) LOGS_DAYS="${arg#*=}" ;;
+    --claims-days=*) CLAIMS_DAYS="${arg#*=}" ;;
     -h|--help)
-      sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "unknown argument: $arg" ;;
@@ -46,6 +52,7 @@ for arg in "$@"; do
 done
 
 [[ "$LOGS_DAYS" =~ ^[0-9]+$ ]] || die "--logs-days must be a non-negative integer (got: $LOGS_DAYS)"
+[[ "$CLAIMS_DAYS" =~ ^[0-9]+$ ]] || die "--claims-days must be a non-negative integer (got: $CLAIMS_DAYS)"
 
 # --- validation -------------------------------------------------------------
 for cmd in git find; do
@@ -61,6 +68,7 @@ git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 \
   || die "not a git repository: $REPO_ROOT"
 
 LOG_DIR="${FACTORY_LOG_DIR:-/tmp/opencode}"
+CLAIM_DIR="${FACTORY_CLAIM_DIR:-/tmp/factory-claims}"
 REPO_BASENAME="$(basename "$REPO_ROOT")"
 FACTORY_WORKTREE="${FACTORY_WORKTREE:-$(dirname "$REPO_ROOT")/${REPO_BASENAME}-factory-worktree}"
 
@@ -136,15 +144,28 @@ run git -C "$REPO_ROOT" worktree prune --expire now || warn "git worktree prune 
 # --- logs -------------------------------------------------------------------
 if [[ -d "$LOG_DIR" ]]; then
   log "removing factory logs in $LOG_DIR older than $LOGS_DAYS day(s)"
-  # factory session logs only; leave unrelated files untouched
+  # factory session logs and temp prompt files only; leave unrelated files untouched
   if [[ "$DRY_RUN" == 1 ]]; then
-    find "$LOG_DIR" -maxdepth 1 -type f -name 'factory-*.log' -mtime "+$((LOGS_DAYS - 1))" -print 2>/dev/null \
+    find "$LOG_DIR" -maxdepth 1 -type f \( -name 'factory-*.log' -o -name 'factory-prompt-*.txt' \) -mtime "+$((LOGS_DAYS - 1))" -print 2>/dev/null \
       | while IFS= read -r f; do [[ -n "$f" ]] && log "dry-run: would remove $f"; done || true
   else
-    find "$LOG_DIR" -maxdepth 1 -type f -name 'factory-*.log' -mtime "+$((LOGS_DAYS - 1))" -delete 2>/dev/null || true
+    find "$LOG_DIR" -maxdepth 1 -type f \( -name 'factory-*.log' -o -name 'factory-prompt-*.txt' \) -mtime "+$((LOGS_DAYS - 1))" -delete 2>/dev/null || true
   fi
 else
   log "log dir not found: $LOG_DIR (skipping log cleanup)"
+fi
+
+# --- claim leases (retention/debug path) ------------------------------------
+if [[ -d "$CLAIM_DIR" ]]; then
+  log "removing stale factory claims in $CLAIM_DIR older than $CLAIMS_DAYS day(s)"
+  if [[ "$DRY_RUN" == 1 ]]; then
+    find "$CLAIM_DIR" -maxdepth 1 -type d -name '*.claim' -mtime "+$((CLAIMS_DAYS - 1))" -print 2>/dev/null \
+      | while IFS= read -r d; do [[ -n "$d" ]] && log "dry-run: would remove $d"; done || true
+  else
+    find "$CLAIM_DIR" -maxdepth 1 -type d -name '*.claim' -mtime "+$((CLAIMS_DAYS - 1))" -exec rm -rf {} + 2>/dev/null || true
+  fi
+else
+  log "claim dir not found: $CLAIM_DIR (skipping claim cleanup)"
 fi
 
 log "done"
