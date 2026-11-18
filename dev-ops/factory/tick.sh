@@ -581,9 +581,13 @@ normalize_model() {
 
 FACTORY_SESSION_TIMEOUT="${FACTORY_SESSION_TIMEOUT:-3600}"
 run_opencode() {
-  if [[ "$FACTORY_CONTAINER_MODE" == "1" ]]; then
-    log "container mode requested: scaffolded execution uses host runtime (docker wiring pending)"
-    emit_event container_mode reason="scaffold-fallback"
+  local sandbox=()
+  if [[ "$FACTORY_CONTAINER_MODE" == "1" ]] && command -v bwrap >/dev/null 2>&1; then
+    sandbox=(bwrap --die-with-parent --cap-drop ALL --proc /proc --dev /dev --unshare-pid --unshare-ipc --unshare-uts --ro-bind / / --bind "$FACTORY_WORKTREE" "$FACTORY_WORKTREE" --bind "$HOME" "$HOME" --bind /tmp /tmp --chdir "$PWD")
+    emit_event container_mode reason="bwrap-sandbox"
+  elif [[ "$FACTORY_CONTAINER_MODE" == "1" ]]; then
+    log "container mode requested but bwrap unavailable; using host runtime"
+    emit_event container_mode reason="fallback-host"
   fi
   local model
   model="$(normalize_model "$2")"
@@ -592,9 +596,9 @@ run_opencode() {
   [[ -n "$3" ]] && args+=(--agent "$3")
   args+=("$4")
   if [[ "$FACTORY_SESSION_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$FACTORY_SESSION_TIMEOUT" -gt 0 ]]; then
-    timeout --signal=TERM --kill-after=30 "$FACTORY_SESSION_TIMEOUT" opencode "${args[@]}"
+    timeout --signal=TERM --kill-after=30 "$FACTORY_SESSION_TIMEOUT" "${sandbox[@]}" opencode "${args[@]}"
   else
-    opencode "${args[@]}"
+    "${sandbox[@]}" opencode "${args[@]}"
   fi
 }
 
@@ -771,8 +775,10 @@ fi
 if [[ -d "$FACTORY_WORKTREE" ]]; then
   # Keep remote refs current so sessions branch from the latest origin/main
   # rather than a stale local base.
-  git -C "$FACTORY_WORKTREE" fetch --quiet --prune origin 2>/dev/null \
-    || log "warning: git fetch origin failed in worktree; continuing with cached refs"
+  if ! gh_retry git -C "$FACTORY_WORKTREE" fetch --quiet --prune origin 2>/dev/null; then
+    log "warning: git fetch origin failed in worktree; continuing with cached refs"
+    emit_event git_fetch_failed category="$(classify_gh_text "$(git -C "$FACTORY_WORKTREE" fetch --prune origin 2>&1 || true)")"
+  fi
   # Never discard in-progress agent work: only reset/clean when the worktree
   # is already clean. Interrupted per-issue worktrees are preserved.
   if [[ -z "$(git -C "$FACTORY_WORKTREE" status --porcelain 2>/dev/null)" ]]; then
