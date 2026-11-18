@@ -20,6 +20,8 @@ BUILD_MARKER='<!-- factory:build -->'
 FIX_MARKER_PREFIX='<!-- factory:fix-pr:'
 DRY_RUN=0
 TICK_RC=0
+INFRA_FAILURE=0
+USAGE_FILLED_REASON=""
 ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
 MAX_FIX_SESSIONS="${FACTORY_MAX_FIX_SESSIONS:-1}"
 FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
@@ -141,7 +143,7 @@ trap 'on_signal TERM' TERM
 
 # Do not overlap ticks: a slow session must not pile up followers.
 exec 9>"$(git rev-parse --git-dir)/factory-tick.lock"
-emit_event tick_start
+emit_event tick_start opencode_version="$(opencode --version 2>/dev/null || echo unknown)"
 if ! flock -n 9; then
   log "previous tick still running; exiting"
   emit_event lock_skipped
@@ -398,16 +400,17 @@ is_usage_filled() {
   res="$(printf '%s' "$out" | python3 "$SCRIPT_DIR/lib/factory.py" is-usage-filled - 2>/dev/null)" || res="false	"
   reason="${res#*$'\t'}"
   res="${res%%$'\t'*}"
+  USAGE_FILLED_REASON="${reason:-unknown}"
   if [[ "$res" == "true" ]]; then
-    printf '%s' "$reason" > /dev/null
     return 0
   fi
   # fallback substring checks
-  [[ "$out" == *"usage limit"* ]] && return 0
-  [[ "$out" == *"limit exceeded"* ]] && return 0
-  [[ "$out" == *"rate limit"* ]] && return 0
-  [[ "$out" == *"quota"* && "$out" == *"exceed"* ]] && return 0
-  [[ "$out" == *"usage"* && "$out" == *"exceed"* ]] && return 0
+  if [[ "$out" == *"usage limit"* ]]; then USAGE_FILLED_REASON="usage limit"; return 0; fi
+  if [[ "$out" == *"limit exceeded"* ]]; then USAGE_FILLED_REASON="limit exceeded"; return 0; fi
+  if [[ "$out" == *"rate limit"* ]]; then USAGE_FILLED_REASON="rate limit"; return 0; fi
+  if [[ "$out" == *"quota"* && "$out" == *"exceed"* ]]; then USAGE_FILLED_REASON="quota exceeded"; return 0; fi
+  if [[ "$out" == *"usage"* && "$out" == *"exceed"* ]]; then USAGE_FILLED_REASON="usage exceeded"; return 0; fi
+  USAGE_FILLED_REASON=""
   return 1
 }
 
@@ -642,9 +645,9 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   if is_usage_filled "$out"; then
     log "session for #$ref failed: usage/quota appears filled (on-usage-filled=$ON_USAGE_FILLED)"
     if [[ "$kind" == "fix" ]]; then
-      emit_event usage_filled kind="$kind" pr="$ref" model="${model:-}" outcome="usage_filled"
+      emit_event usage_filled kind="$kind" pr="$ref" model="${model:-}" outcome="usage_filled" reason="$USAGE_FILLED_REASON"
     else
-      emit_event usage_filled kind="$kind" issue="$ref" model="${model:-}" outcome="usage_filled"
+      emit_event usage_filled kind="$kind" issue="$ref" model="${model:-}" outcome="usage_filled" reason="$USAGE_FILLED_REASON"
     fi
     case "$ON_USAGE_FILLED" in
       backup)
@@ -685,9 +688,9 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
           fi
           log "backup model for #$ref also hit usage/quota limit"
           if [[ "$kind" == "fix" ]]; then
-            emit_event usage_filled kind="$kind" pr="$ref" model="$backup" outcome="usage_filled"
+            emit_event usage_filled kind="$kind" pr="$ref" model="$backup" outcome="usage_filled" reason="$USAGE_FILLED_REASON"
           else
-            emit_event usage_filled kind="$kind" issue="$ref" model="$backup" outcome="usage_filled"
+            emit_event usage_filled kind="$kind" issue="$ref" model="$backup" outcome="usage_filled" reason="$USAGE_FILLED_REASON"
           fi
         fi
         if [[ "$model" != "$FREE_MODEL" && "$backup" != "$FREE_MODEL" ]]; then
@@ -836,6 +839,7 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
     fix_discovery_rc=$?
     err_text="$(cat "$fix_err" 2>/dev/null || true)"
     category="$(classify_gh_text "$err_text")"
+    case "$category" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     emit_event fix_discovery_error attempt="$attempt" category="$category" error="$err_text"
     if [[ "$category" != "transient" || "$attempt" -ge "$FACTORY_GH_RETRIES" ]]; then
       break
@@ -918,6 +922,7 @@ for attempt in $(seq 1 "$FACTORY_GH_RETRIES"); do
   build_discovery_rc=$?
   err_text="$(cat "$build_err" 2>/dev/null || true)"
   category="$(classify_gh_text "$err_text")"
+  case "$category" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
   emit_event build_discovery_error attempt="$attempt" category="$category" error="$err_text"
   if [[ "$category" != "transient" || "$attempt" -ge "$FACTORY_GH_RETRIES" ]]; then
     break
@@ -953,6 +958,11 @@ if [[ -n "$build_issue" ]]; then
 fi
 
 if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
+  if [[ "$INFRA_FAILURE" -eq 1 ]]; then
+    log "discovery failed due to infrastructure/auth/rate-limit; not reporting nothing_to_do"
+    emit_event discovery_failed infra_failure=1
+    exit 1
+  fi
   log "nothing to do"
   emit_event nothing_to_do
   exit 0

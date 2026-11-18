@@ -110,28 +110,34 @@ cron host (not beside SigNoz), using `dev-ops/factory/otel-collector.yaml`
 `SIGNOZ_OTLP_ENDPOINT`, optional `SIGNOZ_INGESTION_KEY`.
 
 New hardening knobs (issue #132):
+
+Environment variables:
 - `FACTORY_SESSION_TIMEOUT` — per-session timeout in seconds (default 3600).
 - `FACTORY_CLAIM_TTL` — claim lease TTL in seconds (default 7200).
-- `FACTORY_GH_RETRIES` — bounded retries for transient gh failures (default 3).
-- `FACTORY_CONTAINER_MODE` — set to `1` to enable scaffolded container mode (host fallback currently).
-- `FACTORY_MAX_FIX_SESSIONS` — fix sessions are serialized to avoid shared worktree races.
-- `FACTORY_CONTAINER_MODE` — set to `1` to scaffold container-per-session execution (disabled by default).
-- `FACTORY_LOG_SESSION_OUTPUT=metadata` redacts retained session output (metadata-only).
-- JSONL events include `schema_version` (currently 1) and enriched fields (tick result, reason codes, durations, session correlation).
+- `FACTORY_GH_RETRIES` — bounded retries for transient gh/git failures (default 3).
+- `FACTORY_CONTAINER_MODE` — set to `1` to enable bwrap per-session sandbox mode
+  (falls back to host execution if bwrap is unavailable).
+- `FACTORY_MAX_FIX_SESSIONS` — maximum fix sessions per tick; execution is serialized
+  to avoid shared worktree races.
+- `FACTORY_LOG_SESSION_OUTPUT=metadata` — metadata-only logging (suppresses retained
+  session output).
+- `FACTORY_ON_USAGE_FILLED=backup|skip|fail` — quota/usage policy.
 
-Sandbox mode:
-- `FACTORY_CONTAINER_MODE=1` enables a bwrap-based per-session sandbox when
-  available (unprivileged user namespaces), with dropped capabilities and
-  isolated PID/IPC/UTS namespaces; otherwise it falls back to host execution.
-- Claim leases use atomic directory creation with TTL (`FACTORY_CLAIM_TTL`).
-- gh/git failures are classified (auth, permission, rate_limit, transient,
-  not_found, conflict, other) and transient operations use bounded retries
-  (`FACTORY_GH_RETRIES`).
+Failure and recovery:
+- A dirty `FACTORY_WORKTREE` emits `dirty_worktree_skipped_reset` and is preserved;
+  recover by inspecting/committing/stashing changes or recreating the worktree from
+  `origin/main`.
+- `gh`/git failures are classified (`auth`, `permission`, `rate_limit`, `transient`,
+  `not_found`, `conflict`, `other`) and surfaced through events/logs; transient
+  operations use bounded retry/backoff.
+- If discovery fails due to infrastructure/auth/rate-limit, the tick emits
+  `discovery_failed` and exits non-zero instead of reporting `nothing_to_do`.
+- Fix sessions use atomic claim leases keyed by PR/head SHA/reasons; stale leases
+  expire after `FACTORY_CLAIM_TTL`.
 
-Log rotation: install `dev-ops/factory/factory-tick.logrotate`
-(`size 10M`, `rotate 5`, `copytruncate`).
-
-SigNoz "Factory" dashboard + alerts:
-1. any `session_failed` or `tick_end` with nonzero `exit_code` in the last hour;
-2. `count(tick_start) == 0` over 2h (dead-man's switch);
-3. repeated `usage_filled`/`backup_failed` (>=3/hour), plus repeated `lock_skipped`.
+Observability:
+- JSONL events include `schema_version` (currently 1), tick result, reason codes,
+  counts, attempt numbers, durations, model/agent/session correlation identifiers,
+  and matched quota reason where applicable.
+- Session logs are written to `/tmp/opencode/factory-*.log`; JSONL and session
+  output honor metadata-only mode.
