@@ -21,6 +21,10 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     # The token is read from TUNNEL_TOKEN so it is not part of the process args.
     command: tunnel --no-autoupdate run
     environment:

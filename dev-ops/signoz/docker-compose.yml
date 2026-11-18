@@ -61,6 +61,10 @@ services:
     <<: *common
     image: clickhouse/clickhouse-server:25.5.6
     container_name: signoz-init-clickhouse
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: on-failure
     command:
       - bash
@@ -83,6 +87,10 @@ services:
     <<: *common
     image: signoz/zookeeper:3.7.1
     container_name: signoz-zookeeper
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     user: root
     volumes:
       - signoz-zookeeper-data:/bitnami/zookeeper
@@ -92,6 +100,7 @@ services:
       - ZOO_AUTOPURGE_INTERVAL=1
       - ZOO_ENABLE_PROMETHEUS_METRICS=yes
       - ZOO_PROMETHEUS_METRICS_PORT_NUMBER=9141
+      - JVMFLAGS=-Xmx512m -Xms256m
     healthcheck:
       test: ["CMD-SHELL", "curl -s -m 2 http://localhost:8080/commands/ruok | grep error | grep null"]
       interval: 30s
@@ -101,6 +110,10 @@ services:
   signoz-clickhouse:
     <<: *clickhouse-defaults
     container_name: signoz-clickhouse
+    deploy:
+      resources:
+        limits:
+          memory: 1536m
     hostname: signoz-clickhouse
     volumes:
       - signoz-user-scripts:/var/lib/clickhouse/user_scripts/
@@ -114,6 +127,10 @@ services:
     <<: *db-depend
     image: signoz/signoz:v0.96.1
     container_name: signoz-server
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     command:
       - --config=/root/config/prometheus.yml
     ports:
@@ -140,6 +157,10 @@ services:
     <<: *db-depend
     image: signoz/signoz-otel-collector:v0.129.6
     container_name: signoz-otel-collector
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     command:
       - --config=/etc/otel-collector-config.yaml
       - --manager-config=/etc/manager-config.yaml
@@ -162,6 +183,10 @@ services:
     <<: *common
     image: signoz/signoz-schema-migrator:v0.129.6
     container_name: signoz-schema-migrator-sync
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: on-failure
     command:
       - sync
@@ -175,6 +200,10 @@ services:
     <<: *db-depend
     image: signoz/signoz-schema-migrator:v0.129.6
     container_name: signoz-schema-migrator-async
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: on-failure
     command:
       - async

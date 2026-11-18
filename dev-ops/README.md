@@ -274,3 +274,24 @@ reporters are disabled so codes do not leak into artifacts.
   guidance, and a validation checklist. Keep tunnel tokens, hostnames, and other
   deployment-specific identifiers in `projects/<name>/` config or environment
   variables, not in `product/`.
+## Resource budgets (container memory limits)
+
+All compose services in this repo define explicit memory limits (`deploy.resources.limits.memory`) to prevent any single container from exhausting host RAM (see issue #136). Approximate budgets:
+
+| Stack | Service | Memory limit |
+|---|---|---|
+| signoz | signoz-clickhouse | 1536m (max_memory_usage 1.2GB) |
+| signoz | signoz-zookeeper | 512m (JVM -Xmx512m) |
+| signoz | signoz-server | 512m |
+| signoz | signoz-otel-collector | 512m |
+| signoz | signoz-init-clickhouse / migrators | 256m |
+| sauna | backend | 512m |
+| sauna | postgres | 256m |
+| sauna | sidecar | 256m |
+| sauna | frontend | 256m |
+| sauna | caddy | 128m |
+| sauna | authelia | 256m |
+| sauna | cloudflared | 128m |
+
+Keep the always-on total (booking + persistent dev-ops services) below ~2.5 GB on the 3.2 GB dev host.
+
