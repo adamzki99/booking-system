@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/command"
-	"github.com/adamzki99/booking-system/product/backend/internal/email"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/notification"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
@@ -54,28 +54,28 @@ func (s *BroadcastService) Broadcast(ctx context.Context, email, subject, body s
 	})
 }
 
-// Notifier fans out broadcast messages to basic users as a side effect of
-// recorded broadcast events. Delivery is best-effort: errors are logged and
+// Notifier records one durable broadcast delivery per active basic user as a
+// side effect of recorded broadcast events. Enqueue errors are logged and
 // never surfaced, so a failed email cannot roll back an accepted broadcast.
 type Notifier struct {
-	sender email.Sender
-	users  lister
-	logger *slog.Logger
+	enqueuer notification.Enqueuer
+	users    lister
+	logger   *slog.Logger
 }
 
 // NewNotifier creates a broadcast notifier.
-func NewNotifier(sender email.Sender, users lister, logger *slog.Logger) *Notifier {
-	return &Notifier{sender: sender, users: users, logger: logger}
+func NewNotifier(enqueuer notification.Enqueuer, users lister, logger *slog.Logger) *Notifier {
+	return &Notifier{enqueuer: enqueuer, users: users, logger: logger}
 }
 
 // RegisterNotify subscribes the broadcast notifier to the dispatcher.
-func RegisterNotify(r *registry.Registry, sender email.Sender, users lister, logger *slog.Logger) {
-	r.Dispatcher.Subscribe(NewNotifier(sender, users, logger).Handle)
+func RegisterNotify(r *registry.Registry, enqueuer notification.Enqueuer, users lister, logger *slog.Logger) {
+	r.Dispatcher.Subscribe(NewNotifier(enqueuer, users, logger).Handle)
 }
 
-// Handle processes a batch of recorded events, sending broadcast messages to
-// active basic users and always returning nil so downstream subscribers are
-// unaffected.
+// Handle processes a batch of recorded events, enqueueing one delivery for
+// each active basic user and always returning nil so downstream subscribers
+// are unaffected.
 func (n *Notifier) Handle(ctx context.Context, events []eventstore.Event) error {
 	for _, event := range events {
 		if event.EventType != MessageBroadcastEventType {
@@ -95,9 +95,27 @@ func (n *Notifier) Handle(ctx context.Context, events []eventstore.Event) error 
 			if u.Role != user.RoleBasic || !u.Active || strings.TrimSpace(u.Email) == "" {
 				continue
 			}
-			if err := n.sender.Send(ctx, u.Email, payload.Subject, payload.Body); err != nil {
-				n.logger.Error("broadcast notify: send", "event", event.ID, "to", u.Email, "err", err)
+			item := notification.Item{
+				EventID:        event.ID,
+				Kind:           notification.KindBroadcast,
+				RecipientEmail: u.Email,
+				Subject:        payload.Subject,
+				Body:           payload.Body,
 			}
+			if err := n.enqueuer.Enqueue(ctx, item); err != nil {
+				notification.ReportEnqueueFailure(ctx)
+				n.logger.Error("broadcast notify: enqueue",
+					"event", event.ID,
+					"kind", item.Kind,
+					"to", notification.MaskRecipient(u.Email),
+					"err", err)
+				continue
+			}
+			n.logger.Info("broadcast notify: delivery pending",
+				"event", event.ID,
+				"kind", item.Kind,
+				"status", notification.StatusPending,
+				"to", notification.MaskRecipient(u.Email))
 		}
 	}
 	return nil

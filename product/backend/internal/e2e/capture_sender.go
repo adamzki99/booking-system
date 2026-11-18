@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/email"
@@ -51,4 +52,40 @@ func (c *captureSender) lastSubject(subject string) (capturedMessage, bool) {
 	return capturedMessage{}, false
 }
 
-var _ email.Sender = (*captureSender)(nil)
+// flakySender wraps the capture sender and fails the next n outbox deliveries,
+// simulating transient SMTP failures. Login-code mail uses captureSender
+// directly and is unaffected.
+type flakySender struct {
+	mu            sync.Mutex
+	delegate      email.Sender
+	failRemaining int
+	calls         int
+}
+
+func (f *flakySender) Send(ctx context.Context, to, subject, body string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.failRemaining > 0 {
+		f.failRemaining--
+		return errors.New("transient smtp failure")
+	}
+	return f.delegate.Send(ctx, to, subject, body)
+}
+
+func (f *flakySender) setFailures(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failRemaining = n
+}
+
+func (f *flakySender) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+var (
+	_ email.Sender = (*captureSender)(nil)
+	_ email.Sender = (*flakySender)(nil)
+)

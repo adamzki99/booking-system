@@ -6,15 +6,38 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/notification"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+type fakeEnqueuer struct {
+	mu    sync.Mutex
+	items []notification.Item
+	err   error
+}
+
+func (f *fakeEnqueuer) Enqueue(_ context.Context, item notification.Item) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.items = append(f.items, item)
+	return f.err
+}
+
+func (f *fakeEnqueuer) all() []notification.Item {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]notification.Item, len(f.items))
+	copy(out, f.items)
+	return out
 }
 
 func createdEvent(t *testing.T, userID string) eventstore.Event {
@@ -45,47 +68,52 @@ func cancelledEvent(t *testing.T, userID string) eventstore.Event {
 	return eventstore.Event{ID: 2, EventType: BookingCancelledEventType, Payload: payload}
 }
 
-func TestNotifierSendsConfirmation(t *testing.T) {
-	sender := &fakeSender{}
+func TestNotifierEnqueuesConfirmation(t *testing.T) {
+	enqueuer := &fakeEnqueuer{}
 	users := &fakeUserResolver{byID: map[string]user.User{
 		"user-1": {ID: "user-1", Email: "alice@example.com"},
 	}}
-	n := &Notifier{sender: sender, users: users, logger: testLogger()}
+	n := &Notifier{enqueuer: enqueuer, users: users, logger: testLogger()}
 
 	if err := n.Handle(context.Background(), []eventstore.Event{createdEvent(t, "user-1")}); err != nil {
 		t.Fatal(err)
 	}
-	if sender.to != "alice@example.com" {
-		t.Fatalf("to = %q", sender.to)
+	items := enqueuer.all()
+	if len(items) != 1 {
+		t.Fatalf("enqueued %d items, want 1", len(items))
 	}
-	if sender.subject != createdSubject {
-		t.Fatalf("subject = %q", sender.subject)
+	item := items[0]
+	if item.EventID != 1 || item.Kind != notification.KindBookingCreated {
+		t.Fatalf("item = %+v", item)
 	}
-	if sender.body == "" {
-		t.Fatal("expected a confirmation body")
+	if item.RecipientEmail != "alice@example.com" || item.Subject != createdSubject || item.Body == "" {
+		t.Fatalf("item = %+v", item)
 	}
 }
 
-func TestNotifierSendsCancellation(t *testing.T) {
-	sender := &fakeSender{}
+func TestNotifierEnqueuesCancellation(t *testing.T) {
+	enqueuer := &fakeEnqueuer{}
 	users := &fakeUserResolver{byID: map[string]user.User{
 		"user-1": {ID: "user-1", Email: "alice@example.com"},
 	}}
-	n := &Notifier{sender: sender, users: users, logger: testLogger()}
+	n := &Notifier{enqueuer: enqueuer, users: users, logger: testLogger()}
 
 	if err := n.Handle(context.Background(), []eventstore.Event{cancelledEvent(t, "user-1")}); err != nil {
 		t.Fatal(err)
 	}
-	if sender.to != "alice@example.com" {
-		t.Fatalf("to = %q", sender.to)
+	items := enqueuer.all()
+	if len(items) != 1 {
+		t.Fatalf("enqueued %d items, want 1", len(items))
 	}
-	if sender.subject != cancelledSubject {
-		t.Fatalf("subject = %q", sender.subject)
+	item := items[0]
+	if item.EventID != 2 || item.Kind != notification.KindBookingCancelled ||
+		item.RecipientEmail != "alice@example.com" || item.Subject != cancelledSubject {
+		t.Fatalf("item = %+v", item)
 	}
 }
 
-func TestNotifierSendsCancellationToBookingOwner(t *testing.T) {
-	sender := &fakeSender{}
+func TestNotifierEnqueuesCancellationToBookingOwner(t *testing.T) {
+	enqueuer := &fakeEnqueuer{}
 	// user-1 is the super user cancelling; user-2 owns the booking.
 	users := &fakeUserResolver{byID: map[string]user.User{
 		"user-1": {ID: "user-1", Email: "super@example.com"},
@@ -94,23 +122,24 @@ func TestNotifierSendsCancellationToBookingOwner(t *testing.T) {
 	bookings := &fakeBookingsReader{byID: map[string]Booking{
 		"booking-1": {ID: "booking-1", UserID: "user-2", Status: StatusCancelled},
 	}}
-	n := &Notifier{sender: sender, users: users, bookings: bookings, logger: testLogger()}
+	n := &Notifier{enqueuer: enqueuer, users: users, bookings: bookings, logger: testLogger()}
 
 	if err := n.Handle(context.Background(), []eventstore.Event{cancelledEvent(t, "user-1")}); err != nil {
 		t.Fatal(err)
 	}
-	if sender.to != "owner@example.com" {
-		t.Fatalf("to = %q, want owner@example.com", sender.to)
+	items := enqueuer.all()
+	if len(items) != 1 || items[0].RecipientEmail != "owner@example.com" {
+		t.Fatalf("items = %+v", items)
 	}
-	if sender.subject != cancelledSubject {
-		t.Fatalf("subject = %q", sender.subject)
+	if items[0].Kind != notification.KindBookingCancelled {
+		t.Fatalf("kind = %q", items[0].Kind)
 	}
 }
 
 func TestNotifierIgnoresOtherEvents(t *testing.T) {
-	sender := &fakeSender{}
+	enqueuer := &fakeEnqueuer{}
 	users := &fakeUserResolver{}
-	n := &Notifier{sender: sender, users: users, logger: testLogger()}
+	n := &Notifier{enqueuer: enqueuer, users: users, logger: testLogger()}
 
 	err := n.Handle(context.Background(), []eventstore.Event{
 		{ID: 1, EventType: "user.created"},
@@ -119,17 +148,17 @@ func TestNotifierIgnoresOtherEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sender.to != "" {
-		t.Fatalf("unexpected email to %q", sender.to)
+	if got := enqueuer.all(); len(got) != 0 {
+		t.Fatalf("unexpected items: %+v", got)
 	}
 }
 
-func TestNotifierSwallowsSendError(t *testing.T) {
-	sender := &fakeSender{err: errors.New("smtp down")}
+func TestNotifierSwallowsEnqueueError(t *testing.T) {
+	enqueuer := &fakeEnqueuer{err: errors.New("outbox down")}
 	users := &fakeUserResolver{byID: map[string]user.User{
 		"user-1": {ID: "user-1", Email: "alice@example.com"},
 	}}
-	n := &Notifier{sender: sender, users: users, logger: testLogger()}
+	n := &Notifier{enqueuer: enqueuer, users: users, logger: testLogger()}
 
 	if err := n.Handle(context.Background(), []eventstore.Event{createdEvent(t, "user-1")}); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -137,14 +166,14 @@ func TestNotifierSwallowsSendError(t *testing.T) {
 }
 
 func TestNotifierSwallowsUserResolveError(t *testing.T) {
-	sender := &fakeSender{}
+	enqueuer := &fakeEnqueuer{}
 	users := &fakeUserResolver{byIDErr: errors.New("db down")}
-	n := &Notifier{sender: sender, users: users, logger: testLogger()}
+	n := &Notifier{enqueuer: enqueuer, users: users, logger: testLogger()}
 
 	if err := n.Handle(context.Background(), []eventstore.Event{createdEvent(t, "user-1")}); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if sender.to != "" {
-		t.Fatalf("unexpected email to %q", sender.to)
+	if got := enqueuer.all(); len(got) != 0 {
+		t.Fatalf("unexpected items: %+v", got)
 	}
 }

@@ -2,10 +2,13 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"testing"
+
+	"github.com/adamzki99/booking-system/product/backend/internal/booking"
 )
 
 func postJSON(t *testing.T, url string, body any, token string) *http.Response {
@@ -105,6 +108,7 @@ func TestHappyFlowBookingConfirmationEmail(t *testing.T) {
 		t.Fatal("created booking missing id")
 	}
 
+	app.DrainNotifications(t)
 	msg, ok := app.Sender.lastSubject("Booking confirmed")
 	if !ok {
 		t.Fatal("no booking confirmation email captured")
@@ -263,6 +267,7 @@ func TestSuperUserCancellationSendsNoticeEmail(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("cancel status = %d, want 204", resp.StatusCode)
 	}
+	app.DrainNotifications(t)
 	msg, ok := app.Sender.lastSubject("Booking cancelled")
 	if !ok {
 		t.Fatal("no cancellation email captured")
@@ -290,5 +295,77 @@ func TestSuperUserCancellationSendsNoticeEmail(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("non-super cancel status = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestTransientSenderFailureRecoversBookingAndBroadcastEmail(t *testing.T) {
+	app := newE2EApp(t)
+	basicToken := login(t, app, basicEmail)
+	superToken := login(t, app, superEmail)
+
+	// Booking confirmation: two transient failures, then delivery.
+	app.DeliverySender.setFailures(2)
+	start := futureTime().Add(24 * timeHour())
+	end := start.Add(timeHour())
+	resp := postJSON(t, app.Server.URL+"/bookings", map[string]any{
+		"start": start.Format(timeRFC3339()),
+		"end":   end.Format(timeRFC3339()),
+	}, basicToken)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create booking status = %d, want 201", resp.StatusCode)
+	}
+	var created map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	bookingID, _ := created["id"].(string)
+	if bookingID == "" {
+		t.Fatal("missing booking id")
+	}
+	if _, ok := app.Sender.lastSubject("Booking confirmed"); ok {
+		t.Fatal("confirmation delivered before the worker ran")
+	}
+	app.DrainNotifications(t)
+	if msg, ok := app.Sender.lastSubject("Booking confirmed"); !ok || msg.To != basicEmail {
+		t.Fatalf("confirmation = %+v, ok = %v", msg, ok)
+	}
+	if got := app.DeliverySender.callCount(); got != 3 {
+		t.Fatalf("delivery calls = %d, want 3 (two failures + success)", got)
+	}
+
+	// Cancellation notice to the owner also recovers, and the booking event
+	// is untouched by delivery failures.
+	app.DeliverySender.setFailures(2)
+	resp = postJSON(t, app.Server.URL+"/bookings/"+bookingID+"/cancel", nil, superToken)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("cancel status = %d, want 204", resp.StatusCode)
+	}
+	app.DrainNotifications(t)
+	if msg, ok := app.Sender.lastSubject("Booking cancelled"); !ok || msg.To != basicEmail {
+		t.Fatalf("cancellation = %+v, ok = %v", msg, ok)
+	}
+	stored, err := app.Bookings.GetByID(context.Background(), bookingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != booking.StatusCancelled {
+		t.Fatalf("booking status = %q, want %q", stored.Status, booking.StatusCancelled)
+	}
+
+	// Broadcast fan-out recovers through the same outbox.
+	app.DeliverySender.setFailures(2)
+	resp = postJSON(t, app.Server.URL+"/broadcast", map[string]string{
+		"subject": "Sauna closed",
+		"body":    "Maintenance tonight.",
+	}, superToken)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("broadcast status = %d, want 202", resp.StatusCode)
+	}
+	app.DrainNotifications(t)
+	if msg, ok := app.Sender.lastSubject("Sauna closed"); !ok || msg.To != basicEmail {
+		t.Fatalf("broadcast = %+v, ok = %v", msg, ok)
 	}
 }
