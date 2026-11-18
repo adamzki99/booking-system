@@ -82,6 +82,27 @@ Browser-level steps from the flows above (login screen, calendar rendering,
 reading email in a mail client) remain a manual verification checklist until
 Playwright and a mail sink are added.
 
+#### Public iCal feed smoke check
+
+The basic-user story includes adding the booking calendar to a personal
+calendar. Caddy proxies the public `/calendar/*` path to the backend so the
+generated URL works without an auth header. To smoke-check a deployed stack:
+
+1. Log in as a basic user and call `POST /api/account/calendar-token`; keep the
+   returned `url` secret (the token is a bearer credential).
+2. Validate the ingress configuration and run the smoke check against the
+   public origin, with no `Authorization` header:
+
+   ```sh
+   caddy validate --config config/Caddyfile --adapter caddyfile
+   CALENDAR_URL='https://<site>/calendar/<token>.ics' scripts/smoke-calendar-feed.sh
+   ```
+
+3. Confirm the response is a `VCALENDAR` with the active bookings. Create a
+   booking, refresh the feed, then cancel that booking and refresh again: the
+   event must appear and then disappear. Invalid tokens must return a
+   non-calendar error.
+
 The backend exports traces and metrics via OTLP/HTTP. SigNoz (APM) runs as a
 **persistent dev-ops service** under `dev-ops/signoz/` (separate compose
 project, independent of `booking-*` environments). Bring it up once on the dev
