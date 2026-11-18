@@ -854,30 +854,36 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       continue
     fi
     claim_key="${pr_number}-${head_sha}-${reasons}"
-    claim_file="/tmp/factory-claims/${claim_key}.claim"
+    claim_dir="/tmp/factory-claims/${claim_key}.claim"
     mkdir -p /tmp/factory-claims 2>/dev/null || true
-    if [[ -f "$claim_file" ]]; then
+    if [[ -d "$claim_dir" ]]; then
       now_ts="$(date +%s)"
-      mtime="$(stat -c %Y "$claim_file" 2>/dev/null || echo 0)"
+      mtime="$(stat -c %Y "$claim_dir" 2>/dev/null || echo 0)"
       if (( now_ts - mtime > FACTORY_CLAIM_TTL )); then
-        rm -f "$claim_file"
+        rm -rf "$claim_dir"
       else
-        oldpid="$(cat "$claim_file" 2>/dev/null || true)"
+        oldpid="$(cat "$claim_dir/pid" 2>/dev/null || true)"
         if [[ -n "$oldpid" ]] && kill -0 "$oldpid" 2>/dev/null; then
           log "PR #$pr_number already claimed by pid $oldpid; skipping"
           emit_event claim_conflict pr="$pr_number" reason="in-progress claim"
           continue
         fi
+        rm -rf "$claim_dir"
       fi
     fi
-    echo "$$" > "$claim_file" 2>/dev/null || true
+    if ! mkdir "$claim_dir" 2>/dev/null; then
+      log "PR #$pr_number claim race; skipping"
+      emit_event claim_conflict pr="$pr_number" reason="claim race"
+      continue
+    fi
+    echo "$$" > "$claim_dir/pid" 2>/dev/null || true
     mapfile -t labels < <(issue_labels "$issue_number")
     IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
     emit_event fix_selected pr="$pr_number" issue="$issue_number" reasons="$reasons" model="${model:-}" backup_model="${backup_model:-}"
     if [[ "$DRY_RUN" == 1 ]]; then
       log "dry-run: would fix PR #$pr_number (issue #$issue_number, reasons: $reasons, model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
       emit_event dry_run kind="fix" pr="$pr_number" issue="$issue_number"
-      rm -f "$claim_file"
+      rm -rf "$claim_dir"
       fix_count=$((fix_count + 1))
     else
       if start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"; then
@@ -885,7 +891,7 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       else
         fix_failures=$((fix_failures + 1))
       fi
-      rm -f "$claim_file"
+      rm -rf "$claim_dir"
       fix_count=$((fix_count + 1))
     fi
   done <<< "$fix_candidates_output"
