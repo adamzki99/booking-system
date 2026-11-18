@@ -823,7 +823,7 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
   fix_err="$(mktemp)"
   fix_discovery_rc=0
   for attempt in $(seq 1 "$FACTORY_GH_RETRIES"); do
-    if fix_candidates_output="$(fix_pr_candidates 2>"$fix_err")"; then
+    if fix_candidates_output="$("$SCRIPT_DIR/discover_fix_candidates.py" 2>"$fix_err")"; then
       fix_discovery_rc=0
       break
     fi
@@ -899,7 +899,7 @@ build_candidates_output=""
 build_err="$(mktemp)"
 build_discovery_rc=0
 for attempt in $(seq 1 "$FACTORY_GH_RETRIES"); do
-  if build_candidates_output="$(approved_build_candidates 2>"$build_err")"; then
+  if build_candidates_output="$("$SCRIPT_DIR/discover_build_candidates.py" "$APPROVED_LABEL" 2>"$build_err")"; then
     build_discovery_rc=0
     break
   fi
