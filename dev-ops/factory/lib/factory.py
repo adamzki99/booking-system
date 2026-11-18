@@ -113,6 +113,71 @@ def make_event(event, tick_id, dry_run, on_usage_filled, env, host, **fields):
     return obj
 
 
+
+FAIL_STATES = {"FAILURE", "FAILED", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"}
+
+
+def check_state(item):
+    if not isinstance(item, dict):
+        return ""
+    st = (item.get("state") or item.get("conclusion") or item.get("status") or "").upper()
+    if item.get("__typename") == "CheckRun" and (item.get("status") or "").upper() not in ("COMPLETED", ""):
+        return "PENDING"
+    return st
+
+
+def fix_candidates_from_prs(prs):
+    rows = []
+    for pr in prs or []:
+        if pr.get("isDraft"):
+            continue
+        head = pr.get("headRefName") or ""
+        m = re.match(r"^factory/issue-(\d+)$", head)
+        if not m:
+            continue
+        issue = int(m.group(1))
+        sha = (pr.get("headRefOid") or "").strip()
+        if not sha:
+            continue
+        reasons = []
+        rollup = pr.get("statusCheckRollup") or []
+        if isinstance(rollup, list):
+            for item in rollup:
+                st = check_state(item)
+                if st in FAIL_STATES:
+                    reasons.append("failing-checks")
+                    break
+        rd = (pr.get("reviewDecision") or "").upper()
+        if rd == "CHANGES_REQUESTED":
+            reasons.append("changes-requested")
+        mergeable = (pr.get("mergeable") or "").upper()
+        if mergeable == "CONFLICTING":
+            reasons.append("conflicts")
+        if not reasons:
+            continue
+        reasons = sorted(set(reasons))
+        rkey = ",".join(reasons)
+        marker = f"<!-- factory:fix-pr:{sha}:{rkey} -->"
+        rows.append((pr.get("createdAt") or "9999", pr.get("number"), issue, sha, rkey, marker))
+    rows.sort()
+    return rows
+
+
+def prioritize_issues(issues, prio):
+    import math
+    def key(it):
+        n = it["number"]
+        created = it.get("createdAt") or "9999"
+        if n in (prio or {}):
+            pc, pn, bo = prio[n]
+            return (0, pc, pn, bo, created, n)
+        return (1, "9999", math.inf, math.inf, created, n)
+    return [it["number"] for it in sorted(issues or [], key=key)]
+
+
+def has_marker_comments(comments, marker):
+    return any(marker in (c.get("body") or "") for c in (comments or []))
+
 def main(argv):
     # CLI subcommands for shell integration
     if len(argv) < 2:
