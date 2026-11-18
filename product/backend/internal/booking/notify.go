@@ -112,5 +112,11 @@ func (n *Notifier) enqueue(ctx context.Context, item notification.Item, label st
 			"kind", item.Kind,
 			"to", notification.MaskRecipient(item.RecipientEmail),
 			"err", err)
+		return
 	}
+	n.logger.Info("booking notify: delivery pending",
+		"event", eventID,
+		"kind", item.Kind,
+		"status", notification.StatusPending,
+		"to", notification.MaskRecipient(item.RecipientEmail))
 }

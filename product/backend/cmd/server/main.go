@@ -49,6 +49,7 @@ func main() {
 
 	var deps server.Deps
 	var pool *pgxpool.Pool
+	var workerDone <-chan struct{}
 	stopNotifications := func() {}
 	if cfg.DatabaseURL != "" {
 		p, err := eventstore.OpenPool(context.Background(), cfg.DatabaseURL)
@@ -85,11 +86,14 @@ func main() {
 
 		workerCtx, cancelWorker := context.WithCancel(context.Background())
 		stopNotifications = cancelWorker
+		done := make(chan struct{})
+		workerDone = done
 		worker := notification.NewWorker(outbox, mailer, logger, notification.Policy{
 			MaxAttempts: cfg.EmailMaxAttempts,
 			BaseDelay:   cfg.EmailRetryBase,
 		})
 		go func() {
+			defer close(done)
 			if err := worker.Run(workerCtx, cfg.EmailRetryInterval); err != nil {
 				logger.Error("notification worker stopped", "err", err)
 			}
@@ -144,6 +148,17 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("shutdown error", "err", err)
 	}
+	// Stop the worker before telemetry and the database pool go away so an
+	// in-flight delivery cannot emit metrics through a shut-down provider or
+	// query a closed pool.
+	stopNotifications()
+	if workerDone != nil {
+		select {
+		case <-workerDone:
+		case <-time.After(5 * time.Second):
+			logger.Warn("notification worker did not stop before shutdown")
+		}
+	}
 	if telShutdown != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -151,7 +166,6 @@ func main() {
 			slog.Error("telemetry shutdown", "err", err)
 		}
 	}
-	stopNotifications()
 	if pool != nil {
 		pool.Close()
 	}

@@ -70,6 +70,7 @@ type Store interface {
 // install the global meter provider before the first delivery is recorded.
 type metrics struct {
 	enqueued, sent, retried, failed, enqueueFailed metric.Int64Counter
+	pending                                        metric.Int64UpDownCounter
 }
 
 var (
@@ -90,14 +91,25 @@ func recordMetrics() *metrics {
 			metric.WithDescription("Notification deliveries permanently failed."))
 		meterStats.enqueueFailed, _ = m.Int64Counter("notifications.enqueue_failed",
 			metric.WithDescription("Failures while storing an intended delivery."))
+		meterStats.pending, _ = m.Int64UpDownCounter("notifications.pending",
+			metric.WithDescription("Notification deliveries currently awaiting delivery."))
 	})
 	return &meterStats
 }
 
-func recordEnqueued(ctx context.Context)       { recordMetrics().enqueued.Add(ctx, 1) }
-func recordSent(ctx context.Context)           { recordMetrics().sent.Add(ctx, 1) }
-func recordRetried(ctx context.Context)        { recordMetrics().retried.Add(ctx, 1) }
-func recordFailed(ctx context.Context)         { recordMetrics().failed.Add(ctx, 1) }
+func recordEnqueued(ctx context.Context) {
+	recordMetrics().enqueued.Add(ctx, 1)
+	recordMetrics().pending.Add(ctx, 1)
+}
+func recordSent(ctx context.Context) {
+	recordMetrics().sent.Add(ctx, 1)
+	recordMetrics().pending.Add(ctx, -1)
+}
+func recordRetried(ctx context.Context) { recordMetrics().retried.Add(ctx, 1) }
+func recordFailed(ctx context.Context) {
+	recordMetrics().failed.Add(ctx, 1)
+	recordMetrics().pending.Add(ctx, -1)
+}
 func recordEnqueueFailure(ctx context.Context) { recordMetrics().enqueueFailed.Add(ctx, 1) }
 
 // ReportEnqueueFailure increments the enqueue-failure counter. Notifiers call
@@ -160,6 +172,8 @@ func (s *MemoryStore) Due(_ context.Context, now time.Time, limit int) ([]Item, 
 	if limit > 0 && len(indexes) > limit {
 		indexes = indexes[:limit]
 	}
+	// Claiming counts as an attempt, matching PostgresStore.Due: a crashed
+	// worker must not be able to retry forever without recording progress.
 	out := make([]Item, 0, len(indexes))
 	for _, i := range indexes {
 		item := s.items[i]

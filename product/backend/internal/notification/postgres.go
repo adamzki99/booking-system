@@ -38,7 +38,9 @@ func (s *PostgresStore) Enqueue(ctx context.Context, item Item) error {
 
 // Due claims up to limit due rows in one statement. The lease written to
 // next_attempt_at prevents a second worker or tick from sending the same row
-// twice; a crashed worker's claim expires and the row is retried.
+// twice; a crashed worker's claim expires and the row is retried. Attempts is
+// incremented on claim (not only on a sender error) so repeated crashes cannot
+// retry a row forever without recording progress.
 func (s *PostgresStore) Due(ctx context.Context, now time.Time, limit int) ([]Item, error) {
 	if limit <= 0 {
 		limit = 50

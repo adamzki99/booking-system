@@ -34,6 +34,10 @@ homeowner association. See `README.md` for the stack and
   is **stateless** — functions in, results out, called via REST by the backend.
 - **No deletes:** not even super users may delete data from the system
   (cancellations are events, not deletions).
+- **Notification delivery:** booking confirmations, cancellation notices and
+  broadcasts are enqueued into a durable `notification_outbox` and delivered by
+  a retrying worker. An enqueue or send failure must never roll back a recorded
+  event; permanently failed rows stay in the table for operator inspection.
 - **CI/security gate:** never merge a pull request (manually or via the
   factory) until all required CI checks and security analyses (Backend CI,
   Security, Semgrep) pass and findings are addressed. A PR with failing or

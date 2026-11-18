@@ -109,7 +109,13 @@ func (n *Notifier) Handle(ctx context.Context, events []eventstore.Event) error 
 					"kind", item.Kind,
 					"to", notification.MaskRecipient(u.Email),
 					"err", err)
+				continue
 			}
+			n.logger.Info("broadcast notify: delivery pending",
+				"event", event.ID,
+				"kind", item.Kind,
+				"status", notification.StatusPending,
+				"to", notification.MaskRecipient(u.Email))
 		}
 	}
 	return nil
