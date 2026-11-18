@@ -594,10 +594,14 @@ run_opencode() {
   fi
   local model
   model="$(normalize_model "$2")"
-  local args=(run --auto --title "$1")
+  local prompt_file
+  prompt_file="$(mktemp /tmp/opencode/factory-prompt-XXXXXX.txt 2>/dev/null)" || prompt_file="/tmp/opencode/factory-prompt-$$.txt"
+  mkdir -p /tmp/opencode 2>/dev/null || true
+  printf '%s' "$4" > "$prompt_file"
+  trap 'rm -f "$prompt_file"' RETURN
+  local args=(run --auto --title "$1" --format json --file "$prompt_file" "Follow the attached factory prompt.")
   [[ -n "$model" ]] && args+=(--model "$model")
   [[ -n "$3" ]] && args+=(--agent "$3")
-  args+=("$4")
   if [[ "$FACTORY_SESSION_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$FACTORY_SESSION_TIMEOUT" -gt 0 ]]; then
     timeout --signal=TERM --kill-after=30 "$FACTORY_SESSION_TIMEOUT" "${sandbox[@]}" opencode "${args[@]}"
   else
@@ -630,13 +634,14 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   status=$?
   set +o pipefail
   set -e
+  session_id="$(printf '%s\n' "$out" | python3 -c 'import sys,json\nfor line in sys.stdin:\n try:\n  o=json.loads(line); sid=o.get("sessionID")\n  if sid: print(sid); break\n except Exception: pass' 2>/dev/null | head -1)"
   if [[ $status -eq 0 ]]; then
     printf '%s\n' "$out"
     duration=$(( $(date +%s%3N) - session_start_ms ))
     if [[ "$kind" == "fix" ]]; then
-      emit_event session_ok kind="$kind" pr="$ref" model="${model:-}" exit_code=0 duration_ms="$duration" outcome="ok"
+      emit_event session_ok kind="$kind" pr="$ref" model="${model:-}" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
     else
-      emit_event session_ok kind="$kind" issue="$ref" model="${model:-}" exit_code=0 duration_ms="$duration" outcome="ok"
+      emit_event session_ok kind="$kind" issue="$ref" model="${model:-}" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
     fi
     return 0
   fi
@@ -645,9 +650,9 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   if is_usage_filled "$out"; then
     log "session for #$ref failed: usage/quota appears filled (on-usage-filled=$ON_USAGE_FILLED)"
     if [[ "$kind" == "fix" ]]; then
-      emit_event usage_filled kind="$kind" pr="$ref" model="${model:-}" outcome="usage_filled" reason="$USAGE_FILLED_REASON"
+      emit_event usage_filled kind="$kind" pr="$ref" model="${model:-}" outcome="usage_filled" session_id="${session_id:-}" reason="$USAGE_FILLED_REASON"
     else
-      emit_event usage_filled kind="$kind" issue="$ref" model="${model:-}" outcome="usage_filled" reason="$USAGE_FILLED_REASON"
+      emit_event usage_filled kind="$kind" issue="$ref" model="${model:-}" outcome="usage_filled" session_id="${session_id:-}" reason="$USAGE_FILLED_REASON"
     fi
     case "$ON_USAGE_FILLED" in
       backup)
@@ -669,9 +674,9 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
           if [[ $bstatus -eq 0 ]]; then
             duration=$(( $(date +%s%3N) - session_start_ms ))
             if [[ "$kind" == "fix" ]]; then
-              emit_event backup_ok kind="$kind" pr="$ref" model="$backup" exit_code=0 duration_ms="$duration" outcome="backup_ok"
+              emit_event backup_ok kind="$kind" pr="$ref" model="$backup" exit_code=0 duration_ms="$duration" outcome="backup_ok" session_id="${session_id:-}"
             else
-              emit_event backup_ok kind="$kind" issue="$ref" model="$backup" exit_code=0 duration_ms="$duration" outcome="backup_ok"
+              emit_event backup_ok kind="$kind" issue="$ref" model="$backup" exit_code=0 duration_ms="$duration" outcome="backup_ok" session_id="${session_id:-}"
             fi
             return 0
           fi
@@ -680,17 +685,17 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
             tail_out=""
             if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$bout" | tail -c 16384)" || true; fi
             if [[ "$kind" == "fix" ]]; then
-              emit_event session_failed kind="$kind" pr="$ref" model="$backup" exit_code="$bstatus" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+              emit_event session_failed kind="$kind" pr="$ref" model="$backup" exit_code="$bstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
             else
-              emit_event session_failed kind="$kind" issue="$ref" model="$backup" exit_code="$bstatus" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+              emit_event session_failed kind="$kind" issue="$ref" model="$backup" exit_code="$bstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
             fi
             return "$bstatus"
           fi
           log "backup model for #$ref also hit usage/quota limit"
           if [[ "$kind" == "fix" ]]; then
-            emit_event usage_filled kind="$kind" pr="$ref" model="$backup" outcome="usage_filled" reason="$USAGE_FILLED_REASON"
+            emit_event usage_filled kind="$kind" pr="$ref" model="$backup" outcome="usage_filled" session_id="${session_id:-}" reason="$USAGE_FILLED_REASON"
           else
-            emit_event usage_filled kind="$kind" issue="$ref" model="$backup" outcome="usage_filled" reason="$USAGE_FILLED_REASON"
+            emit_event usage_filled kind="$kind" issue="$ref" model="$backup" outcome="usage_filled" session_id="${session_id:-}" reason="$USAGE_FILLED_REASON"
           fi
         fi
         if [[ "$model" != "$FREE_MODEL" && "$backup" != "$FREE_MODEL" ]]; then
@@ -711,9 +716,9 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
           if [[ $fstatus -eq 0 ]]; then
             duration=$(( $(date +%s%3N) - session_start_ms ))
             if [[ "$kind" == "fix" ]]; then
-              emit_event session_ok kind="$kind" pr="$ref" model="$FREE_MODEL" exit_code=0 duration_ms="$duration" outcome="ok"
+              emit_event session_ok kind="$kind" pr="$ref" model="$FREE_MODEL" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
             else
-              emit_event session_ok kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code=0 duration_ms="$duration" outcome="ok"
+              emit_event session_ok kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
             fi
             return 0
           fi
@@ -721,35 +726,35 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
           tail_out=""
           if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$fout" | tail -c 16384)" || true; fi
           if [[ "$kind" == "fix" ]]; then
-            emit_event session_failed kind="$kind" pr="$ref" model="$FREE_MODEL" exit_code="$fstatus" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+            emit_event session_failed kind="$kind" pr="$ref" model="$FREE_MODEL" exit_code="$fstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
           else
-            emit_event session_failed kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code="$fstatus" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+            emit_event session_failed kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code="$fstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
           fi
           return "$fstatus"
         fi
         log "no distinct free model configured for #$ref; failing"
         duration=$(( $(date +%s%3N) - session_start_ms ))
         if [[ "$kind" == "fix" ]]; then
-          emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed"
+          emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}"
         else
-          emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed"
+          emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}"
         fi
         return "$status"
         ;;
       skip)
         log "skipping #$ref due to filled usage"
         if [[ "$kind" == "fix" ]]; then
-          emit_event session_skipped_usage kind="$kind" pr="$ref" model="${model:-}" outcome="skipped"
+          emit_event session_skipped_usage kind="$kind" pr="$ref" model="${model:-}" outcome="skipped" session_id="${session_id:-}"
         else
-          emit_event session_skipped_usage kind="$kind" issue="$ref" model="${model:-}" outcome="skipped"
+          emit_event session_skipped_usage kind="$kind" issue="$ref" model="${model:-}" outcome="skipped" session_id="${session_id:-}"
         fi
         return 0
         ;;
       fail)
         if [[ "$kind" == "fix" ]]; then
-          emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" outcome="failed"
+          emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" outcome="failed" session_id="${session_id:-}"
         else
-          emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" outcome="failed"
+          emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" outcome="failed" session_id="${session_id:-}"
         fi
         return "$status"
         ;;
@@ -760,9 +765,9 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   tail_out=""
   if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$out" | tail -c 16384)" || true; fi
   if [[ "$kind" == "fix" ]]; then
-    emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+    emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
   else
-    emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" output_tail="$tail_out"
+    emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
   fi
   log "$kind session for #$ref failed (exit $status)"
   return "$status"

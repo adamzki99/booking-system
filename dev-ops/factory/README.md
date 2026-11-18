@@ -83,6 +83,8 @@ One or more per issue, for categorization only — they do not select a model:
   to a free model (not subject to the Go weekly limit) if that is also
   exhausted, skip that session, or fail the tick.
   Scheduling: `0 * * * * /path/to/repo/dev-ops/factory/tick.sh`
+
+OpenCode invocation uses `opencode run --format json --file <prompt-file>` for robust prompt delivery and session ID capture.
 - `models.yaml` — label → model selection for factory sessions (`model` plus
   optional `backup_model` per entry / `default`). Fix sessions use the related
   issue's labels.
