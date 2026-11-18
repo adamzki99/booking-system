@@ -71,3 +71,89 @@ touches this project.
   binary (requires outbound network) and schema migrators initialize ClickHouse.
 - Telemetry export from booking backends is best-effort/non-fatal if SigNoz is
   down, but the backend will retry/log per its OTEL SDK behavior.
+
+## Host health (hostmetrics)
+
+The collector now scrapes host-level metrics for the machine it runs on via the
+`hostmetrics` receiver (CPU, memory, disk, filesystem, load, network, processes).
+These are exported to SigNoz ClickHouse and appear under **Hosts / Infrastructure**
+in the SigNoz UI, keyed by the host name resolved by the `resourcedetection`
+processor (`host.name`).
+
+### Required container mounts and environment variables
+
+The collector container must see the host filesystem. The compose file mounts:
+
+- `/` → `/hostfs` (read-only)
+- `/proc` → `/hostfs/proc` (read-only)
+- `/sys` → `/hostfs/sys` (read-only)
+
+and sets:
+
+- `HOST_PROC=/hostfs/proc`
+- `HOST_SYS=/hostfs/sys`
+- `HOST_ETC=/hostfs/etc`
+- `HOST_VAR=/hostfs/var`
+- `HOST_RUN=/hostfs/run`
+
+The `hostmetrics` receiver uses `root_path: /hostfs`. Do not remove these mounts
+or the env vars; hostmetrics will silently report container (not host) values.
+
+### Resource limits and health checks
+
+The dev machine has only ~3.2 GB RAM. Limits are set to keep the collector from
+worsening OOM pressure:
+
+- Collector: `mem_limit` 512 MB, `cpus` 0.5, `memory_limiter` processor at
+  384 MiB (spike 64 MiB).
+- ClickHouse: 1536 MB, Zookeeper: 512 MB, server: 512 MB, migrators/init: 256 MB.
+- Collector exposes a health check on `http://localhost:13133/`.
+
+The `memory_limiter` processor is placed first in every pipeline so an overload
+sheds load before batching/export.
+
+### Startup and health checks (reproducible)
+
+```sh
+# From the repo root:
+docker compose -f dev-ops/signoz/docker-compose.yml up -d
+
+# Wait for health:
+docker compose -f dev-ops/signoz/docker-compose.yml ps
+
+# Collector health:
+curl -fsS http://localhost:13133/ && echo OK
+
+# SigNoz UI:
+#   http://<host>:3301
+```
+
+Expected startup order (handled by compose `depends_on` conditions):
+
+1. `signoz-init-clickhouse` (one-shot) populates the ClickHouse user scripts.
+2. `signoz-zookeeper` becomes healthy.
+3. `signoz-clickhouse` becomes healthy.
+4. `signoz-schema-migrator-sync` completes.
+5. `signoz-server` becomes healthy.
+6. `signoz-otel-collector` starts (depends on server healthy) plus async migrator.
+
+If `signoz-server` or `signoz-otel-collector` remain in `Created` state, inspect
+the schema migrator logs:
+
+```sh
+docker compose -f dev-ops/signoz/docker-compose.yml logs signoz-schema-migrator-sync
+```
+
+### Low-memory / collector-only mode
+
+On hosts with < 4 GB RAM, run only the collector against a remote SigNoz
+instance instead of the full stack:
+
+```sh
+# Point the collector at a remote SigNoz ClickHouse/OTLP endpoint by editing
+# dev-ops/signoz/otel-collector-config.yaml exporters, or run the collector
+# image alone with the same config and mounts. Keep the hostmetrics mounts/env.
+```
+
+All collected host data is operational telemetry; it contains no secrets or
+untrusted content.
