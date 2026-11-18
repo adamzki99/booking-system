@@ -2,7 +2,9 @@
 
 import json
 import math
+import os
 import re
+import shutil
 import sys
 
 SCHEMA_VERSION = 1
@@ -21,21 +23,32 @@ def validate_models(config):
     """Validate models.yaml structure. Raises ValueError on invalid config."""
     if not isinstance(config, dict):
         raise ValueError("models config must be a mapping")
+    allowed_top = {"labels"}
+    unknown_top = set(config.keys()) - allowed_top
+    if unknown_top:
+        raise ValueError(f"unknown top-level keys: {sorted(unknown_top)}")
     labels = config.get("labels")
     if not isinstance(labels, dict) or not labels:
         raise ValueError("models config must contain non-empty 'labels' mapping")
     if "default" not in labels:
         raise ValueError("models config must define a 'default' entry")
+    allowed_entry = {"model", "backup_model", "backup"}
     for name, cfg in labels.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("label names must be non-empty strings")
         if not isinstance(cfg, dict):
             raise ValueError(f"label entry '{name}' must be a mapping")
+        unknown = set(cfg.keys()) - allowed_entry
+        if unknown:
+            raise ValueError(f"label entry '{name}' has unknown keys: {sorted(unknown)}")
         model = cfg.get("model")
         if not isinstance(model, str) or not model.strip():
             raise ValueError(f"label entry '{name}' missing/invalid 'model'")
         backup = cfg.get("backup_model", cfg.get("backup"))
-        if backup is not None and (not isinstance(backup, str)):
+        if backup is not None and (not isinstance(backup, str) or not backup.strip()):
             raise ValueError(f"label entry '{name}' invalid backup_model")
-    # primary vs backup distinctness is encouraged but not required
+        if "backup_model" in cfg and "backup" in cfg and cfg.get("backup_model") != cfg.get("backup"):
+            raise ValueError(f"label entry '{name}' has conflicting backup_model/backup")
     return True
 
 
@@ -63,17 +76,26 @@ def model_for_labels(entries, have):
 
 def classify_gh_error(text):
     t = (text or "").lower()
-    if "rate limit" in t or "429" in t or "secondary rate" in t:
+    if "rate limit" in t or "429" in t or "secondary rate" in t or "abuse detection" in t:
         return "rate_limit"
-    if "auth" in t or "401" in t or "not logged" in t or "gh auth" in t:
+    if "bad credentials" in t or "token" in t and ("invalid" in t or "expired" in t or "revoked" in t):
         return "auth"
-    if "403" in t:
+    if "auth" in t or "401" in t or "not logged" in t or "gh auth" in t or "authentication" in t:
+        return "auth"
+    if "forbidden" in t or "permission" in t or "saml" in t or "403" in t:
         return "permission"
-    if any(x in t for x in ("timeout", "timed out", "connection", "network", "502", "503", "504", "econnreset", "tls", "dns", "ssl", "temporary failure")):
+    if any(x in t for x in (
+        "timeout", "timed out", "connection", "network", "502", "503", "504",
+        "econnreset", "econnrefused", "tls", "dns", "ssl", "temporary failure",
+        "temporarily unavailable", "service unavailable", "try again", "reset by peer",
+        "broken pipe", "unexpected eof", "could not resolve host",
+        "failed to connect", "unable to connect", "name or service not known",
+        "no address associated", "connection refused", "connection reset",
+    )):
         return "transient"
-    if "not found" in t or "404" in t:
+    if "not found" in t or "404" in t or "could not resolve to" in t:
         return "not_found"
-    if "conflict" in t or "409" in t:
+    if "conflict" in t or "409" in t or "merge conflict" in t:
         return "conflict"
     if t.strip() == "":
         return "empty"
@@ -81,7 +103,20 @@ def classify_gh_error(text):
 
 
 def classify_git_error(text):
+    t = (text or "").lower()
+    if "authentication failed" in t or "could not read username" in t or "terminal prompts disabled" in t:
+        return "auth"
+    if "permission denied" in t and "publickey" in t:
+        return "auth"
+    if "permission denied" in t or "403" in t:
+        return "permission"
+    if "repository not found" in t or "does not appear to be a git repository" in t:
+        return "not_found"
     return classify_gh_error(text)
+
+
+def should_retry_category(category):
+    return category in ("transient", "rate_limit")
 
 
 QUOTA_PATTERNS = [
@@ -104,6 +139,36 @@ def is_usage_filled(text):
     return False, ""
 
 
+REQUIRED_EVENT_FIELDS = [
+    "schema_version",
+    "ts",
+    "service.name",
+    "deployment.environment",
+    "host.name",
+    "tick_id",
+    "dry_run",
+    "on_usage_filled",
+    "event",
+]
+
+
+def validate_event(obj):
+    if not isinstance(obj, dict):
+        raise ValueError("event must be an object")
+    for key in REQUIRED_EVENT_FIELDS:
+        if key not in obj:
+            raise ValueError(f"event missing required field: {key}")
+    if obj.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(f"unsupported schema_version: {obj.get('schema_version')}")
+    if not isinstance(obj.get("event"), str) or not obj["event"]:
+        raise ValueError("event name must be a non-empty string")
+    if not isinstance(obj.get("tick_id"), str):
+        raise ValueError("tick_id must be a string")
+    if not isinstance(obj.get("dry_run"), bool):
+        raise ValueError("dry_run must be boolean")
+    return True
+
+
 def make_event(event, tick_id, dry_run, on_usage_filled, env, host, **fields):
     import datetime
     obj = {}
@@ -118,6 +183,7 @@ def make_event(event, tick_id, dry_run, on_usage_filled, env, host, **fields):
     obj["event"] = event
     for k, v in fields.items():
         obj[k] = v
+    validate_event(obj)
     return obj
 
 
@@ -186,10 +252,83 @@ def prioritize_issues(issues, prio):
 def has_marker_comments(comments, marker):
     return any(marker in (c.get("body") or "") for c in (comments or []))
 
+
+def claim_status(claim_dir, ttl, now_ts, pid_alive_fn=None):
+    """Return (state, detail).
+
+    state: free|active|stale
+    pid_alive_fn takes pid string/int and returns bool.
+    """
+    if pid_alive_fn is None:
+        pid_alive_fn = lambda p: False
+    if not os.path.isdir(claim_dir):
+        return "free", ""
+    try:
+        mtime = int(os.stat(claim_dir).st_mtime)
+    except Exception:
+        mtime = 0
+    age = max(0, int(now_ts) - mtime)
+    if age > int(ttl):
+        return "stale", str(age)
+    pid = ""
+    try:
+        with open(os.path.join(claim_dir, "pid"), "r", encoding="utf-8") as f:
+            pid = f.read().strip()
+    except Exception:
+        pid = ""
+    if pid and pid_alive_fn(pid):
+        return "active", pid
+    # no live pid evidence but not expired: treat as active-within-ttl to be safe
+    if pid == "":
+        return "active", "unknown-pid"
+    return "stale", f"dead-pid:{pid}"
+
+
+def acquire_claim(claim_dir, ttl, now_ts, pid, pid_alive_fn=None):
+    state, detail = claim_status(claim_dir, ttl, now_ts, pid_alive_fn=pid_alive_fn)
+    if state == "stale":
+        release_claim(claim_dir)
+        state = "free"
+    if state == "active":
+        return False, "active", detail
+    try:
+        os.mkdir(claim_dir)
+    except FileExistsError:
+        return False, "conflict", "mkdir-race"
+    except Exception as e:
+        return False, "error", str(e)
+    try:
+        with open(os.path.join(claim_dir, "pid"), "w", encoding="utf-8") as f:
+            f.write(str(pid))
+    except Exception:
+        pass
+    return True, "acquired", ""
+
+
+def release_claim(claim_dir):
+    try:
+        shutil.rmtree(claim_dir)
+        return True
+    except FileNotFoundError:
+        return True
+    except Exception:
+        return False
+
+def _pid_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except Exception:
+        return False
+
+
 def main(argv):
     # CLI subcommands for shell integration
     if len(argv) < 2:
-        print("usage: factory.py <validate-models|normalize-model|classify-gh|is-usage-filled> ...", file=sys.stderr)
+        print(
+            "usage: factory.py <validate-models|validate-event|normalize-model|classify-gh|classify-git|should-retry|is-usage-filled|model-for-labels|claim-acquire|claim-release> ...",
+            file=sys.stderr,
+        )
         return 2
     cmd = argv[1]
     if cmd == "validate-models":
@@ -200,22 +339,36 @@ def main(argv):
         validate_models(cfg)
         print("OK: models.yaml valid")
         return 0
+    if cmd == "validate-event":
+        path = argv[2] if len(argv) > 2 else "-"
+        with (open(path) if path != "-" else sys.stdin) as f:
+            obj = json.load(f)
+        validate_event(obj)
+        print("OK: event valid")
+        return 0
     if cmd == "normalize-model":
         print(normalize_model(argv[2] if len(argv) > 2 else ""), end="")
         return 0
     if cmd == "classify-gh":
-        text = argv[2] if len(argv) > 2 else sys.stdin.read()
+        arg = argv[2] if len(argv) > 2 else "-"
+        text = sys.stdin.read() if arg == "-" else arg
         print(classify_gh_error(text))
         return 0
     if cmd == "classify-git":
-        text = argv[2] if len(argv) > 2 else sys.stdin.read()
+        arg = argv[2] if len(argv) > 2 else "-"
+        text = sys.stdin.read() if arg == "-" else arg
         print(classify_git_error(text))
+        return 0
+    if cmd == "should-retry":
+        arg = argv[2] if len(argv) > 2 else "-"
+        cat = sys.stdin.read().strip() if arg == "-" else arg.strip()
+        print("true" if should_retry_category(cat) else "false")
         return 0
     if cmd == "is-usage-filled":
         arg = argv[2] if len(argv) > 2 else "-"
         text = sys.stdin.read() if arg == "-" else arg
         filled, reason = is_usage_filled(text)
-        print(("true" if filled else "false") + "\\t" + reason)
+        print(("true" if filled else "false") + "\t" + reason)
         return 0
     if cmd == "model-for-labels":
         # argv[2]=config path, rest labels
@@ -225,6 +378,19 @@ def main(argv):
         entries = (cfg or {}).get("labels") or {}
         model, backup = model_for_labels(entries, argv[3:])
         print(f"{model}\t{backup}")
+        return 0
+    if cmd == "claim-acquire":
+        # claim-acquire <claim_dir> <ttl> <now_ts> <pid>
+        claim_dir = argv[2]
+        ttl = int(argv[3])
+        now_ts = int(argv[4])
+        pid = argv[5]
+        ok, state, detail = acquire_claim(claim_dir, ttl, now_ts, pid, pid_alive_fn=_pid_alive)
+        print(("acquired" if ok else state) + "\t" + (detail or ""))
+        return 0 if ok else 1
+    if cmd == "claim-release":
+        ok = release_claim(argv[2])
+        print("released" if ok else "missing")
         return 0
     print(f"unknown command: {cmd}", file=sys.stderr)
     return 2

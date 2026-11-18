@@ -1,5 +1,9 @@
-# Install under /etc/logrotate.d/ (or user logrotate) for factory tick logs.
-# filelog tolerates copytruncate rotation.
+# Install under /etc/logrotate.d/ (or user logrotate) for factory JSONL events.
+# Adjust the path if FACTORY_LOG_FILE is overridden. filelog tolerates copytruncate.
+#
+# Session logs (factory-*.log) and prompt temp files live under
+# FACTORY_SESSION_LOG_DIR (default /tmp/opencode) and are managed by
+# nightly-cleanup.sh retention (success-delete/failure-preserve semantics).
 
 /home/*/.local/state/factory/tick.jsonl {
     size 10M

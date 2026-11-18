@@ -17,7 +17,6 @@ MODELS_CONFIG="${MODELS_CONFIG:-$SCRIPT_DIR/models.yaml}"
 APPROVED_LABEL="owner approved"
 PLAN_MARKER='<!-- factory:plan -->'
 BUILD_MARKER='<!-- factory:build -->'
-FIX_MARKER_PREFIX='<!-- factory:fix-pr:'
 DRY_RUN=0
 TICK_RC=0
 INFRA_FAILURE=0
@@ -26,16 +25,43 @@ ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
 MAX_FIX_SESSIONS="${FACTORY_MAX_FIX_SESSIONS:-1}"
 FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
 
-# Observability: structured JSONL event log (best-effort; never affects tick).
+# Observability and hardening knobs.
 FACTORY_LOG_FILE="${FACTORY_LOG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl}"
 FACTORY_ENV="${FACTORY_ENV:-dev}"
 FACTORY_CONTAINER_MODE="${FACTORY_CONTAINER_MODE:-0}"
 FACTORY_CLAIM_TTL="${FACTORY_CLAIM_TTL:-7200}"
+FACTORY_CLAIM_DIR="${FACTORY_CLAIM_DIR:-/tmp/factory-claims}"
 FACTORY_GH_RETRIES="${FACTORY_GH_RETRIES:-3}"
+FACTORY_SESSION_TIMEOUT="${FACTORY_SESSION_TIMEOUT:-3600}"
+FACTORY_SESSION_LOG_DIR="${FACTORY_SESSION_LOG_DIR:-/tmp/opencode}"
 FACTORY_LOG_SESSION_OUTPUT="${FACTORY_LOG_SESSION_OUTPUT:-tail}"
+FACTORY_PRESERVE_SESSION_LOGS="${FACTORY_PRESERVE_SESSION_LOGS:-on-failure}" # always|on-failure|never
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
-mkdir -p "$(dirname "$FACTORY_LOG_FILE")" 2>/dev/null || true
-chmod 700 "$(dirname "$FACTORY_LOG_FILE")" 2>/dev/null || true
+
+umask 077
+mkdir -p "$(dirname "$FACTORY_LOG_FILE")" "$FACTORY_SESSION_LOG_DIR" "$FACTORY_CLAIM_DIR" 2>/dev/null || true
+chmod 700 "$(dirname "$FACTORY_LOG_FILE")" "$FACTORY_SESSION_LOG_DIR" "$FACTORY_CLAIM_DIR" 2>/dev/null || true
+: >> "$FACTORY_LOG_FILE" 2>/dev/null || true
+chmod 600 "$FACTORY_LOG_FILE" 2>/dev/null || true
+
+usage() {
+  cat <<'USAGE'
+Usage: tick.sh [--dry-run] [--on-usage-filled=backup|skip|fail] [--max-fix-sessions=N]
+
+Options:
+  --dry-run                 Select and log actions without starting sessions.
+  --on-usage-filled=MODE    backup|skip|fail when model usage/quota is filled.
+  --max-fix-sessions=N      Maximum fix sessions per tick (default: 1).
+  -h, --help                Show this help.
+
+Environment (key):
+  FACTORY_LOG_FILE, FACTORY_ENV, FACTORY_CONTAINER_MODE, FACTORY_SESSION_TIMEOUT,
+  FACTORY_CLAIM_TTL, FACTORY_CLAIM_DIR, FACTORY_GH_RETRIES,
+  FACTORY_SESSION_LOG_DIR, FACTORY_LOG_SESSION_OUTPUT (tail|metadata),
+  FACTORY_PRESERVE_SESSION_LOGS (on-failure|always|never),
+  FACTORY_WORKTREE, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED.
+USAGE
+}
 
 log() { printf '[factory-tick] %s\n' "$*"; }
 die() { printf '[factory-tick] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -44,18 +70,60 @@ classify_gh_text() {
   printf '%s' "$1" | python3 "$SCRIPT_DIR/lib/factory.py" classify-gh - 2>/dev/null || echo other
 }
 
-gh_retry() {
-  # $1.. command; retries transient failures with backoff
-  local attempt=1 max="$FACTORY_GH_RETRIES" rc=0
+classify_git_text() {
+  printf '%s' "$1" | python3 "$SCRIPT_DIR/lib/factory.py" classify-git - 2>/dev/null || echo other
+}
+
+should_retry_category() {
+  local cat="$1"
+  [[ "$cat" == "transient" || "$cat" == "rate_limit" ]]
+}
+
+gh_run_capture() {
+  # Usage: gh_run_capture <label> <command...>
+  # Sets GH_OUT, GH_ERR, GH_RC, GH_CATEGORY. Retries transient/rate_limit.
+  local label="$1"; shift
+  local attempt=1 max="$FACTORY_GH_RETRIES" rc=0 out err cat delay
+  GH_OUT=""
+  GH_ERR=""
+  GH_RC=0
+  GH_CATEGORY=""
   while :; do
-    "$@" && return 0
-    rc=$?
-    if [[ $attempt -ge $max ]]; then
+    err="$(mktemp)"
+    if out="$("$@" 2>"$err")"; then
+      GH_OUT="$out"
+      GH_ERR="$(cat "$err" 2>/dev/null || true)"
+      GH_RC=0
+      GH_CATEGORY=""
+      rm -f "$err"
+      return 0
+    else
+      rc=$?
+    fi
+    GH_ERR="$(cat "$err" 2>/dev/null || true)"
+    rm -f "$err"
+    GH_OUT="${out:-}"
+    GH_RC=$rc
+    if [[ "$1" == "git" ]]; then
+      cat="$(classify_git_text "$GH_ERR")"
+    else
+      cat="$(classify_gh_text "$GH_ERR")"
+    fi
+    GH_CATEGORY="$cat"
+    emit_event gh_op_retry op="$label" attempt="$attempt" max_attempts="$max" exit_code="$rc" category="$cat"
+    if [[ $attempt -ge $max ]] || ! should_retry_category "$cat"; then
       return $rc
     fi
+    delay=$((attempt*2))
+    [[ "$cat" == "rate_limit" ]] && delay=$((attempt*10))
+    sleep "$delay"
     attempt=$((attempt+1))
-    sleep $((attempt*2))
   done
+}
+
+gh_retry() {
+  # Backward-compatible wrapper for simple callers.
+  gh_run_capture "gh_retry:$1" "$@"
 }
 
 # Best-effort structured event emitter. Writes one JSON object to FACTORY_LOG_FILE.
@@ -103,6 +171,7 @@ for arg in "$@"; do
     --dry-run) DRY_RUN=1 ;;
     --on-usage-filled=*) ON_USAGE_FILLED="${arg#*=}" ;;
     --max-fix-sessions=*) MAX_FIX_SESSIONS="${arg#*=}" ;;
+    -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $arg" ;;
   esac
 done
@@ -113,6 +182,11 @@ case "$ON_USAGE_FILLED" in
 esac
 
 [[ "$MAX_FIX_SESSIONS" =~ ^[0-9]+$ ]] || die "invalid --max-fix-sessions value: $MAX_FIX_SESSIONS (use a non-negative integer)"
+[[ "$FACTORY_GH_RETRIES" =~ ^[0-9]+$ && "$FACTORY_GH_RETRIES" -ge 1 ]] || die "invalid FACTORY_GH_RETRIES: $FACTORY_GH_RETRIES"
+[[ "$FACTORY_CLAIM_TTL" =~ ^[0-9]+$ ]] || die "invalid FACTORY_CLAIM_TTL: $FACTORY_CLAIM_TTL"
+[[ "$FACTORY_SESSION_TIMEOUT" =~ ^[0-9]+$ ]] || die "invalid FACTORY_SESSION_TIMEOUT: $FACTORY_SESSION_TIMEOUT"
+case "$FACTORY_LOG_SESSION_OUTPUT" in tail|metadata) ;; *) die "invalid FACTORY_LOG_SESSION_OUTPUT: $FACTORY_LOG_SESSION_OUTPUT" ;; esac
+case "$FACTORY_PRESERVE_SESSION_LOGS" in always|on-failure|never) ;; *) die "invalid FACTORY_PRESERVE_SESSION_LOGS: $FACTORY_PRESERVE_SESSION_LOGS" ;; esac
 
 [[ -f "$MODELS_CONFIG" ]] || die "config not found: $MODELS_CONFIG"
 python3 "$SCRIPT_DIR/lib/factory.py" validate-models "$MODELS_CONFIG" >/dev/null 2>&1 || die "invalid models config: $MODELS_CONFIG"
@@ -151,13 +225,23 @@ if ! flock -n 9; then
 fi
 
 # Print the number of the oldest open issue with no labels, or nothing.
+# Distinguishes "no candidates" (success, empty output) from infra/auth failures.
+# Sets OLDEST_UNLABELED_ISSUE on success.
+OLDEST_UNLABELED_ISSUE=""
 oldest_unlabeled_issue() {
-  gh issue list --state open --limit 200 --json number,labels,createdAt \
-    --jq '[.[] | select((.labels | length) == 0)] | sort_by(.createdAt) | .[0].number // empty'
+  OLDEST_UNLABELED_ISSUE=""
+  if ! gh_run_capture "oldest_unlabeled_issue" gh issue list --state open --limit 200 --json number,labels,createdAt \
+    --jq '[.[] | select((.labels | length) == 0)] | sort_by(.createdAt) | .[0].number // empty'; then
+    emit_event gh_op_failed op="oldest_unlabeled_issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+    return 1
+  fi
+  OLDEST_UNLABELED_ISSUE="$GH_OUT"
+  printf '%s\n' "$GH_OUT"
 }
 
-# Print candidate open "owner approved" issue numbers, best build candidate
-# first. ... (unchanged)
+# Legacy inline discovery helpers retained for reference; active paths use
+# discover_build_candidates.py / discover_fix_candidates.py.
 approved_build_candidates() {
   python3 - "$APPROVED_LABEL" << 'PYEOF'
 import json, math, subprocess, sys
@@ -370,23 +454,45 @@ PYEOF
 has_marker() {
   local marker_json
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
-  gh issue view "$1" --json comments \
-    --jq "[.comments[].body | contains($marker_json)] | any"
+  if ! gh_run_capture "has_marker_issue" gh issue view "$1" --json comments \
+    --jq "[.comments[].body | contains($marker_json)] | any"; then
+    emit_event gh_op_failed op="has_marker_issue" issue="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+    echo "false"
+    return 0
+  fi
+  printf '%s\n' "${GH_OUT:-false}"
 }
 
 has_pr_marker() {
   local marker_json
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
-  gh pr view "$1" --json comments \
-    --jq "[.comments[].body | contains($marker_json)] | any" 2>/dev/null || echo "false"
+  if ! gh_run_capture "has_pr_marker" gh pr view "$1" --json comments \
+    --jq "[.comments[].body | contains($marker_json)] | any"; then
+    emit_event gh_op_failed op="has_pr_marker" pr="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+    echo "false"
+    return 0
+  fi
+  printf '%s\n' "${GH_OUT:-false}"
 }
 
 issue_labels() {
-  gh issue view "$1" --json labels --jq '.labels[].name'
+  if ! gh_run_capture "issue_labels" gh issue view "$1" --json labels --jq '.labels[].name'; then
+    emit_event gh_op_failed op="issue_labels" issue="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+    return 1
+  fi
+  printf '%s\n' "$GH_OUT"
 }
 
 open_factory_pr_for_issue() {
-  gh pr list --state open --head "factory/issue-$1" --json number --jq '.[0].number // empty' 2>/dev/null || true
+  if ! gh_run_capture "open_factory_pr_for_issue" gh pr list --state open --head "factory/issue-$1" --json number --jq '.[0].number // empty'; then
+    emit_event gh_op_failed op="open_factory_pr_for_issue" issue="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+    return 1
+  fi
+  printf '%s\n' "$GH_OUT"
 }
 
 model_for_labels() {
@@ -582,11 +688,10 @@ normalize_model() {
   printf '%s' "$m"
 }
 
-FACTORY_SESSION_TIMEOUT="${FACTORY_SESSION_TIMEOUT:-3600}"
 run_opencode() {
   local sandbox=()
   if [[ "$FACTORY_CONTAINER_MODE" == "1" ]] && command -v bwrap >/dev/null 2>&1; then
-    sandbox=(bwrap --die-with-parent --cap-drop ALL --proc /proc --dev /dev --unshare-pid --unshare-ipc --unshare-uts --ro-bind / / --bind "$FACTORY_WORKTREE" "$FACTORY_WORKTREE" --bind "$HOME" "$HOME" --bind /tmp /tmp --chdir "$PWD")
+    sandbox=(bwrap --die-with-parent --cap-drop ALL --proc /proc --dev /dev --unshare-pid --unshare-ipc --unshare-uts --ro-bind / / --bind "$FACTORY_WORKTREE" "$FACTORY_WORKTREE" --bind "$HOME" "$HOME" --bind /tmp /tmp --bind "$FACTORY_SESSION_LOG_DIR" "$FACTORY_SESSION_LOG_DIR" --chdir "$PWD")
     emit_event container_mode reason="bwrap-sandbox"
   elif [[ "$FACTORY_CONTAINER_MODE" == "1" ]]; then
     log "container mode requested but bwrap unavailable; using host runtime"
@@ -595,18 +700,36 @@ run_opencode() {
   local model
   model="$(normalize_model "$2")"
   local prompt_file
-  prompt_file="$(mktemp /tmp/opencode/factory-prompt-XXXXXX.txt 2>/dev/null)" || prompt_file="/tmp/opencode/factory-prompt-$$.txt"
-  mkdir -p /tmp/opencode 2>/dev/null || true
-  printf '%s' "$4" > "$prompt_file"
-  trap 'rm -f "$prompt_file"' RETURN
+  mkdir -p "$FACTORY_SESSION_LOG_DIR" 2>/dev/null || true
+  prompt_file="$(mktemp "$FACTORY_SESSION_LOG_DIR/factory-prompt-XXXXXX.txt" 2>/dev/null || mktemp /tmp/opencode/factory-prompt-XXXXXX.txt 2>/dev/null || echo "$FACTORY_SESSION_LOG_DIR/factory-prompt-$$.txt")"
+  (umask 077; printf '%s' "$4" > "$prompt_file")
+  chmod 600 "$prompt_file" 2>/dev/null || true
   local args=(run --auto --title "$1" --format json --file "$prompt_file" "Follow the attached factory prompt.")
   [[ -n "$model" ]] && args+=(--model "$model")
   [[ -n "$3" ]] && args+=(--agent "$3")
+  local rc=0
   if [[ "$FACTORY_SESSION_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$FACTORY_SESSION_TIMEOUT" -gt 0 ]]; then
     timeout --signal=TERM --kill-after=30 "$FACTORY_SESSION_TIMEOUT" "${sandbox[@]}" opencode "${args[@]}"
+    rc=$?
   else
     "${sandbox[@]}" opencode "${args[@]}"
+    rc=$?
   fi
+  rm -f "$prompt_file" 2>/dev/null || true
+  return $rc
+}
+
+finalize_session_log() { # path, success(0/1)
+  local path="$1" success="$2"
+  [[ -z "$path" || "$path" == "/dev/null" ]] || [[ ! -f "$path" ]] && return 0
+  chmod 600 "$path" 2>/dev/null || true
+  case "$FACTORY_PRESERVE_SESSION_LOGS" in
+    always) return 0 ;;
+    never) rm -f "$path" 2>/dev/null || true; return 0 ;;
+    on-failure)
+      if [[ "$success" == "1" ]]; then rm -f "$path" 2>/dev/null || true; fi
+      ;;
+  esac
 }
 
 start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 prompt
@@ -619,9 +742,12 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   esac
   local out status=0 session_start_ms duration tail_out
   session_start_ms="$(date +%s%3N)"
-  local logfile="/tmp/opencode/factory-${kind}-${ref}.log"
-  mkdir -p /tmp/opencode
-  : > "$logfile"
+  local logfile="/dev/null"
+  if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then
+    logfile="$FACTORY_SESSION_LOG_DIR/factory-${kind}-${ref}.log"
+    (umask 077; : > "$logfile")
+    chmod 600 "$logfile" 2>/dev/null || true
+  fi
   log "starting $kind session for #$ref (model: ${model:-opencode default}, agent: ${agent:-default})"
   if [[ "$kind" == "fix" ]]; then
     emit_event session_start kind="$kind" pr="$ref" model="${model:-}" backup_model="${backup:-}"
@@ -643,6 +769,7 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
     else
       emit_event session_ok kind="$kind" issue="$ref" model="${model:-}" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
     fi
+    finalize_session_log "$logfile" 1
     return 0
   fi
 
@@ -678,6 +805,7 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
             else
               emit_event backup_ok kind="$kind" issue="$ref" model="$backup" exit_code=0 duration_ms="$duration" outcome="backup_ok" session_id="${session_id:-}"
             fi
+            finalize_session_log "$logfile" 1
             return 0
           fi
           if ! is_usage_filled "$bout"; then
@@ -689,6 +817,7 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
             else
               emit_event session_failed kind="$kind" issue="$ref" model="$backup" exit_code="$bstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
             fi
+            finalize_session_log "$logfile" 0
             return "$bstatus"
           fi
           log "backup model for #$ref also hit usage/quota limit"
@@ -720,6 +849,7 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
             else
               emit_event session_ok kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
             fi
+            finalize_session_log "$logfile" 1
             return 0
           fi
           duration=$(( $(date +%s%3N) - session_start_ms ))
@@ -730,6 +860,7 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
           else
             emit_event session_failed kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code="$fstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
           fi
+          finalize_session_log "$logfile" 0
           return "$fstatus"
         fi
         log "no distinct free model configured for #$ref; failing"
@@ -739,6 +870,7 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
         else
           emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}"
         fi
+        finalize_session_log "$logfile" 0
         return "$status"
         ;;
       skip)
@@ -748,6 +880,7 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
         else
           emit_event session_skipped_usage kind="$kind" issue="$ref" model="${model:-}" outcome="skipped" session_id="${session_id:-}"
         fi
+        finalize_session_log "$logfile" 1
         return 0
         ;;
       fail)
@@ -756,6 +889,7 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
         else
           emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" outcome="failed" session_id="${session_id:-}"
         fi
+        finalize_session_log "$logfile" 0
         return "$status"
         ;;
     esac
@@ -770,6 +904,7 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
     emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
   fi
   log "$kind session for #$ref failed (exit $status)"
+  finalize_session_log "$logfile" 0
   return "$status"
 }
 
@@ -783,9 +918,10 @@ fi
 if [[ -d "$FACTORY_WORKTREE" ]]; then
   # Keep remote refs current so sessions branch from the latest origin/main
   # rather than a stale local base.
-  if ! gh_retry git -C "$FACTORY_WORKTREE" fetch --quiet --prune origin 2>/dev/null; then
-    log "warning: git fetch origin failed in worktree; continuing with cached refs"
-    emit_event git_fetch_failed category="$(classify_gh_text "$(git -C "$FACTORY_WORKTREE" fetch --prune origin 2>&1 || true)")"
+  if ! gh_run_capture "git_fetch_worktree" git -C "$FACTORY_WORKTREE" fetch --quiet --prune origin; then
+    log "warning: git fetch origin failed in worktree; continuing with cached refs (category=${GH_CATEGORY:-other})"
+    emit_event git_fetch_failed category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
   fi
   # Never discard in-progress agent work: only reset/clean when the worktree
   # is already clean. Interrupted per-issue worktrees are preserved.
@@ -799,10 +935,20 @@ if [[ -d "$FACTORY_WORKTREE" ]]; then
   fi
   cd "$FACTORY_WORKTREE"
 else
-  git fetch --quiet --prune origin 2>/dev/null || log "warning: git fetch origin failed; continuing with cached refs"
+  if ! gh_run_capture "git_fetch_primary" git fetch --quiet --prune origin; then
+    log "warning: git fetch origin failed; continuing with cached refs (category=${GH_CATEGORY:-other})"
+    emit_event git_fetch_failed category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+  fi
 fi
 
-plan_issue="$(oldest_unlabeled_issue)"
+plan_issue=""
+if oldest_unlabeled_issue >/dev/null; then
+  plan_issue="$OLDEST_UNLABELED_ISSUE"
+else
+  log "failed to query unlabeled issues (infra/auth/rate-limit/transient possible); treating as discovery failure"
+fi
+
 if [[ -n "$plan_issue" && "$(has_marker "$plan_issue" "$PLAN_MARKER")" == "true" ]]; then
   log "issue #$plan_issue already planned (marker present); skipping"
   emit_event marker_skip issue="$plan_issue" reason="already planned"
@@ -828,25 +974,44 @@ if [[ -n "$plan_issue" ]]; then
   fi
 fi
 
+acquire_claim() { # key -> prints claim path on success
+  local key dir now out rc
+  key="$1"
+  dir="$FACTORY_CLAIM_DIR/${key}.claim"
+  now="$(date +%s)"
+  mkdir -p "$FACTORY_CLAIM_DIR" 2>/dev/null || true
+  set +e
+  out="$(python3 "$SCRIPT_DIR/lib/factory.py" claim-acquire "$dir" "$FACTORY_CLAIM_TTL" "$now" "$$" 2>/dev/null)"
+  rc=$?
+  set -e
+  if [[ $rc -eq 0 ]]; then
+    printf '%s\n' "$dir"
+    return 0
+  fi
+  printf '%s\n' "$out"
+  return 1
+}
+release_claim() {
+  local dir="$1"
+  [[ -n "$dir" ]] || return 0
+  python3 "$SCRIPT_DIR/lib/factory.py" claim-release "$dir" >/dev/null 2>&1 || rm -rf "$dir" || true
+}
+
 # Build path, sub-path 1: fix open factory PRs
 fix_count=0
 fix_failures=0
-fix_pids=()
 if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
   fix_candidates_output=""
   fix_err="$(mktemp)"
-  fix_discovery_rc=0
   for attempt in $(seq 1 "$FACTORY_GH_RETRIES"); do
     if fix_candidates_output="$("$SCRIPT_DIR/discover_fix_candidates.py" 2>"$fix_err")"; then
-      fix_discovery_rc=0
       break
     fi
-    fix_discovery_rc=$?
     err_text="$(cat "$fix_err" 2>/dev/null || true)"
     category="$(classify_gh_text "$err_text")"
     case "$category" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
-    emit_event fix_discovery_error attempt="$attempt" category="$category" error="$err_text"
-    if [[ "$category" != "transient" || "$attempt" -ge "$FACTORY_GH_RETRIES" ]]; then
+    emit_event fix_discovery_error attempt="$attempt" max_attempts="$FACTORY_GH_RETRIES" category="$category" error="$err_text"
+    if ! should_retry_category "$category" || [[ "$attempt" -ge "$FACTORY_GH_RETRIES" ]]; then
       break
     fi
     sleep $((attempt*2))
@@ -868,37 +1033,21 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       emit_event marker_skip issue="$issue_number" pr="$pr_number" reason="already built"
       continue
     fi
-    claim_key="${pr_number}-${head_sha}-${reasons}"
-    claim_dir="/tmp/factory-claims/${claim_key}.claim"
-    mkdir -p /tmp/factory-claims 2>/dev/null || true
-    if [[ -d "$claim_dir" ]]; then
-      now_ts="$(date +%s)"
-      mtime="$(stat -c %Y "$claim_dir" 2>/dev/null || echo 0)"
-      if (( now_ts - mtime > FACTORY_CLAIM_TTL )); then
-        rm -rf "$claim_dir"
-      else
-        oldpid="$(cat "$claim_dir/pid" 2>/dev/null || true)"
-        if [[ -n "$oldpid" ]] && kill -0 "$oldpid" 2>/dev/null; then
-          log "PR #$pr_number already claimed by pid $oldpid; skipping"
-          emit_event claim_conflict pr="$pr_number" reason="in-progress claim"
-          continue
-        fi
-        rm -rf "$claim_dir"
+    claim_key="fix-${pr_number}-${head_sha}-${reasons}"
+    claim_dir=""
+    if [[ "$DRY_RUN" != 1 ]]; then
+      if ! claim_dir="$(acquire_claim "$claim_key")"; then
+        log "PR #$pr_number already claimed or claim conflict; skipping"
+        emit_event claim_conflict pr="$pr_number" reason="${claim_dir:-claim-failed}"
+        continue
       fi
     fi
-    if ! mkdir "$claim_dir" 2>/dev/null; then
-      log "PR #$pr_number claim race; skipping"
-      emit_event claim_conflict pr="$pr_number" reason="claim race"
-      continue
-    fi
-    echo "$$" > "$claim_dir/pid" 2>/dev/null || true
-    mapfile -t labels < <(issue_labels "$issue_number")
+    mapfile -t labels < <(issue_labels "$issue_number" 2>/dev/null || true)
     IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
     emit_event fix_selected pr="$pr_number" issue="$issue_number" reasons="$reasons" model="${model:-}" backup_model="${backup_model:-}"
     if [[ "$DRY_RUN" == 1 ]]; then
       log "dry-run: would fix PR #$pr_number (issue #$issue_number, reasons: $reasons, model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
       emit_event dry_run kind="fix" pr="$pr_number" issue="$issue_number"
-      rm -rf "$claim_dir"
       fix_count=$((fix_count + 1))
     else
       if start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"; then
@@ -906,7 +1055,7 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       else
         fix_failures=$((fix_failures + 1))
       fi
-      rm -rf "$claim_dir"
+      release_claim "$claim_dir"
       fix_count=$((fix_count + 1))
     fi
   done <<< "$fix_candidates_output"
@@ -918,18 +1067,15 @@ fi
 build_issue=""
 build_candidates_output=""
 build_err="$(mktemp)"
-build_discovery_rc=0
 for attempt in $(seq 1 "$FACTORY_GH_RETRIES"); do
   if build_candidates_output="$("$SCRIPT_DIR/discover_build_candidates.py" "$APPROVED_LABEL" 2>"$build_err")"; then
-    build_discovery_rc=0
     break
   fi
-  build_discovery_rc=$?
   err_text="$(cat "$build_err" 2>/dev/null || true)"
   category="$(classify_gh_text "$err_text")"
   case "$category" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
-  emit_event build_discovery_error attempt="$attempt" category="$category" error="$err_text"
-  if [[ "$category" != "transient" || "$attempt" -ge "$FACTORY_GH_RETRIES" ]]; then
+  emit_event build_discovery_error attempt="$attempt" max_attempts="$FACTORY_GH_RETRIES" category="$category" error="$err_text"
+  if ! should_retry_category "$category" || [[ "$attempt" -ge "$FACTORY_GH_RETRIES" ]]; then
     break
   fi
   sleep $((attempt*2))
@@ -949,7 +1095,13 @@ while IFS= read -r candidate; do
     emit_event marker_skip issue="$candidate" reason="already built"
     continue
   fi
-  if [[ -n "$(open_factory_pr_for_issue "$candidate")" ]]; then
+  open_pr=""
+  if ! open_pr="$(open_factory_pr_for_issue "$candidate")"; then
+    log "could not determine open factory PR state for #$candidate; skipping candidate"
+    emit_event marker_skip issue="$candidate" reason="open factory PR state unknown"
+    continue
+  fi
+  if [[ -n "$open_pr" ]]; then
     log "issue #$candidate has an open factory PR; skipping new build"
     emit_event marker_skip issue="$candidate" reason="open factory PR"
     continue
@@ -964,8 +1116,9 @@ fi
 
 if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
   if [[ "$INFRA_FAILURE" -eq 1 ]]; then
-    log "discovery failed due to infrastructure/auth/rate-limit; not reporting nothing_to_do"
+    log "discovery failed due to infrastructure/auth/rate-limit/transient issues; not reporting nothing_to_do"
     emit_event discovery_failed infra_failure=1
+    emit_event tick_result result="failure" reason="discovery_failed"
     exit 1
   fi
   log "nothing to do"
@@ -975,22 +1128,37 @@ fi
 
 if [[ -n "$plan_issue" ]]; then
   IFS=$'\t' read -r model backup_model < <(model_for_labels)
+  emit_event plan_selected issue="$plan_issue" model="${model:-}" backup_model="${backup_model:-}"
   if [[ "$DRY_RUN" == 1 ]]; then
     log "dry-run: would plan issue #$plan_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
     emit_event dry_run kind="plan" issue="$plan_issue"
   else
-    start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" || TICK_RC=1
+    plan_claim=""
+    if ! plan_claim="$(acquire_claim "plan-${plan_issue}")"; then
+      log "issue #$plan_issue already claimed for planning; skipping"
+      emit_event claim_conflict issue="$plan_issue" reason="${plan_claim:-claim-failed}" kind="plan"
+    else
+      start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" || TICK_RC=1
+      release_claim "$plan_claim"
+    fi
   fi
 fi
 
 if [[ -n "$build_issue" ]]; then
-  mapfile -t labels < <(issue_labels "$build_issue")
+  mapfile -t labels < <(issue_labels "$build_issue" 2>/dev/null || true)
   IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
   if [[ "$DRY_RUN" == 1 ]]; then
     log "dry-run: would build issue #$build_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
     emit_event dry_run kind="build" issue="$build_issue"
   else
-    start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" || TICK_RC=1
+    build_claim=""
+    if ! build_claim="$(acquire_claim "build-${build_issue}")"; then
+      log "issue #$build_issue already claimed for build; skipping"
+      emit_event claim_conflict issue="$build_issue" reason="${build_claim:-claim-failed}" kind="build"
+    else
+      start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" || TICK_RC=1
+      release_claim "$build_claim"
+    fi
   fi
 fi
 

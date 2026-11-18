@@ -7,99 +7,151 @@ The automation that turns GitHub issues into merged PRs.
 1. [`tick.sh`](tick.sh) runs on a 1-hour interval (e.g. via cron) and fetches
    issues and pull requests from GitHub.
 2. Per tick, it may start:
-   - **one planning session** — for issues with no labels (infant state). A plan
-     agent posts the implementation plan as a comment and categorizes the issue
-     with labels.
+   - **one planning session** — for the oldest unlabeled ("infant") issue, but
+     only if it has an `## Acceptance Criteria` section with at least one
+     measurable checkbox (gated by
+     `dev-ops/scripts/check-acceptance-criteria.sh`).
+     A planner agent posts the implementation plan as a comment and categorizes
+     the issue with labels. It never applies `owner approved`.
    - **build-path sessions** (fixes, then optionally a new build):
      - **fix sessions** — for open factory PRs (head `factory/issue-*`) that are
        blocked from merge (failing/status checks, changes requested, or merge
-       conflicts/non-mergeable). A fix agent checks out the PR, resolves the
-       blocking issues, and merges when possible. Up to
-       `--max-fix-sessions` / `FACTORY_MAX_FIX_SESSIONS` per tick (default: 1).
-       Fix attempts are idempotent per PR head SHA + blocking reasons via
-       `<!-- factory:fix-pr:... -->` PR comments.
-     - **one building session** — for the highest-priority `owner approved` issue
-       with no build marker and no open factory PR, selected by build priority:
-       issues in a GitHub Project (v2) come before others; among project issues,
-       the oldest project (by `createdAt`) wins, then the numeric `Build order`
-       project field ascending (from 1). A builder agent implements the issue,
-       creates a PR, and merges it.
-3. Labels select the model for the session, per [`models.yaml`](models.yaml) (fix
-   sessions use the related issue's labels).
+       conflicts/non-mergeable). A fixer resumes the builder lifecycle to make
+       the PR mergeable. Up to `--max-fix-sessions` /
+       `FACTORY_MAX_FIX_SESSIONS` per tick (default: 1). Fix execution is
+       serialized per tick to avoid shared-worktree races.
+     - **one building session** — for the highest-priority `owner approved`
+       issue with no build marker and no open factory PR, selected by build
+       priority: issues in a GitHub Project (v2) come before others; among
+       project issues, the oldest project (by `createdAt`) wins, then the
+       numeric `Build order` project field ascending (from 1). Fallback is
+       issue age.
+3. Labels select the model for the session, per [`models.yaml`](models.yaml)
+   (fix sessions use the related issue's labels).
 
 The total number of sessions is not limited — only the rate at which they are
 created. The system owner steers the project by interacting with issues only.
 
-## Label taxonomy
+## Invariants
 
-The planner categorizes each infant issue with labels from the sets below.
+- **Never touch the primary checkout.** Factory work runs in an isolated git
+  worktree (`FACTORY_WORKTREE`, default sibling `<repo>-factory-worktree`).
+- **Idempotent ticks.** Finished work carries `<!-- factory:plan -->` /
+  `<!-- factory:build -->` markers; fix attempts carry
+  `<!-- factory:fix-pr:<sha>:<reasons> -->` PR markers.
+- **Owner-approved gate is respected.** Only the repository owner applies
+  `owner approved`; build selection requires it.
+- **No auto-merge bypass.** Sessions must not disable tests, weaken gates, edit
+  CI to bypass failures, or merge around required checks/protections/reviews.
 
-### Model-selection labels
+## CLI, flags, and environment
 
-Exactly one complexity tier per issue — it selects the build-session model via
-[`models.yaml`](models.yaml). If several tiers are present, the first one in
-`models.yaml` order (heaviest first) wins.
+```
+tick.sh [--dry-run] [--on-usage-filled=backup|skip|fail] [--max-fix-sessions=N]
+tick.sh --help
+```
 
-| Label | When the planner applies it | Model |
-|-------|-----------------------------|-------|
-| `trivial-task` | Docs, renames, config tweaks | `opencode-go/beam-free` |
-| `light-build-task` | Small, well-scoped changes | `opencode-go/claude-haiku-5-5` |
-| `standard-build-task` | Typical feature work | `opencode-go/deepseek-v4-pro` |
-| `heavy-build-task` | Large or architectural work | `opencode-go/kimi-k3.1-pro` |
+| Flag / env | Default | Meaning |
+|---|---|---|
+| `--dry-run` | off | Select/log actions without starting sessions or acquiring run claims. |
+| `--on-usage-filled=MODE` / `FACTORY_ON_USAGE_FILLED` | `backup` | On quota/usage-filled failure: retry configured backup, then `FACTORY_FREE_MODEL` if distinct; or `skip`; or `fail`. |
+| `--max-fix-sessions=N` / `FACTORY_MAX_FIX_SESSIONS` | `1` | Max fix sessions per tick (serialized). |
+| `FACTORY_FREE_MODEL` | `opencode-go/beam-free` | Last-resort model in backup mode. |
+| `FACTORY_SESSION_TIMEOUT` | `3600` | Per-session timeout seconds (0 disables). |
+| `FACTORY_GH_RETRIES` | `3` | Bounded retries for transient/rate-limited gh/git operations. |
+| `FACTORY_CLAIM_TTL` | `7200` | Claim lease TTL seconds. |
+| `FACTORY_CLAIM_DIR` | `/tmp/factory-claims` | Atomic lease directory. |
+| `FACTORY_WORKTREE` | sibling `<repo>-factory-worktree` | Isolated factory worktree. |
+| `FACTORY_LOG_FILE` | `${XDG_STATE_HOME:-~/.local/state}/factory/tick.jsonl` | JSONL event log. |
+| `FACTORY_ENV` | `dev` | `deployment.environment` field. |
+| `FACTORY_SESSION_LOG_DIR` | `/tmp/opencode` | Session logs and prompt temp files. |
+| `FACTORY_LOG_SESSION_OUTPUT` | `tail` | `tail` retains last 16 KiB in failure events and writes session logs; `metadata` suppresses retained output. |
+| `FACTORY_PRESERVE_SESSION_LOGS` | `on-failure` | `on-failure` (delete on success), `always`, `never`. |
+| `FACTORY_CONTAINER_MODE` | `0` | `1` enables bwrap per-session sandbox; falls back to host if bwrap unavailable. |
+| `MODELS_CONFIG` | `dev-ops/factory/models.yaml` | Label→model config. |
 
-The `plan-task` label is not applied to issues; it selects the model for the
-planning session itself (`opencode-go/qwen3.7-plus`). A session started for an
-issue without any model-selection label falls back to the `default` entry
-(`opencode-go/deepseek-v4-pro`).
+OpenCode invocation uses `opencode run --auto --format json --file <prompt-file>`
+for robust prompt delivery and session ID capture.
 
-### Area labels
+## Claims, leases, isolation, and timeouts
 
-One or more per issue, for categorization only — they do not select a model:
+- **Global tick lock:** `flock -n` on `$(git rev-parse --git-dir)/factory-tick.lock`
+  prevents overlapping ticks.
+- **Fix claims (atomic leases):** before starting a fix session, tick acquires
+  `$FACTORY_CLAIM_DIR/fix-<pr>-<head_sha>-<reasons>.claim` via atomic `mkdir`.
+  Claims store the holder PID, are skipped on active conflict, and stale/dead-PID
+  claims are reclaimed after `FACTORY_CLAIM_TTL`. Claim conflicts emit
+  `claim_conflict` events. Fix execution is serialized per tick.
+- **Plan/build claims:** selected plan and build issues acquire
+  `plan-<issue>.claim` / `build-<issue>.claim` leases (same TTL/conflict
+  semantics) before non-dry-run sessions. Combined with the global flock and
+  marker/PR checks, this provides a sufficient single-host lease strategy and
+  guards against stale concurrent processing.
+- **Idempotency gates:** plan/build marker checks, open-factory-PR checks, and
+  fix PR marker checks remain authoritative for "already done/attempted" skips.
+- **Worktree isolation:** the primary checkout is never modified by tick;
+  sessions run from `FACTORY_WORKTREE`. Dirty worktrees are preserved and emit
+  `dirty_worktree_skipped_reset`.
+- **Timeouts/interrupts:** each session runs under `timeout` when
+  `FACTORY_SESSION_TIMEOUT>0`; signals emit `tick_interrupted`.
 
-- `backend` — `product/backend` (Go service)
-- `frontend` — `product/frontend` (React SPA)
-- `dev-ops` — `dev-ops/` (CI/CD, factory, tooling)
+## Failure classification, retry, and exit semantics
 
-### Gate label
+- `gh`/git failures are classified as `auth`, `permission`, `rate_limit`,
+  `transient`, `not_found`, `conflict`, `empty`, or `other`.
+- Idempotent discovery/read/fetch operations use bounded retries with backoff
+  for `transient` and `rate_limit` categories (`FACTORY_GH_RETRIES`, attempt
+  numbers/events emitted). Non-retryable classes fail fast with classification.
+- "No candidates" is distinct from infra/auth failures: if selection/discovery
+  cannot be completed due to infra/auth/permission/rate-limit/transient errors,
+  tick emits `discovery_failed` and exits non-zero instead of `nothing_to_do`.
+- `project priority unavailable` is a degraded but non-fatal fallback to issue
+  age (event emitted) unless underlying discovery failed.
+- Aggregated tick exit is non-zero on session failures, fix failures, or
+  discovery/infra failures as above.
 
-- `owner approved` — applied by the repository owner only; sends a planned
-  issue to a builder session. The planner never sets it.
+## Sandbox and runtime/log/state semantics
 
-## Files
-
-- `tick.sh` — one factory tick: one planning session plus build-path sessions.
-  Planning is gated by `dev-ops/scripts/check-acceptance-criteria.sh`: an unlabeled
-  ("infant") issue without an `## Acceptance Criteria` section containing at
-  least one measurable checkbox is skipped (left unplanned) until criteria are
-  added. See `dev-ops/scripts/tests/test-check-acceptance-criteria.sh`.
-  (fix open factory PRs blocked from merge, then optionally build a new approved
-  issue; see `--dry-run`, `--max-fix-sessions` / `FACTORY_MAX_FIX_SESSIONS`).
-  Finished work carries `<!-- factory:plan -->` / `<!-- factory:build -->`
-  markers, and fix attempts carry `<!-- factory:fix-pr:<sha>:<reasons> -->` PR
-  markers, making ticks idempotent.
-  `--on-usage-filled=backup|skip|fail` (default `backup`, or
-  `FACTORY_ON_USAGE_FILLED`) controls what happens when a session fails because
-  usage/quota is filled: retry with the configured `backup_model`, then fall back
-  to a free model (not subject to the Go weekly limit) if that is also
-  exhausted, skip that session, or fail the tick.
-  Scheduling: `0 * * * * /path/to/repo/dev-ops/factory/tick.sh`
-
-OpenCode invocation uses `opencode run --format json --file <prompt-file>` for robust prompt delivery and session ID capture.
-- `models.yaml` — label → model selection for factory sessions (`model` plus
-  optional `backup_model` per entry / `default`). Fix sessions use the related
-  issue's labels.
+- **Host mode (default):** sessions run on the host in `FACTORY_WORKTREE`.
+- **bwrap mode (`FACTORY_CONTAINER_MODE=1`):** best-effort per-session process
+  sandbox (`--unshare-pid/ipc/uts`, `--cap-drop ALL`, read-only root bind with
+  explicit writable binds for worktree/home/tmp/session-log dir). If `bwrap` is
+  unavailable, tick falls back to host and emits `container_mode reason=fallback-host`.
+- **bwrap vs disposable containers:** bwrap is not a disposable container/VM. It
+  provides namespace/capability hardening but shares the host kernel, selected
+  host paths (home/worktree/tmp/log dirs), host network namespace, and host
+  credentials/tools available in bound paths. It does **not** provide
+  image-level immutability, independent package/runtime state, or strong
+  filesystem isolation equivalent to ephemeral containers.
+- **Per-session isolation:** each opencode session is a separate process with
+  timeout; fix/build/plan sessions are not run concurrently in one tick. Runtime
+  worktrees/state created by agents under the factory worktree are per-issue
+  artifacts managed by the session prompts and preserved on failure/interruption.
+- **Prompt files:** written with restrictive permissions under the session log
+  dir and deleted after the session attempt (ephemeral runtime input).
+- **Session logs:** `FACTORY_SESSION_LOG_DIR/factory-<kind>-<ref>.log`.
+  `FACTORY_LOG_SESSION_OUTPUT=metadata` disables retained log content.
+  `FACTORY_PRESERVE_SESSION_LOGS` controls success-delete/failure-preserve
+  semantics (`on-failure` default). Preserved logs and stale claims are a
+  retention/debug path cleaned by `nightly-cleanup.sh` (age-based).
 
 ## Observability
 
-`tick.sh` appends one JSON object per event to a user-writable JSONL file:
-`FACTORY_LOG_FILE` (default `${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl`).
-Human output on stdout/stderr is unchanged; the two streams never share a file.
+`tick.sh` appends one JSON object per event to `FACTORY_LOG_FILE` (default
+`${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl`). Human output on
+stdout/stderr remains separate.
 
-Environment variables:
-- `FACTORY_LOG_FILE` — JSONL destination.
-- `FACTORY_ENV` — `deployment.environment` value (default `dev`).
-- `FACTORY_LOG_SESSION_OUTPUT` — set to `metadata` to disable retained
-  `opencode` output on failure (default retains last 16 KiB).
+Common event fields: `schema_version` (currently 1), `ts`, `service.name`,
+`deployment.environment`, `host.name`, `tick_id`, `dry_run`, `on_usage_filled`,
+`event`, plus event-specific fields (reason/category, attempt numbers, counts,
+durations, model/agent, `session_id`, PR/issue refs, quota reason, etc.).
+
+Representative events include `tick_start/end/result/interrupted`,
+`lock_skipped`, `gh_op_retry/gh_op_failed`, `fix_discovery_error`,
+`build_discovery_error`, `discovery_failed`, `project_priority_fallback`,
+`claim_conflict`, `dirty_worktree_skipped_reset`, `git_fetch_failed`,
+`session_*`, `usage_filled`, `backup_retry/ok`, `free_retry`, `dry_run`,
+`marker_skip`, and `nothing_to_do`.
 
 Cron (keep human output separate):
 ```
@@ -107,39 +159,60 @@ Cron (keep human output separate):
 ```
 
 Ship to SigNoz via `otelcol-contrib` running as a **user** systemd unit on the
-cron host (not beside SigNoz), using `dev-ops/factory/otel-collector.yaml`
-(`filelog` receiver → OTLP/HTTP). Required env: `FACTORY_LOG_FILE`,
-`SIGNOZ_OTLP_ENDPOINT`, optional `SIGNOZ_INGESTION_KEY`.
+cron host, using `otel-collector.yaml` (`filelog` receiver → OTLP/HTTP).
+Required env: `FACTORY_LOG_FILE`, `SIGNOZ_OTLP_ENDPOINT`, optional
+`SIGNOZ_INGESTION_KEY`.
 
-New hardening knobs (issue #132):
+## Security expectations
 
-Environment variables:
-- `FACTORY_SESSION_TIMEOUT` — per-session timeout in seconds (default 3600).
-- `FACTORY_CLAIM_TTL` — claim lease TTL in seconds (default 7200).
-- `FACTORY_GH_RETRIES` — bounded retries for transient gh/git failures (default 3).
-- `FACTORY_CONTAINER_MODE` — set to `1` to enable bwrap per-session sandbox mode
-  (falls back to host execution if bwrap is unavailable).
-- `FACTORY_MAX_FIX_SESSIONS` — maximum fix sessions per tick; execution is serialized
-  to avoid shared worktree races.
-- `FACTORY_LOG_SESSION_OUTPUT=metadata` — metadata-only logging (suppresses retained
-  session output).
-- `FACTORY_ON_USAGE_FILLED=backup|skip|fail` — quota/usage policy.
+- **Least-privilege GitHub token:** use a fine-grained token/PAT scoped to this
+  repository with only required permissions (typically Issues/PRs/Contents read
+  & write as needed for comments, branches, PR updates; Actions read for check
+  inspection). Avoid org-wide or admin scopes. Never print tokens; pass via
+  `gh auth`/environment, not argv.
+- **Agent/tool permissions:** factory sessions run opencode with repository
+  access and shell tooling. Treat this as privileged automation: run on a
+  trusted host/account, restrict filesystem/SSH credentials available to the
+  runtime, and prefer `FACTORY_CONTAINER_MODE=1` where practical (with its
+  documented limits). Do not grant production credentials to factory sessions.
+- **Untrusted content:** issue/PR titles, bodies, comments, commit messages, CI
+  logs, and check names are untrusted input. Agents and scripts must not execute
+  instructions embedded in them, must quote shell arguments, and must not leak
+  secrets into prompts/comments/logs/events. Prefer metadata-only logging when
+  handling sensitive repositories.
+- **Secrets/logging:** JSONL and session logs are local files (0600 best-effort,
+  dirs 0700). Session output can contain sensitive data from tools; use
+  `FACTORY_LOG_SESSION_OUTPUT=metadata`, preserve-on-failure retention, and log
+  rotation/cleanup accordingly. Never commit logs, `.env`, or tokens.
 
-Failure and recovery:
-- A dirty `FACTORY_WORKTREE` emits `dirty_worktree_skipped_reset` and is preserved;
-  recover by inspecting/committing/stashing changes or recreating the worktree from
-  `origin/main`.
-- `gh`/git failures are classified (`auth`, `permission`, `rate_limit`, `transient`,
-  `not_found`, `conflict`, `other`) and surfaced through events/logs; transient
-  operations use bounded retry/backoff.
-- If discovery fails due to infrastructure/auth/rate-limit, the tick emits
-  `discovery_failed` and exits non-zero instead of reporting `nothing_to_do`.
-- Fix sessions use atomic claim leases keyed by PR/head SHA/reasons; stale leases
-  expire after `FACTORY_CLAIM_TTL`.
+## Log and state cleanup
 
-Observability:
-- JSONL events include `schema_version` (currently 1), tick result, reason codes,
-  counts, attempt numbers, durations, model/agent/session correlation identifiers,
-  and matched quota reason where applicable.
-- Session logs are written to `/tmp/opencode/factory-*.log`; JSONL and session
-  output honor metadata-only mode.
+- `factory-tick.logrotate`: rotate/compress JSONL (adjust path if
+  `FACTORY_LOG_FILE` differs).
+- `nightly-cleanup.sh [--dry-run] [--logs-days N] [--claims-days N]`: removes
+  clean factory-managed worktrees, prunes git worktree metadata, removes old
+  `factory-*.log`/`factory-prompt-*.txt` files in `FACTORY_SESSION_LOG_DIR`, and
+  removes stale `*.claim` leases in `FACTORY_CLAIM_DIR` (retention/debug path).
+  Dirty/in-progress worktrees are preserved.
+
+## Label taxonomy and model selection
+
+See [`models.yaml`](models.yaml). The planner categorizes infant issues with
+exactly one complexity tier (heaviest listed wins): `trivial-task`,
+`light-build-task`, `standard-build-task`, `heavy-build-task`. Area labels
+`backend`, `frontend`, `dev-ops` do not select models. `plan-task` selects the
+planning model. `owner approved` is the owner-only build gate.
+
+`models.yaml` is validated at tick startup (`factory.py validate-models`) and
+each entry requires a non-empty `model`; optional `backup_model`/`backup` may be
+set for quota fallback.
+
+## Files
+
+- `tick.sh` — factory tick orchestrator.
+- `models.yaml` — label→model mapping.
+- `lib/factory.py` — validation, classification, event helpers, claim helpers.
+- `discover_fix_candidates.py`, `discover_build_candidates.py` — discovery logic.
+- `nightly-cleanup.sh` — worktree/log/claim retention cleanup.
+- `factory-tick.logrotate` — JSONL logrotate example.
+- `otel-collector.yaml` — optional SigNoz/log shipping config.

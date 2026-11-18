@@ -1,18 +1,19 @@
-# Label → model selection for factory sessions.
-# The factory script consults this file when starting a session for a labeled
-# issue, e.g. the label "heavy-build-task" selects a heavier model.
+# Label → model selection for factory sessions (validated at tick startup).
 #
-# Models are OpenCode Go models (provider "opencode-go"), passed to
-# `opencode run --model`. Verify model IDs against the provider's current
-# model list before changing them.
+# Top-level keys: labels
+# Label entry keys: model (required, non-empty string), backup_model (optional,
+# non-empty string). Legacy key "backup" is accepted as alias but not both.
 #
-# For build sessions the first label (in the order below) present on the
-# issue wins, so list heavier tiers before lighter ones. "default" is the
-# fallback when no listed label matches.
+# Models are OpenCode model IDs passed to `opencode run --model`. Verify IDs
+# against the provider's current model list before changing them.
 #
-# Optional: "backup_model" is used when a session fails because usage/quota is
-# filled and tick.sh is configured to fall back (--on-usage-filled=backup, the
-# default). If omitted, the "default" entry's backup_model is used.
+# For build sessions the first matching label in YAML order wins (list heavier
+# tiers before lighter ones). "default" is required and used as fallback.
+# "plan-task" selects the planning session model.
+#
+# "backup_model" is used when a session fails due to filled usage/quota and
+# tick.sh is in backup mode (--on-usage-filled=backup, default). If omitted,
+# the "default" entry's backup_model may be used.
 
 labels:
   # Planning sessions (plan comments on infant issues).
