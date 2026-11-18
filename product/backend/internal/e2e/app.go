@@ -84,7 +84,7 @@ func newE2EApp(t *testing.T) *e2eApp {
 	userService := user.NewService(app.Commands, users, sender, nil)
 	bookingService := booking.NewService(app.Commands, bookings, users, blocked)
 	broadcastService := broadcast.NewService(app.Commands, users)
-	authService := auth.NewService(app.Commands, sender, ratelimit.NewLimiter())
+	authService := auth.NewService(app.Commands, sender, ratelimit.NewLimiter(), users)
 	if err := app.Projections.CatchUp(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func newE2EApp(t *testing.T) *e2eApp {
 	}
 	deps := server.Deps{
 		Auth:             authService,
-		Middleware:       auth.NewSessionMiddleware(authProj.Sessions),
+		Middleware:       auth.NewSessionMiddleware(authProj.Sessions, users),
 		UserService:      userService,
 		BookingService:   bookingService,
 		BroadcastService: broadcastService,

@@ -17,6 +17,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/ratelimit"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 	"github.com/adamzki99/booking-system/product/backend/internal/server"
+	"github.com/adamzki99/booking-system/product/backend/internal/user"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -37,6 +38,12 @@ func (s *captureSender) Send(_ context.Context, _, _ string, body string) error 
 
 func newTestServer(t *testing.T, sidecarURL ...string) (*httptest.Server, *captureSender) {
 	t.Helper()
+	ts, sender, _ := newTestServerWithPool(t, sidecarURL...)
+	return ts, sender
+}
+
+func newTestServerWithPool(t *testing.T, sidecarURL ...string) (*httptest.Server, *captureSender, *pgxpool.Pool) {
+	t.Helper()
 	ctx := context.Background()
 	pool := newServerTestPool(t)
 	store := eventstore.NewPostgresStore(pool)
@@ -45,18 +52,23 @@ func newTestServer(t *testing.T, sidecarURL ...string) (*httptest.Server, *captu
 		t.Fatal(err)
 	}
 	projections := auth.Register(app)
+	users := user.Register(app)
 
 	sender := &captureSender{}
-	svc := auth.NewService(app.Commands, sender, ratelimit.NewLimiter())
-	mw := auth.NewSessionMiddleware(projections.Sessions)
-	deps := server.Deps{Auth: svc, Middleware: mw}
+	svc := auth.NewService(app.Commands, sender, ratelimit.NewLimiter(), users)
+	userService := user.NewService(app.Commands, users, nil, nil)
+	svc.BootstrapAdmin = func(ctx context.Context, email string) error {
+		return userService.BootstrapAdmin(ctx, email)
+	}
+	mw := auth.NewSessionMiddleware(projections.Sessions, users)
+	deps := server.Deps{Auth: svc, Middleware: mw, UserService: userService}
 	if len(sidecarURL) > 0 {
 		deps.SidecarURL = sidecarURL[0]
 	}
 
 	ts := httptest.NewServer(server.NewMux(deps))
 	t.Cleanup(ts.Close)
-	return ts, sender
+	return ts, sender, pool
 }
 
 func TestAuthFlow(t *testing.T) {
@@ -231,6 +243,59 @@ func TestChromeFallbackWhenSidecarErrors(t *testing.T) {
 	resp, body := request(t, ts, http.MethodGet, "/chrome", "", header)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
+	}
+}
+
+func TestUnknownSessionCannotAccessProtectedRoutes(t *testing.T) {
+	ts, _, pool := newTestServerWithPool(t)
+	const token = "ghost-session-token"
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO sessions (token_hash, email, expires_at) VALUES ($1, $2, now() + interval '1 hour')`,
+		auth.HashToken(token), "ghost@example.com",
+	); err != nil {
+		t.Fatal(err)
+	}
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+	for _, path := range []string{"/auth/me", "/users", "/bookings"} {
+		resp, _ := request(t, ts, http.MethodGet, path, "", header)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("GET %s with unknown-email session = %d, want %d", path, resp.StatusCode, http.StatusUnauthorized)
+		}
+	}
+}
+
+func TestDeactivatedUserSessionRejectedAndCannotRelogin(t *testing.T) {
+	ts, sender, pool := newTestServerWithPool(t)
+	token := verifyToken(t, ts, sender)
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+
+	resp, _ := request(t, ts, http.MethodGet, "/auth/me", "", header)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("pre-deactivation /auth/me = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	if _, err := pool.Exec(context.Background(), `UPDATE users SET active = false WHERE email = 'alice@example.com'`); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/auth/me", "/users"} {
+		resp, _ = request(t, ts, http.MethodGet, path, "", header)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("GET %s with deactivated session = %d, want %d", path, resp.StatusCode, http.StatusUnauthorized)
+		}
+	}
+
+	previousCode := sender.body
+	resp, _ = request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"alice@example.com"}`, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("request-code status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+	if sender.body != previousCode {
+		t.Fatal("no new login code should be emailed to a deactivated user")
+	}
+	resp, _ = request(t, ts, http.MethodPost, "/auth/verify", `{"email":"alice@example.com","code":"ABC123"}`, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("verify status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
 	}
 }
 

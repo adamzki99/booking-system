@@ -69,7 +69,11 @@ func NewMux(deps Deps) *http.ServeMux {
 	mux.Handle("POST /broadcast", protect(deps.Middleware, broadcast.HandleBroadcast(deps.BroadcastService)))
 
 	// iCal feed (unauthenticated; token is the credential; rate limited by IP and token).
-	mux.HandleFunc("GET /calendar/", ical.HandleFeed(deps.CalendarTokens, deps.Bookings, ratelimit.NewLimiter()))
+	var feedUsers ical.UserByIDReader
+	if deps.UserService != nil {
+		feedUsers = deps.UserService
+	}
+	mux.HandleFunc("GET /calendar/", ical.HandleFeed(deps.CalendarTokens, deps.Bookings, ratelimit.NewLimiter(), feedUsers))
 
 	// Regenerate calendar token (authenticated).
 	mux.Handle("POST /account/calendar-token", protect(deps.Middleware, ical.HandleRegenerateToken(icalServiceFromDeps(deps), deps.UserService)))

@@ -19,7 +19,7 @@ func newTestService(exec *fakeExecutor, bookings *fakeBookingsReader, users *fak
 
 func aliceResolver() *fakeUserResolver {
 	return &fakeUserResolver{byEmail: map[string]user.User{
-		"alice@example.com": {ID: "user-1", Email: "alice@example.com"},
+		"alice@example.com": {ID: "user-1", Email: "alice@example.com", Active: true},
 	}}
 }
 
@@ -47,6 +47,33 @@ func TestHandleCreateBookingCreated(t *testing.T) {
 	}
 	if out["id"] == "" || out["status"] != "active" {
 		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+func TestHandleCreateBookingDeactivatedForbidden(t *testing.T) {
+	bookings := &fakeBookingsReader{
+		getByIDFunc: func(id string) (Booking, error) {
+			return Booking{ID: id, UserID: "user-1", Status: StatusActive}, nil
+		},
+	}
+	users := &fakeUserResolver{byEmail: map[string]user.User{
+		"alice@example.com": {ID: "user-1", Email: "alice@example.com", Active: false},
+	}}
+	exec := &fakeExecutor{}
+	svc := newTestService(exec, bookings, users)
+
+	body := `{"start":"2026-12-01T10:00:00Z","end":"2026-12-01T11:00:00Z"}`
+	req := httptest.NewRequest(http.MethodPost, "/bookings", strings.NewReader(body))
+	req = req.WithContext(auth.WithEmail(req.Context(), "alice@example.com"))
+	rec := httptest.NewRecorder()
+
+	HandleCreateBooking(svc)(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	if exec.last != nil {
+		t.Fatal("no booking command should execute for a deactivated user")
 	}
 }
 

@@ -84,7 +84,7 @@ func TestHandleFeedRateLimiting(t *testing.T) {
 	// A valid token is limited to 10 requests per 15-minute window: the 11th
 	// request in quick succession must be rejected.
 	t.Run("limits repeated requests per token", func(t *testing.T) {
-		h := HandleFeed(NewCalendarTokenProjection(pool), nil, ratelimit.NewLimiter())
+		h := HandleFeed(NewCalendarTokenProjection(pool), nil, ratelimit.NewLimiter(), nil)
 		for i := 0; i < 10; i++ {
 			if code := getFeed(h, "/calendar/"+token+".ics").Code; code != http.StatusOK {
 				t.Fatalf("request %d status = %d, want %d", i+1, code, http.StatusOK)
@@ -99,7 +99,7 @@ func TestHandleFeedRateLimiting(t *testing.T) {
 	// per-token key, so 30 requests (per IP per hour) succeed as repeated
 	// 404s before the IP limit rejects the 31st.
 	t.Run("limits repeated requests per IP", func(t *testing.T) {
-		h := HandleFeed(NewCalendarTokenProjection(pool), nil, ratelimit.NewLimiter())
+		h := HandleFeed(NewCalendarTokenProjection(pool), nil, ratelimit.NewLimiter(), nil)
 		for i := 0; i < 30; i++ {
 			path := fmt.Sprintf("/calendar/unknown-token-%d.ics", i)
 			if code := getFeed(h, path).Code; code != http.StatusNotFound {
@@ -113,7 +113,7 @@ func TestHandleFeedRateLimiting(t *testing.T) {
 
 	// Backward compatibility: a nil limiter disables rate limiting entirely.
 	t.Run("nil limiter disables limiting", func(t *testing.T) {
-		h := HandleFeed(NewCalendarTokenProjection(pool), nil, nil)
+		h := HandleFeed(NewCalendarTokenProjection(pool), nil, nil, nil)
 		for i := 0; i < 15; i++ {
 			if code := getFeed(h, "/calendar/"+token+".ics").Code; code != http.StatusOK {
 				t.Fatalf("request %d status = %d, want %d", i+1, code, http.StatusOK)

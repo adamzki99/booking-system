@@ -15,11 +15,14 @@ type sessionReader interface {
 // SessionMiddleware protects handlers behind session authentication.
 type SessionMiddleware struct {
 	sessions sessionReader
+	users    userDirectory
 }
 
-// NewSessionMiddleware creates session middleware backed by a sessions read model.
-func NewSessionMiddleware(sessions sessionReader) *SessionMiddleware {
-	return &SessionMiddleware{sessions: sessions}
+// NewSessionMiddleware creates session middleware backed by a sessions read
+// model. A nil users directory skips the active-membership check (legacy
+// callers); production wiring always supplies one.
+func NewSessionMiddleware(sessions sessionReader, users userDirectory) *SessionMiddleware {
+	return &SessionMiddleware{sessions: sessions, users: users}
 }
 
 // Middleware validates the session and stores the email in the request context.
@@ -34,6 +37,13 @@ func (m *SessionMiddleware) Middleware(next http.Handler) http.Handler {
 		if err != nil || session.Revoked || !session.ExpiresAt.After(time.Now()) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
+		}
+		if m.users != nil {
+			active, err := m.users.ActiveByEmail(r.Context(), session.Email)
+			if err != nil || !active {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(WithEmail(r.Context(), session.Email)))
 	})
