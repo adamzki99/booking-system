@@ -35,6 +35,21 @@ type Publisher interface {
 	Publish(context.Context, []eventstore.Event) error
 }
 
+// LockStore is a Store that can serialize command execution with a
+// database-level advisory lock.
+type LockStore interface {
+	Store
+	eventstore.Locker
+}
+
+// LockCommand is a Command that requires serialized execution under a
+// database-level advisory lock. The lock is held for validation, append, and
+// publication so read-model checks cannot race with concurrent commands.
+type LockCommand interface {
+	Command
+	LockKey() int64
+}
+
 // Service orchestrates command validation, event recording, and publication.
 type Service struct {
 	store     Store
@@ -70,6 +85,17 @@ func (s *Service) Execute(ctx context.Context, cmd Command) error {
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
+	if release, ok, err := s.lock(ctx, cmd); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	} else if ok {
+		// Release runs on every path, including handler and append failures.
+		// A release failure destroys the locked connection, so the lock is
+		// never leaked; the command result is already determined, so the
+		// error itself is not surfaced.
+		defer func() { _ = release() }()
+	}
 	events, err := handler(ctx, cmd)
 	if err != nil {
 		span.RecordError(err)
@@ -88,4 +114,23 @@ func (s *Service) Execute(ctx context.Context, cmd Command) error {
 		return err
 	}
 	return nil
+}
+
+// lock acquires the advisory lock requested by the command when both the
+// command and the store opt in. Commands and stores that do not implement the
+// lock interfaces execute unchanged.
+func (s *Service) lock(ctx context.Context, cmd Command) (release func() error, locked bool, err error) {
+	lockCommand, ok := cmd.(LockCommand)
+	if !ok {
+		return nil, false, nil
+	}
+	lockStore, ok := s.store.(LockStore)
+	if !ok {
+		return nil, false, nil
+	}
+	release, err = lockStore.Lock(ctx, lockCommand.LockKey())
+	if err != nil {
+		return nil, false, fmt.Errorf("command: acquire lock: %w", err)
+	}
+	return release, true, nil
 }

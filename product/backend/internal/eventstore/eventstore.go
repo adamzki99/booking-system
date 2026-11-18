@@ -66,6 +66,13 @@ type Store interface {
 	LoadByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]Event, error)
 }
 
+// Locker serializes command execution across backend replicas with a
+// database-level advisory lock. Callers must invoke the returned release
+// function on every path.
+type Locker interface {
+	Lock(ctx context.Context, key int64) (release func() error, err error)
+}
+
 // PostgresStore is a Store backed by a pgx pool.
 type PostgresStore struct {
 	pool *pgxpool.Pool
@@ -122,6 +129,45 @@ func (s *PostgresStore) Append(ctx context.Context, events ...Event) ([]Event, e
 		return nil, fmt.Errorf("eventstore: commit: %w", err)
 	}
 	return recorded, nil
+}
+
+// Lock acquires a session-level PostgreSQL advisory lock identified by key on a
+// dedicated pooled connection. Calls with the same key serialize across all
+// backend replicas. Session scope (rather than transaction scope) is required
+// so the lock covers the caller's read-model validation, the event append, and
+// the synchronous projection update, not just the append transaction.
+//
+// Locks are held on a connection borrowed from the store's pool, so the pool
+// must keep at least one connection available while a lock is held for the
+// queries and append performed under it. Concurrent create-booking requests
+// serialize for the same key; see product/backend/README.md.
+//
+// The returned release function unlocks the connection and returns it to the
+// pool. If unlocking fails, the connection is destroyed so the session close
+// releases the lock instead of leaking it.
+func (s *PostgresStore) Lock(ctx context.Context, key int64) (func() error, error) {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: acquire lock connection: %w", err)
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, key); err != nil {
+		conn.Release()
+		return nil, fmt.Errorf("eventstore: acquire advisory lock %d: %w", key, err)
+	}
+	return func() error {
+		// The command's context is often cancelled by the time the deferred
+		// release runs, so unlocking uses an independent, bounded context.
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := conn.Exec(unlockCtx, `SELECT pg_advisory_unlock($1)`, key); err != nil {
+			if raw := conn.Hijack(); raw != nil {
+				_ = raw.Close(context.Background())
+			}
+			return fmt.Errorf("eventstore: release advisory lock %d: %w", key, err)
+		}
+		conn.Release()
+		return nil
+	}, nil
 }
 
 // LoadAll returns all events in recorded order.

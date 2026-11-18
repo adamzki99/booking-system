@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/booking"
+	"github.com/adamzki99/booking-system/product/backend/internal/command"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
 	"github.com/adamzki99/booking-system/product/backend/internal/registry"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
@@ -111,6 +113,202 @@ func TestCreateBookingRejectsOverlap(t *testing.T) {
 		End:    start.Add(2 * time.Hour),
 	}); err != nil {
 		t.Fatalf("adjacent booking should be accepted, got %v", err)
+	}
+}
+
+// newGatedBookingTestApp builds a booking test app whose command service uses
+// a publish gate. The gate holds the first command's publication until a second
+// command reaches publication (or a timeout), deterministically widening the
+// window between the overlap check and the projection write.
+func newGatedBookingTestApp(t *testing.T) *bookingTestApp {
+	t.Helper()
+	ctx := context.Background()
+	pool := newBookingTestPool(t)
+	store := eventstore.NewPostgresStore(pool)
+	app, err := registry.New(ctx, store, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Commands = command.NewService(store, newPublishGate(app.Dispatcher))
+	users := user.Register(app)
+	bookings, blocked := booking.Register(app, users, nil)
+	return &bookingTestApp{pool: pool, store: store, app: app, bookings: bookings, blocked: blocked}
+}
+
+// publishGate delays the first publish until a second command has recorded its
+// event and reached publication. With serialized booking creation the second
+// command never gets there while the first holds the lock, so the gate falls
+// back to a timeout.
+type publishGate struct {
+	inner   command.Publisher
+	once    sync.Once
+	second  chan struct{}
+	mu      sync.Mutex
+	entered int
+}
+
+const publishGateTimeout = 2 * time.Second
+
+func newPublishGate(inner command.Publisher) *publishGate {
+	return &publishGate{inner: inner, second: make(chan struct{})}
+}
+
+func (g *publishGate) Publish(ctx context.Context, events []eventstore.Event) error {
+	g.mu.Lock()
+	g.entered++
+	entered := g.entered
+	g.mu.Unlock()
+
+	if entered >= 2 {
+		g.once.Do(func() { close(g.second) })
+	}
+	if entered == 1 {
+		select {
+		case <-g.second:
+		case <-time.After(publishGateTimeout):
+		}
+	}
+	return g.inner.Publish(ctx, events)
+}
+
+func TestConcurrentCreateBookingOnlyOneAccepted(t *testing.T) {
+	ta := newGatedBookingTestApp(t)
+	ctx := context.Background()
+
+	start := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	end := start.Add(time.Hour)
+	ids := []string{
+		"60000000-0000-0000-0000-000000000001",
+		"60000000-0000-0000-0000-000000000002",
+	}
+
+	type outcome struct {
+		id  string
+		err error
+	}
+	outcomes := make([]outcome, len(ids))
+	gate := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		wg.Add(1)
+		go func(i int, id string) {
+			defer wg.Done()
+			<-gate
+			outcomes[i] = outcome{id: id, err: ta.app.Commands.Execute(ctx, booking.CreateBooking{
+				ID:     id,
+				UserID: testUserID,
+				Start:  start,
+				End:    end,
+			})}
+		}(i, id)
+	}
+	close(gate)
+	wg.Wait()
+
+	accepted := 0
+	rejected := 0
+	acceptedID := ""
+	for _, o := range outcomes {
+		switch {
+		case o.err == nil:
+			accepted++
+			acceptedID = o.id
+		case errors.Is(o.err, booking.ErrDoubleBooking):
+			rejected++
+		default:
+			t.Fatalf("booking %s failed unexpectedly: %v", o.id, o.err)
+		}
+	}
+	if accepted != 1 || rejected != 1 {
+		t.Fatalf("expected exactly one accepted and one rejected booking, got %d accepted and %d rejected", accepted, rejected)
+	}
+
+	events, err := ta.store.LoadAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var createdEvents int
+	for _, event := range events {
+		if event.EventType == booking.BookingCreatedEventType {
+			createdEvents++
+		}
+	}
+	if createdEvents != 1 {
+		t.Fatalf("expected one booking.created event, got %d", createdEvents)
+	}
+
+	var projectedID string
+	if err := ta.pool.QueryRow(ctx,
+		`SELECT id::text FROM bookings WHERE id::text = ANY($1)`, ids,
+	).Scan(&projectedID); err != nil {
+		t.Fatal(err)
+	}
+	if projectedID != acceptedID {
+		t.Fatalf("projected booking %s, want accepted booking %s", projectedID, acceptedID)
+	}
+}
+
+func TestConcurrentNonOverlappingBookingsBothSucceed(t *testing.T) {
+	ta := newBookingTestApp(t)
+	ctx := context.Background()
+
+	start := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	ids := []string{
+		"70000000-0000-0000-0000-000000000001",
+		"70000000-0000-0000-0000-000000000002",
+	}
+	intervals := [][2]time.Time{
+		{start, start.Add(time.Hour)},
+		{start.Add(time.Hour), start.Add(2 * time.Hour)},
+	}
+
+	errs := make([]error, len(ids))
+	gate := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range ids {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-gate
+			errs[i] = ta.app.Commands.Execute(ctx, booking.CreateBooking{
+				ID:     ids[i],
+				UserID: testUserID,
+				Start:  intervals[i][0],
+				End:    intervals[i][1],
+			})
+		}(i)
+	}
+	close(gate)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("non-overlapping booking %s failed: %v", ids[i], err)
+		}
+	}
+
+	events, err := ta.store.LoadAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var createdEvents int
+	for _, event := range events {
+		if event.EventType == booking.BookingCreatedEventType {
+			createdEvents++
+		}
+	}
+	if createdEvents != len(ids) {
+		t.Fatalf("expected %d booking.created events, got %d", len(ids), createdEvents)
+	}
+
+	var projected int
+	if err := ta.pool.QueryRow(ctx,
+		`SELECT count(*) FROM bookings WHERE id::text = ANY($1)`, ids,
+	).Scan(&projected); err != nil {
+		t.Fatal(err)
+	}
+	if projected != len(ids) {
+		t.Fatalf("expected %d projected bookings, got %d", len(ids), projected)
 	}
 }
 
