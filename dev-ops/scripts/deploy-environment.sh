@@ -282,8 +282,19 @@ trap cleanup_deploy_metadata EXIT
 # an edit must never block future deploys, so discard it before the clean-checkout
 # guard. Only this metadata file is reconciled; any other local change still
 # aborts the deploy.
-git -C "$DEPLOY_DIR" config user.email >/dev/null 2>&1 || git -C "$DEPLOY_DIR" config user.email "deploy@booking-system.local"
-git -C "$DEPLOY_DIR" config user.name >/dev/null 2>&1 || git -C "$DEPLOY_DIR" config user.name "booking-deploy"
+# A provisioned deploy checkout has no git identity unless the deploy user has
+# a global one, which is not guaranteed (for example under the systemd user
+# timer). Pin a local identity so every commit this script makes can succeed.
+# `git config --get` can return success with an empty value, so test the value
+# rather than the exit status.
+DEPLOY_GIT_NAME="booking-deploy"
+DEPLOY_GIT_EMAIL="deploy@booking-system.local"
+if [[ -z "$(git -C "$DEPLOY_DIR" config --get user.name 2>/dev/null || true)" ]]; then
+  git -C "$DEPLOY_DIR" config user.name "$DEPLOY_GIT_NAME"
+fi
+if [[ -z "$(git -C "$DEPLOY_DIR" config --get user.email 2>/dev/null || true)" ]]; then
+  git -C "$DEPLOY_DIR" config user.email "$DEPLOY_GIT_EMAIL"
+fi
 if [[ -n "$(git -C "$DEPLOY_DIR" status --porcelain -- dev-ops/environments.yaml)" ]]; then
   log "discarding stale local changes to dev-ops/environments.yaml"
   git -C "$DEPLOY_DIR" reset -q HEAD -- dev-ops/environments.yaml 2>/dev/null || true
@@ -379,10 +390,21 @@ update_yaml "success" "$DEPLOYED_SHA" "$TS"
 cd "$DEPLOY_DIR"
 if [[ -n "$(git status --porcelain -- dev-ops/environments.yaml)" ]]; then
   git add dev-ops/environments.yaml
-  git -c user.email="deploy@booking-system.local" -c user.name="booking-deploy" \
-    commit -m "chore(dev-ops): record ${ENV_NAME} deploy ${DEPLOYED_SHA}" || true
-  if ! git push origin "$BRANCH" 2>/dev/null; then
-    log "WARNING: failed to push metadata update"
+  # The deploy already succeeded, so a metadata failure must never fail the
+  # run or roll anything back. It must not be silent either: without the
+  # warning below, environments.yaml silently goes stale and deploy history
+  # becomes unreliable.
+  commit_output=""
+  if ! commit_output="$(git -c user.name="$DEPLOY_GIT_NAME" -c user.email="$DEPLOY_GIT_EMAIL" \
+      commit -m "chore(dev-ops): record ${ENV_NAME} deploy ${DEPLOYED_SHA}" 2>&1)"; then
+    log "WARNING: failed to commit deploy metadata (deploy succeeded)"
+    printf '%s\n' "$commit_output" >&2
+  else
+    push_output=""
+    if ! push_output="$(git push origin "$BRANCH" 2>&1)"; then
+      log "WARNING: failed to push deploy metadata (deploy succeeded)"
+      printf '%s\n' "$push_output" >&2
+    fi
   fi
 fi
 
