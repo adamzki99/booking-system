@@ -38,6 +38,7 @@ function stubSession() {
     user,
     loading: false,
     login: vi.fn(),
+    loginWithQAMode: vi.fn(),
     refresh: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn(),
   });

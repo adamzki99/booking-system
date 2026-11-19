@@ -37,6 +37,7 @@ describe("RequireSession", () => {
       user: null,
       loading: false,
       login: vi.fn(),
+      loginWithQAMode: vi.fn(),
     refresh: vi.fn(),
       logout: vi.fn(),
     });
@@ -56,6 +57,7 @@ describe("RequireSession", () => {
       },
       loading: false,
       login: vi.fn(),
+      loginWithQAMode: vi.fn(),
     refresh: vi.fn(),
       logout: vi.fn(),
     });
@@ -69,6 +71,7 @@ describe("RequireSession", () => {
       user: null,
       loading: true,
       login: vi.fn(),
+      loginWithQAMode: vi.fn(),
     refresh: vi.fn(),
       logout: vi.fn(),
     });
