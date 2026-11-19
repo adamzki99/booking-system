@@ -41,6 +41,14 @@ describe("Login page", () => {
     stubSession();
   });
 
+  it("renders the Booking header and sign-in description", () => {
+    renderLogin();
+    expect(screen.getByRole("heading", { name: "Booking" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/sign in with your email/i),
+    ).toBeInTheDocument();
+  });
+
   it("requests a code for the entered email", async () => {
     renderLogin();
 

@@ -5,6 +5,9 @@ import {
   AlertIcon,
   Box,
   Button,
+  Card,
+  CardBody,
+  CardHeader,
   Code,
   FormControl,
   FormLabel,
@@ -20,6 +23,7 @@ import { confirmEmailChange, requestEmailChange } from "../api/users";
 import type { PendingEmailChange } from "../api/users";
 import { regenerateCalendarUrl } from "../api/calendar";
 import { useSession } from "../auth/SessionContext";
+import PageHeader from "../components/PageHeader";
 
 export default function Account() {
   const { user: sessionUser, refresh } = useSession();
@@ -106,91 +110,118 @@ export default function Account() {
   }
 
   return (
-    <Box as="main">
+    <Box as="main" maxW="1040px" mx="auto" w="full">
       <VStack spacing={6} align="stretch">
-        <Heading as="h1" size="lg">
-          Account
-        </Heading>
+        <PageHeader
+          title="Account"
+          subtitle="Update your email address and manage your calendar feed."
+        />
+
         {error && (
           <Alert status="error" role="alert">
             <AlertIcon />
             {error}
           </Alert>
         )}
-        <Box as="section">
-          <Heading as="h2" size="md" mb={2}>
-            Email
-          </Heading>
-          <Text mb={3} data-testid="account-email">
-            {me?.email}
-          </Text>
-          {!pending ? (
-            <Box as="form" onSubmit={onRequestEmailChange}>
-              <VStack spacing={4} align="stretch">
-                <FormControl>
-                  <FormLabel htmlFor="account-email">New email</FormLabel>
-                  <Input
-                    id="account-email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </FormControl>
-                <Button type="submit" alignSelf="flex-start" isLoading={busy}>
-                  Send verification code
-                </Button>
-              </VStack>
-            </Box>
-          ) : (
-            <Box as="form" onSubmit={onConfirmEmailChange}>
-              <VStack spacing={4} align="stretch">
-                <Text mb={3}>
-                  A verification code was sent to {pending.pendingEmail}. The
-                  address changes only after you confirm; afterwards the old
-                  address no longer signs in.
-                </Text>
-                <FormControl>
-                  <FormLabel htmlFor="account-code">Verification code</FormLabel>
-                  <Input
-                    id="account-code"
-                    type="text"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                  />
-                </FormControl>
-                <Button type="submit" alignSelf="flex-start" isLoading={busy}>
-                  Confirm email change
-                </Button>
-              </VStack>
-            </Box>
-          )}
-        </Box>
-        <Box as="section">
-          <Heading as="h2" size="md" mb={2}>
-            Calendar
-          </Heading>
-          <VStack spacing={3} align="stretch">
-            {icalUrl && (
-              <>
-                <Code p={2} borderRadius="base" wordBreak="break-all">
-                  {icalUrl}
-                </Code>
-                <Button size="sm" variant="outline" alignSelf="flex-start" onClick={() => void onCopy()}>
-                  Copy
-                </Button>
-              </>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              alignSelf="flex-start"
-              onClick={() => void onRegenerate()}
-              isLoading={busy}
-            >
-              Regenerate
-            </Button>
-          </VStack>
-        </Box>
+
+        <Card as="section">
+          <CardHeader pb={0}>
+            <Heading as="h2" fontSize="17px" fontWeight={700}>
+              Email
+            </Heading>
+          </CardHeader>
+          <CardBody>
+            <VStack spacing={4} align="stretch">
+              <Text data-testid="account-email">{me?.email}</Text>
+              {!pending ? (
+                <Box as="form" onSubmit={onRequestEmailChange}>
+                  <VStack spacing={4} align="stretch">
+                    <FormControl>
+                      <FormLabel htmlFor="account-email">New email</FormLabel>
+                      <Input
+                        id="account-email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                      />
+                    </FormControl>
+                    <Button
+                      type="submit"
+                      variant="accent"
+                      size="lg"
+                      alignSelf="flex-start"
+                      isLoading={busy}
+                    >
+                      Send verification code
+                    </Button>
+                  </VStack>
+                </Box>
+              ) : (
+                <Box as="form" onSubmit={onConfirmEmailChange}>
+                  <VStack spacing={4} align="stretch">
+                    <Text>
+                      A verification code was sent to {pending.pendingEmail}. The
+                      address changes only after you confirm; afterwards the old
+                      address no longer signs in.
+                    </Text>
+                    <FormControl>
+                      <FormLabel htmlFor="account-code">Verification code</FormLabel>
+                      <Input
+                        id="account-code"
+                        type="text"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value)}
+                      />
+                    </FormControl>
+                    <Button
+                      type="submit"
+                      variant="accent"
+                      size="lg"
+                      alignSelf="flex-start"
+                      isLoading={busy}
+                    >
+                      Confirm email change
+                    </Button>
+                  </VStack>
+                </Box>
+              )}
+            </VStack>
+          </CardBody>
+        </Card>
+
+        <Card as="section">
+          <CardHeader pb={0}>
+            <Heading as="h2" fontSize="17px" fontWeight={700}>
+              Calendar
+            </Heading>
+          </CardHeader>
+          <CardBody>
+            <VStack spacing={3} align="stretch">
+              {icalUrl && (
+                <>
+                  <Code p={2} borderRadius="base" wordBreak="break-all">
+                    {icalUrl}
+                  </Code>
+                  <Button
+                    variant="outline"
+                    alignSelf="flex-start"
+                    onClick={() => void onCopy()}
+                  >
+                    Copy
+                  </Button>
+                </>
+              )}
+              <Button
+                variant="outline"
+                alignSelf="flex-start"
+                onClick={() => void onRegenerate()}
+                isLoading={busy}
+              >
+                Regenerate
+              </Button>
+            </VStack>
+          </CardBody>
+        </Card>
       </VStack>
     </Box>
   );

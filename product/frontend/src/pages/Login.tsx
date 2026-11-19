@@ -6,6 +6,9 @@ import {
   AlertIcon,
   Box,
   Button,
+  Card,
+  CardBody,
+  Flex,
   FormControl,
   FormLabel,
   Heading,
@@ -59,30 +62,101 @@ export default function Login() {
   }
 
   return (
-    <Box as="main" maxW="md" mx="auto" py={8} px={4}>
-      <VStack spacing={6} align="stretch">
-        <Heading as="h1" size="lg">
-          Booking
-        </Heading>
-        {codeSent ? (
-          <Box as="form" onSubmit={signIn}>
+    <Flex minH="100vh" bg="bgCanvas" align="center" justify="center">
+      <VStack
+        w="full"
+        maxW="420px"
+        spacing={6}
+        align="stretch"
+        p={{ base: "24px 16px", lg: "40px 32px" }}
+      >
+        <VStack spacing={2} align="center" textAlign="center">
+          <Box
+            w="56px"
+            h="56px"
+            borderRadius="full"
+            bg="avatarBg"
+            color="avatarFg"
+            display="grid"
+            placeItems="center"
+            fontSize="2xl"
+            fontWeight={700}
+            aria-hidden="true"
+          >
+            B
+          </Box>
+          <Heading
+            as="h1"
+            fontSize={{ base: "24px", lg: "28px" }}
+            fontWeight={700}
+            letterSpacing="-0.01em"
+          >
+            Booking
+          </Heading>
+          <Text fontSize={{ base: "14px", lg: "15px" }} color="muted">
+            {codeSent
+              ? "Enter the code we sent you to finish signing in."
+              : "Sign in with your email, we will send you a one-time code."}
+          </Text>
+        </VStack>
+
+        <Card w="full">
+          <CardBody>
             <VStack spacing={4} align="stretch">
-              <Text>
-                A login code was sent to {email}. The code is valid for 10 minutes.
-              </Text>
-              <FormControl>
-                <FormLabel htmlFor="code">Code</FormLabel>
-                <Input
-                  id="code"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  maxLength={6}
-                  autoFocus
-                />
-              </FormControl>
-              <Button type="submit" isLoading={busy} isDisabled={code.length !== 6}>
-                Sign in
-              </Button>
+              {codeSent ? (
+                <Box as="form" onSubmit={signIn}>
+                  <VStack spacing={4} align="stretch">
+                    <Text>
+                      A login code was sent to {email}. The code is valid for 10 minutes.
+                    </Text>
+                    <FormControl>
+                      <FormLabel htmlFor="code">Code</FormLabel>
+                      <Input
+                        id="code"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value.toUpperCase())}
+                        maxLength={6}
+                        autoFocus
+                      />
+                    </FormControl>
+                    <Button
+                      type="submit"
+                      variant="accent"
+                      size="lg"
+                      w="full"
+                      isLoading={busy}
+                      isDisabled={code.length !== 6}
+                    >
+                      Sign in
+                    </Button>
+                  </VStack>
+                </Box>
+              ) : (
+                <Box as="form" onSubmit={requestCodeForEmail}>
+                  <VStack spacing={4} align="stretch">
+                    <FormControl>
+                      <FormLabel htmlFor="email">Email</FormLabel>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoFocus
+                      />
+                    </FormControl>
+                    <Button
+                      type="submit"
+                      variant="accent"
+                      size="lg"
+                      w="full"
+                      isLoading={busy}
+                      isDisabled={!email}
+                    >
+                      Request code
+                    </Button>
+                  </VStack>
+                </Box>
+              )}
               {error && (
                 <Alert status="error" role="alert">
                   <AlertIcon />
@@ -90,34 +164,9 @@ export default function Login() {
                 </Alert>
               )}
             </VStack>
-          </Box>
-        ) : (
-          <Box as="form" onSubmit={requestCodeForEmail}>
-            <VStack spacing={4} align="stretch">
-              <Text>Sign in with your email — we will send you a one-time code.</Text>
-              <FormControl>
-                <FormLabel htmlFor="email">Email</FormLabel>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoFocus
-                />
-              </FormControl>
-              <Button type="submit" isLoading={busy} isDisabled={!email}>
-                Request code
-              </Button>
-              {error && (
-                <Alert status="error" role="alert">
-                  <AlertIcon />
-                  {error}
-                </Alert>
-              )}
-            </VStack>
-          </Box>
-        )}
+          </CardBody>
+        </Card>
       </VStack>
-    </Box>
+    </Flex>
   );
 }
