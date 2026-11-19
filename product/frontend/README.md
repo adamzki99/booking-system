@@ -34,6 +34,56 @@ PR.
   deployments extend this theme from `projects/<name>/`.
 - `src/main.tsx` — wraps the app in `<ChakraProvider theme={theme}>`.
 
+### Design tokens
+
+The base theme encodes the warm design language from the reference mockups in
+deployment-agnostic terms. Prefer these tokens over hardcoded hex values.
+
+Brand scale (`theme.colors.brand`, `50`–`900`):
+
+| Token        | Value     | Use                              |
+| ------------ | --------- | -------------------------------- |
+| `brand.100`  | `#F6E6E0` | Accent tint / selected surfaces  |
+| `brand.500`  | `#9A2F22` | Primary accent                   |
+| `brand.600`  | `#7A241A` | Accent hover / emphasis          |
+
+Warm neutrals (`theme.colors.warm`): `ink` `#2B1D1A`, `muted` `#5E4B45`,
+`placeholder` `#7A6A63`, `line` `#E9DDD5`, `canvas` `#FAF6F1`, `subtle`
+`#FBF8F4`, `hover` `#F5EEE8`, `surface` `#FFFFFF`, `avatarBg` `#EFE3D6`,
+`avatarFg` `#5B4331`.
+
+Semantic tokens (`theme.semanticTokens.colors`) map the same values to roles so
+components and pages can reference intent rather than color: `accent`,
+`accentHover`, `accentTint`, `ink`, `muted`, `line`, `bgCanvas`, `bgSubtle`,
+`bgHover`, `avatarBg`, `avatarFg`.
+
+Other foundations:
+
+- Fonts: `theme.fonts.heading` and `theme.fonts.body` are
+  `"Inter", system-ui, -apple-system, "Segoe UI", sans-serif`.
+- Radii: `sm` `10px` (nav items, small badges), `md` `12px` (buttons, inputs,
+  selects, chips), `lg`/`card` `16px` (cards).
+- Global styles: body uses `bgCanvas` background and `ink` text.
+
+### Component recipes
+
+The theme ships component defaults so pages get the mockup styling without
+bespoke CSS:
+
+- **Button** — default `variant="accent"` (solid `accent` with `accentHover`
+  hover), `variant="accentOutline"` (accent border, tint on hover), and
+  `variant="icon"` (44px square toolbar button). Sizes `md` (44px) and `lg`
+  (48px); 12px radius. `colorScheme="brand"` remains available for Chakra's
+  built-in variants.
+- **Card** — white surface with a `1px` `line` border and `16px` radius.
+- **Input**, **Select**, **Textarea** — `44px` control height (`md`), `line`
+  border, `accent` focus border with an `accentTint` ring, and muted
+  placeholders.
+- **Avatar** — `avatarBg` background with `avatarFg` initials.
+
+Adding bespoke component CSS to `src/index.css` is intentionally avoided; use
+these recipes or add tokens/variants in `src/theme.ts` instead.
+
 ### Using Chakra components
 
 ```tsx
