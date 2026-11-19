@@ -116,4 +116,16 @@ describe("Calendar page", () => {
     await userEvent.click(screen.getByRole("button", { name: "Cancel booking" }));
     await waitFor(() => expect(cancelMock).toHaveBeenCalledWith("b1"));
   });
+
+  it("focuses the creation form when opened with ?create=1", async () => {
+    listMock.mockResolvedValue([]);
+    window.history.replaceState({}, "", "/?create=1");
+    try {
+      render(<Calendar />);
+
+      await waitFor(() => expect(screen.getByLabelText("Start")).toHaveFocus());
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
+  });
 });

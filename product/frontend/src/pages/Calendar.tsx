@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   Alert,
@@ -49,6 +49,7 @@ export default function Calendar() {
   const [error, setError] = useState<string | null>(null);
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const startRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -64,6 +65,14 @@ export default function Calendar() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // The shell's "Create booking" CTA lands here with ?create=1; focus the
+  // creation form so the flow is ready to use without another click.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("create")) {
+      startRef.current?.focus();
+    }
+  }, []);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -108,6 +117,7 @@ export default function Calendar() {
               <FormControl>
                 <FormLabel htmlFor="start">Start</FormLabel>
                 <Input
+                  ref={startRef}
                   id="start"
                   type="datetime-local"
                   value={start}
