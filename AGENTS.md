@@ -1,69 +1,90 @@
 # AGENTS.md
 
-Guidance for coding agents working in this repository.
+Guidance for AI agents (and humans) working in this repository. Read this file before making changes.
 
-## What this is
+## Product
 
-A reusable booking platform, deployed (first) as a sauna booking system for a
-homeowner association. See `README.md` for the stack and
-`projects/sauna/README.md` for the domain requirements (user roles, test flows).
+This repository builds a **reusable booking platform**. It was first deployed as a **sauna booking system** for a homeowner association, but the product itself is generic: anything specific to one deployment must stay out of the generic product code.
+
+A working application is made by combining the generic `product/` with one deployment folder under `projects/<name>/`.
 
 ## Repository layout
 
-- `product/` — generic, reusable booking product. Nothing deployment-specific here.
-  - `product/backend/` — Go service (CQRS + event sourcing).
-  - `product/frontend/` — React SPA.
-- `projects/<name>/` — one folder per deployment: documentation, configuration,
-  and that deployment's sidecar. `product/` + one `projects/<name>/` = a working app.
-- `dev-ops/` — software factory, environments, code quality.
-- `.opencode/skills/` — installed OpenCode skills (vendored open-source and
-  repository-owned). Do not add or edit installed skills here by hand; they are
-  managed by `dev-ops/scripts/request-skills.sh` (see `dev-ops/skills.yaml`).
-  First-party skill sources live in `dev-ops/skills/`.
-  **Agent protection:** do not read, browse, or summarize files under
-  `.opencode/skills/` unless the user explicitly asks to invoke a skill. Load a
-  skill only via the `skill` tool when explicitly requested. Never auto-ingest
-  the skills directory into context.
+Each top-level directory is a "group" within the organization:
 
-## Architecture rules (do not violate)
+| Path        | Contents                                                                                                   |
+| ----------- | ---------------------------------------------------------------------------------------------------------- |
+| `product/`  | The generic booking product: backend, frontend, and everything reusable across deployments.                |
+| `projects/` | One subdirectory per deployment (documentation and configuration).                                        |
+| `dev-ops/`  | CI/CD, the software factory, environments, and code-quality tooling.                                       |
 
-- **Event sourced:** never mutate state in place — record events. State comes
-  from projections only.
-- **CQRS:** commands write events; queries read projections. Keep them separate.
-- **Sidecar:** deployment-specific logic lives in `projects/<name>/sidecar/`. It
-  is **stateless** — functions in, results out, called via REST by the backend.
-- **No deletes:** not even super users may delete data from the system
-  (cancellations are events, not deletions).
-- **Notification delivery:** booking confirmations, cancellation notices and
-  broadcasts are enqueued into a durable `notification_outbox` and delivered by
-  a retrying worker. An enqueue or send failure must never roll back a recorded
-  event; permanently failed rows stay in the table for operator inspection.
-- **CI/security gate:** never merge a pull request (manually or via the
-  factory) until all required CI checks and security analyses (Backend CI,
-  Security, Semgrep) pass and findings are addressed. A PR with failing or
-  pending checks must not be merged.
+Other notable files and directories:
 
-## Conventions
+- `.github/workflows/` holds the GitHub Actions workflows.
+- `.semgrep.yml` and `.semgrepignore` configure Semgrep. Keep changes passing these checks.
+- `.opencode/` and `opencode.jsonc` hold agent tooling configuration.
 
-- **GitHub issue creation:** use the OpenCode command
-  `.opencode/commands/create-github-issue.md` (slash command
-  `/create-github-issue`) instead of ad hoc `gh issue create`. It fills
-  `dev-ops/issue-templates/agentic.md` and validates the body with
-  `dev-ops/scripts/validate-issue-body.sh` before creation, ensuring required
-  sections and measurable acceptance criteria. See
-  `dev-ops/README.md` for details.
-- Keep changes minimal and follow the existing style of the directory you work in.
-- Update this file if you change the structure, stack, or architecture.
-- **Secrets:** never commit secrets. Use `projects/<name>/.env` (gitignored) with a
-  committed `projects/<name>/.env.example` documenting required keys. `product/`
-  must contain no deployment-specific secrets or identifiers.
-- **Agent protection (skills):** agents must not read `.opencode/skills/` unprompted;
-  only load a skill via the `skill` tool when the user explicitly requests it.
+For details, read `product/README.md` and the deployment READMEs under `projects/` (start with `projects/README.md`).
 
-## Concise reporting
+## Stack
 
-Agents should use the caveman concise voice (skills `caveman`, `ultracave`,
-`megacave`) for status lines and inter-agent handoffs to reduce token spend.
-Persisted artifacts — code, comments, commits, issues, PRs, docs — must always
-use normal prose. `caveman-compress` may only be applied to memory files
-(`AGENTS.md`, `CLAUDE.md`, etc.) with a backup; never to source code.
+- **Backend:** Go
+- **Frontend:** React
+- **Database:** PostgreSQL
+- **HTTP server:** Caddy
+- **APM:** SigNoz
+- **AuthN/AuthZ:** Authelia
+
+## Architecture
+
+### CQRS and Event Sourcing
+
+The system only records events. State is produced by projections.
+
+- **Commands** record events. They do not write state directly.
+- **Queries** read projections. They do not mutate anything.
+- Events are the source of truth. Treat recorded events as immutable, and change behavior by adding new event types or versions rather than rewriting history.
+- Projections are derived data and should be rebuildable from the event stream.
+
+### Product plus sidecar
+
+Deployment-specific logic (for example, sauna rules) lives in a **stateless sidecar container**. The backend calls the sidecar over REST.
+
+- Do not put deployment-specific rules into the generic product.
+- Do not give the sidecar its own persistent state.
+- If a deployment needs new behavior, first ask whether it belongs in the sidecar. Only extend the product when the capability is useful to every deployment.
+
+## Workflow
+
+### Changes are made through pull requests
+
+All changes are implemented through **pull requests**. Do not push directly to `main`.
+
+An issue is **not always required**. It is fine to open a PR without a matching issue (small fixes, refactors, docs, and tooling changes are common examples). If a related issue does exist, reference it in the PR description.
+
+Keep PRs focused: one logical change per PR, with a clear title and description.
+
+### Issues and labels
+
+**Do not add labels when creating an issue.** Labels are applied automatically by the factory program `factory/tick.sh` after the issue exists. Do not set labels through the UI, the `gh` CLI (`--label`), the API, or any script at creation time, and do not work around `tick.sh` by labeling manually.
+
+## Writing rules
+
+### No em-dashes, anywhere
+
+**Em-dashes (the long dash character, Unicode U+2014) must not appear anywhere in this repository.** This applies to everything:
+
+- source code, comments, and string literals
+- documentation and Markdown files
+- configuration and generated files
+- commit messages, PR titles and descriptions, and issue text
+
+Use a hyphen, comma, colon, semicolon, or parentheses instead, or split the sentence in two. If you come across an existing em-dash while editing a file, replace it.
+
+To check your changes before committing:
+
+```sh
+git grep -n -F "$(printf '\342\200\224')"
+```
+
+The command prints nothing when the repository is clean.
