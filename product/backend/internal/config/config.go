@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -28,6 +29,7 @@ type Config struct {
 
 	DevMode       bool
 	SeedUsersFile string
+	QAMode        bool
 }
 
 // Load reads configuration from the environment.
@@ -65,6 +67,7 @@ func Load() Config {
 			devMode = (v == "true" || v == "1" || v == "yes")
 		}
 	}
+	qaMode := parseBoolEnv("QA_MODE")
 	return Config{
 		Port:          port,
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
@@ -86,6 +89,7 @@ func Load() Config {
 
 		DevMode:       devMode,
 		SeedUsersFile: os.Getenv("SEED_USERS_FILE"),
+		QAMode:        qaMode,
 	}
 }
 
@@ -101,4 +105,22 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// parseBoolEnv returns true for common truthy environment variable values.
+func parseBoolEnv(key string) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	if err == nil {
+		return b
+	}
+	switch strings.ToLower(v) {
+	case "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }

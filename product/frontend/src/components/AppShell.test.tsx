@@ -43,6 +43,7 @@ describe("AppShell", () => {
       user: member(),
       loading: false,
       login: vi.fn(),
+      loginWithQAMode: vi.fn(),
       refresh: vi.fn(),
       logout: vi.fn(),
     });
@@ -122,6 +123,7 @@ describe("AppShell", () => {
       user: member(role),
       loading: false,
       login: vi.fn(),
+      loginWithQAMode: vi.fn(),
       refresh: vi.fn(),
       logout: vi.fn(),
     });
@@ -135,6 +137,7 @@ describe("AppShell", () => {
       user: member(),
       loading: false,
       login: vi.fn(),
+      loginWithQAMode: vi.fn(),
       refresh: vi.fn(),
       logout,
     });

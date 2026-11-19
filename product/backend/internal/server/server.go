@@ -44,8 +44,10 @@ type Deps struct {
 func NewMux(deps Deps) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("GET /auth/config", handleAuthConfig(deps.Auth))
 	mux.HandleFunc("POST /auth/request-code", handleRequestCode(deps.Auth))
 	mux.HandleFunc("POST /auth/verify", handleVerify(deps.Auth))
+	mux.HandleFunc("POST /auth/qa-login", handleQALogin(deps.Auth))
 	mux.Handle("GET /auth/me", protect(deps.Middleware, handleMe))
 
 	// User endpoints (all require a valid session).
@@ -149,6 +151,40 @@ func handleVerify(svc *auth.AuthService) http.HandlerFunc {
 			return
 		}
 		token, err := svc.Verify(r.Context(), req.Email, req.Code, clientIP(r))
+		if err != nil {
+			writeAuthError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"token": token})
+	}
+}
+
+type qaLoginRequest struct {
+	Email string `json:"email"`
+}
+
+func handleAuthConfig(svc *auth.AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]bool{"qaMode": svc != nil && svc.QAMode})
+	}
+}
+
+func handleQALogin(svc *auth.AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeError(w, http.StatusServiceUnavailable, "auth unavailable")
+			return
+		}
+		if !svc.QAMode {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		var req qaLoginRequest
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		token, err := svc.QALogin(r.Context(), req.Email, clientIP(r))
 		if err != nil {
 			writeAuthError(w, err)
 			return

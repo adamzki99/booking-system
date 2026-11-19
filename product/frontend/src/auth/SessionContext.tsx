@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { getToken, setToken } from "../api/client";
 import type { User } from "../api/auth";
-import { currentUser, verify } from "../api/auth";
+import { currentUser, qaLogin, verify } from "../api/auth";
 
 interface Session {
   /** The signed-in user, or null when signed out. */
@@ -11,6 +11,8 @@ interface Session {
   loading: boolean;
   /** Verifies email + code, stores the token and loads the user. */
   login(email: string, code: string): Promise<void>;
+  /** Signs in without a one-time code when QA mode is enabled. */
+  loginWithQAMode(email: string): Promise<void>;
   /** Re-reads the signed-in user so the session matches the account. */
   refresh(): Promise<void>;
   /** Clears the session. */
@@ -53,6 +55,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     loading,
     async login(email, code) {
       const token = await verify(email, code);
+      setToken(token);
+      const u = await currentUser();
+      setUser(u);
+    },
+    async loginWithQAMode(email) {
+      const token = await qaLogin(email);
       setToken(token);
       const u = await currentUser();
       setUser(u);
