@@ -6,8 +6,8 @@ environments:
     branch: main
     port: 8080
     # The following are written by dev-ops/scripts/deploy-environment.sh:
-    last_deploy: "2026-11-19T09:12:06Z"
-    last_deploy_commit: "85664984f9f36dad74dc5f0838f5b2ec1b225149"
+    last_deploy: "2026-11-19T09:18:29Z"
+    last_deploy_commit: "94c333b788155548bef9e6661e620a3c39fa9380"
     last_deploy_status: "success"
   # Candidate environments for release branches are added here, e.g.:
   # release-1-0:
