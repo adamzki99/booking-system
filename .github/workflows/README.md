@@ -61,7 +61,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Jobs:**
 - **Semgrep** (`semgrep/ci`): runs `semgrep ci` in the `semgrep/semgrep` container; diff-aware on PRs. Requires the `SEMGREP_APP_TOKEN` repository secret. Skips `dependabot[bot]`.
 
-**Notes:** Rule selection and remediation policies (Block / Comment / Monitor) are managed in the Semgrep AppSec Platform; `.semgrep.yml` holds repo-specific overrides only. Once a successful run exists, wire `semgrep/ci` as a required status check on `main` branch protection.
+**Notes:** Rule selection and remediation policies (Block / Comment / Monitor) are managed in the Semgrep AppSec Platform; `.semgrep.yml` holds repo-specific overrides only. Once a successful run exists, add `semgrep/ci` to the required status checks of the `main` ruleset.
 
 ## Required secrets
 
