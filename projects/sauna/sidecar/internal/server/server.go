@@ -200,8 +200,8 @@ type chromeResponse struct {
 func handleChrome(loc *time.Location, redeployTimes []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, chromeResponse{
-			Header:       "Sauna booking system",
-			Footer:       "Homeowner association sauna",
+			Header:       "Stennäsets byförening",
+			Footer:       "Bastubokning",
 			NextRedeploy: NextRedeploy(time.Now(), redeployTimes, loc),
 		})
 	}

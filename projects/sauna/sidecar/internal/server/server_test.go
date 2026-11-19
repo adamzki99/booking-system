@@ -86,8 +86,11 @@ func TestChrome(t *testing.T) {
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Header == "" || out.Footer == "" {
-		t.Fatalf("expected non-empty header/footer, got %+v", out)
+	if out.Header != "Stennäsets byförening" {
+		t.Fatalf("header = %q, want %q", out.Header, "Stennäsets byförening")
+	}
+	if out.Footer != "Bastubokning" {
+		t.Fatalf("footer = %q, want %q", out.Footer, "Bastubokning")
 	}
 	if out.NextRedeploy != "" {
 		t.Fatalf("nextRedeploy = %q, want empty when no schedule is configured", out.NextRedeploy)
