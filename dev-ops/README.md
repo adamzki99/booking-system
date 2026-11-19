@@ -20,33 +20,83 @@ on a 1-hour interval and picks up GitHub issues and pull requests:
 
 The system owner steers the project purely by interacting with GitHub issues.
 
-Deployment of `main` to the **QA environment** happens at **12 am and 12 pm**
-daily (host local time), leaving ~12 h for Playwright testing on QA.
+Deployment of `main` to the **QA environment** happens at **00:00 and 12:00
+Europe/Stockholm** daily, leaving ~12 h for Playwright testing on QA.
 
 ## Scheduled deployment (QA)
 
-The dev machine runs a cron entry that deploys `main` to QA twice daily:
+The dev machine runs a systemd **user timer** that deploys `main` to QA twice
+daily. The host clock is UTC and Debian cron ignores `CRON_TZ`, so a plain
+crontab cannot keep a local-time schedule across DST changes; `OnCalendar`
+accepts an IANA timezone.
 
-```cron
-0 0,12 * * * /path/to/repo/dev-ops/scripts/deploy-environment.sh qa >> /var/log/booking-qa-deploy.log 2>&1
+Provision the QA checkout once if it does not exist yet:
+
+```sh
+dev-ops/scripts/deploy-environment.sh qa
 ```
 
-- Cron uses the host's local time; 12 am / 12 pm are local time. If the host is
-  UTC, set `CRON_TZ=<owner timezone>` (e.g. `Europe/Stockholm`) in the crontab.
-- The `flock` in the script makes manual re-runs safe.
-- Logs: `/var/log/booking-qa-deploy.log`.
-- The deploy runs as the deploy user (e.g. `lasrvr`). The cron redirection opens
-  the log file *before* the script starts, so that user must be able to append to
-  it. `/var/log/booking-qa-deploy.log` is created root-owned mode 0644 by
-  default, which makes the deploy silently fail to redirect. Provision it once:
+Then install or refresh the timer:
+
+```sh
+dev-ops/scripts/install-deploy-timer.sh
+```
+
+The installer writes `booking-qa-deploy.service` and `booking-qa-deploy.timer`
+to `~/.config/systemd/user/`, enables user lingering so the timer survives
+logout, then enables and starts the timer. It points at
+`/opt/booking-system-qa/dev-ops/scripts/deploy-environment.sh`, so each run
+uses the script from the deployed checkout, which the deploy fast-forwards to
+`origin/main`. Override the location, timezone, or hours with `--script`,
+`--timezone`, and `--times`; use `--dry-run` to inspect the generated units.
+If the host rejects self-lingering, `--no-linger` allows installation but the
+timer only runs while the user has a session; `sudo loginctl enable-linger
+<user>` is preferable.
+
+The service waits up to ten minutes for Docker before deploying. If a cron
+entry from an earlier setup is still present, remove it before enabling the
+timer so QA does not deploy twice per slot.
+
+Run the installer test suite with:
+
+```sh
+bash dev-ops/scripts/tests/test-install-deploy-timer.sh
+```
+
+Check the schedule and recent runs:
+
+```sh
+systemctl --user list-timers booking-qa-deploy.timer
+systemctl --user status booking-qa-deploy.timer
+journalctl --user -u booking-qa-deploy.service
+```
+
+Run the same job immediately with `systemctl --user start
+booking-qa-deploy.service`.
+
+### Cron alternative
+
+On a host whose cron supports `CRON_TZ` (cronie, for example), the equivalent
+crontab entry is:
+
+```cron
+CRON_TZ=Europe/Stockholm
+0 0,12 * * * /opt/booking-system-qa/dev-ops/scripts/deploy-environment.sh qa >> /home/lasrvr/booking-qa-deploy.log 2>&1
+```
+
+- The `flock` in the deploy script makes manual re-runs safe.
+- The cron redirection opens the log file *before* the script starts, so the
+  deploy user must be able to append to it. Redirect to a user-owned path (as
+  above) or provision `/var/log/booking-qa-deploy.log`:
   ```sh
   sudo touch /var/log/booking-qa-deploy.log
   sudo chown lasrvr:lasrvr /var/log/booking-qa-deploy.log
   sudo chmod 0644 /var/log/booking-qa-deploy.log
   ```
   Verify with `sudo -u lasrvr test -w /var/log/booking-qa-deploy.log && echo writable`.
-  Alternatively, redirect to a path the deploy user already owns (e.g.
-  `/home/lasrvr/booking-qa-deploy.log`) and update the cron line above.
+
+### Manual deploy and failures
+
 - Manual deploy: `dev-ops/scripts/deploy-environment.sh qa`
 - Dry run: `dev-ops/scripts/deploy-environment.sh qa --dry-run`
 - A failed deployment keeps/creates a GitHub issue titled `QA deployment
