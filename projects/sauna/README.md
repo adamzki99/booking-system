@@ -1,7 +1,16 @@
 # Sauna Booking (deployment)
 
-Sauna booking system for a homeowner association — the first deployment of the
+Sauna booking system for a homeowner association, the first deployment of the
 booking product.
+
+## UI mockups
+
+Supplied normal-user UI mockups for this deployment live in [`docs/mocks/`](docs/mocks/):
+
+- [`sauna_booking_website_normal_user_mock_desktop.html`](docs/mocks/sauna_booking_website_normal_user_mock_desktop.html): desktop bookings view (app shell, create-booking action, quick book/repeat flow, upcoming bookings list).
+- [`sauna_booking_website_normal_user_mock_mobile.html`](docs/mocks/sauna_booking_website_normal_user_mock_mobile.html): mobile bookings view and menu-open state.
+
+When implementing sauna UI, align layout, styling, coloring, spacing, typography, and component states with these mockups. Use the fixed frontend stack (**React 18, TypeScript, Vite, React Router, Chakra UI v2**) and implement visual treatment through Chakra primitives, theme tokens, and component recipes/variants (see [`../../product/frontend/README.md`](../../product/frontend/README.md)). Reusable visual patterns should be captured in generic frontend theme/components when broadly useful; sauna-specific branding and content remain deployment-specific.
 
 ## User roles
 
@@ -136,7 +145,7 @@ It is stateless and called by the backend over REST.
 
 Everything is packaged in `docker-compose.yml` (Caddy, frontend, backend,
 sidecar, PostgreSQL; Authelia is opt-in via the `authelia` profile). SigNoz
-(APM) is provisioned separately as a persistent dev-ops service — see
+(APM) is provisioned separately as a persistent dev-ops service; see
 [SigNoz / telemetry](#signoz--telemetry) and `dev-ops/signoz/`.
 
 ### Prerequisites
@@ -166,7 +175,7 @@ and starts the stack, then prints the Caddy URL and `docker compose ps`.
 
 - Caddy (entrypoint, HTTP): `http://<host>:${PORT:-8080}`
 - Caddy (public, HTTPS): `https://${SITE_ADDRESS:-localhost}` when `SITE_ADDRESS`
-  is set — see [Let's Encrypt TLS](#lets-encrypt-tls).
+  is set; see [Let's Encrypt TLS](#lets-encrypt-tls).
 - Backend health: `http://<host>:${PORT:-8080}/api/...` (direct: backend:8080 `/healthz`)
 - Sidecar health: sidecar:8081 `/healthz`
 
