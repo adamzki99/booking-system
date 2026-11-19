@@ -22,21 +22,44 @@ timer="$units/booking-qa-deploy.timer"
 [[ -f "$service" ]] && pass || fail "service written"
 [[ -f "$timer" ]] && pass || fail "timer written"
 grep -qx "ExecStart=$deploy qa" "$service" && pass || fail "service ExecStart"
+grep -q "^ExecStartPre=.*docker info" "$service" && pass || fail "service waits for Docker"
+grep -qx 'TimeoutStartSec=45min' "$service" && pass || fail "service timeout"
 grep -qx 'OnCalendar=\*-\*-\* 00,12:00:00 Europe/Stockholm' "$timer" && pass || fail "timer OnCalendar"
+grep -qx 'Persistent=true' "$timer" && pass || fail "timer Persistent"
+grep -qx 'AccuracySec=1min' "$timer" && pass || fail "timer accuracy"
 grep -qx "Unit=booking-qa-deploy.service" "$timer" && pass || fail "timer Unit"
 grep -qx "WantedBy=timers.target" "$timer" && pass || fail "timer install section"
 
+# The generated calendar expression must parse for systemd.
+if command -v systemd-analyze >/dev/null 2>&1; then
+  systemd-analyze calendar '*-*-* 00,12:00:00 Europe/Stockholm' >/dev/null \
+    && pass || fail "systemd accepts OnCalendar"
+fi
+
 # A second run is idempotent.
-"$SCRIPT" --env qa --timezone Europe/Stockholm --times 00,12 \
-  --script "$deploy" --unit-dir "$units" --no-enable >/dev/null
-grep -qx "ExecStart=$deploy qa" "$service" && pass || fail "idempotent rerun"
+out="$("$SCRIPT" --env qa --timezone Europe/Stockholm --times 00,12 \
+  --script "$deploy" --unit-dir "$units" --no-enable)"
+printf '%s\n' "$out" | grep -q "unchanged: $service" && pass || fail "service idempotent"
+printf '%s\n' "$out" | grep -q "unchanged: $timer" && pass || fail "timer idempotent"
+
+# A relative --script is resolved to an absolute ExecStart path.
+( cd "$tmp" && "$SCRIPT" --env qa --script ./deploy-environment.sh \
+  --unit-dir "$tmp/relative-units" --no-enable >/dev/null )
+grep -qx "ExecStart=$deploy qa" "$tmp/relative-units/booking-qa-deploy.service" \
+  && pass || fail "relative script resolved"
 
 # Dry run must not write anything.
 dry_units="$tmp/dry-units"
 out="$("$SCRIPT" --env qa --script "$deploy" --unit-dir "$dry_units" --dry-run)"
 [[ ! -e "$dry_units" ]] && pass || fail "dry run writes nothing"
-printf '%s' "$out" | grep -q 'systemctl --user enable --now booking-qa-deploy.timer' \
-  && pass || fail "dry run prints activation command"
+printf '%s' "$out" | grep -q 'systemctl --user enable booking-qa-deploy.timer' \
+  && pass || fail "dry run prints enable command"
+printf '%s' "$out" | grep -q 'systemctl --user restart booking-qa-deploy.timer' \
+  && pass || fail "dry run prints restart command"
+
+# --no-linger omits linger commands.
+out="$("$SCRIPT" --env qa --script "$deploy" --unit-dir "$dry_units" --dry-run --no-linger)"
+printf '%s' "$out" | grep -q 'loginctl enable-linger' && fail "no-linger still prints linger" || pass
 
 # Invalid timezone is rejected.
 set +e

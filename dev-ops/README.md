@@ -30,7 +30,13 @@ daily. The host clock is UTC and Debian cron ignores `CRON_TZ`, so a plain
 crontab cannot keep a local-time schedule across DST changes; `OnCalendar`
 accepts an IANA timezone.
 
-Install or refresh the timer from a checkout:
+Provision the QA checkout once if it does not exist yet:
+
+```sh
+dev-ops/scripts/deploy-environment.sh qa
+```
+
+Then install or refresh the timer:
 
 ```sh
 dev-ops/scripts/install-deploy-timer.sh
@@ -43,6 +49,19 @@ logout, then enables and starts the timer. It points at
 uses the script from the deployed checkout, which the deploy fast-forwards to
 `origin/main`. Override the location, timezone, or hours with `--script`,
 `--timezone`, and `--times`; use `--dry-run` to inspect the generated units.
+If the host rejects self-lingering, `--no-linger` allows installation but the
+timer only runs while the user has a session; `sudo loginctl enable-linger
+<user>` is preferable.
+
+The service waits up to ten minutes for Docker before deploying. If a cron
+entry from an earlier setup is still present, remove it before enabling the
+timer so QA does not deploy twice per slot.
+
+Run the installer test suite with:
+
+```sh
+bash dev-ops/scripts/tests/test-install-deploy-timer.sh
+```
 
 Check the schedule and recent runs:
 

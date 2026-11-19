@@ -21,6 +21,7 @@
 #                       (default: ${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user)
 #   --dry-run           Print the units and commands without changing anything
 #   --no-enable         Write the unit files but do not enable/start the timer
+#   --no-linger         Do not require user lingering (timer stops at logout)
 #   -h, --help          Show this help
 
 set -euo pipefail
@@ -32,12 +33,13 @@ DEPLOY_SCRIPT=""
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 DRY_RUN=0
 ENABLE=1
+LINGER=1
 
 log() { printf '[install-deploy-timer] %s\n' "$*"; }
 die() { printf '[install-deploy-timer] ERROR: %s\n' "$*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -49,13 +51,16 @@ while [[ $# -gt 0 ]]; do
     --unit-dir) [[ $# -ge 2 ]] || die "--unit-dir needs a value"; UNIT_DIR="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --no-enable) ENABLE=0; shift ;;
+    --no-linger) LINGER=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1 (use --help)" ;;
   esac
 done
 
 [[ "$ENV_NAME" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "invalid environment name: $ENV_NAME"
-[[ -e "/usr/share/zoneinfo/$TIMEZONE" ]] || die "unknown IANA timezone: $TIMEZONE"
+[[ "$TIMEZONE" =~ ^[A-Za-z0-9_+.-]+(/[A-Za-z0-9_+.-]+)*$ ]] || die "invalid IANA timezone: $TIMEZONE"
+[[ "$TIMEZONE" != *..* ]] || die "invalid IANA timezone: $TIMEZONE"
+[[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] || die "unknown IANA timezone: $TIMEZONE"
 
 # Normalize "0,12" / "00,12" to systemd's two-digit hour form.
 normalized_hours=""
@@ -68,14 +73,27 @@ for hour in "${hour_values[@]}"; do
 done
 [[ -n "$normalized_hours" ]] || die "--times must contain at least one hour"
 
+ON_CALENDAR="*-*-* ${normalized_hours}:00:00 ${TIMEZONE}"
+if command -v systemd-analyze >/dev/null 2>&1; then
+  systemd-analyze calendar "$ON_CALENDAR" >/dev/null 2>&1 \
+    || die "systemd rejected OnCalendar expression: $ON_CALENDAR"
+fi
+
 if [[ -z "$DEPLOY_SCRIPT" ]]; then
   DEPLOY_SCRIPT="/opt/booking-system-${ENV_NAME}/dev-ops/scripts/deploy-environment.sh"
+  [[ -x "$DEPLOY_SCRIPT" ]] || die "deploy script not found: $DEPLOY_SCRIPT; run 'dev-ops/scripts/deploy-environment.sh ${ENV_NAME}' once to provision the checkout, or pass --script"
 fi
+[[ "$DEPLOY_SCRIPT" != *[[:space:]]* ]] || die "deploy script path must not contain whitespace: $DEPLOY_SCRIPT"
+if [[ "$DEPLOY_SCRIPT" != /* ]]; then
+  DEPLOY_SCRIPT="$PWD/$DEPLOY_SCRIPT"
+fi
+DEPLOY_SCRIPT_DIR="$(cd -- "$(dirname -- "$DEPLOY_SCRIPT")" 2>/dev/null && pwd)" \
+  || die "deploy script directory not found: $DEPLOY_SCRIPT"
+DEPLOY_SCRIPT="$DEPLOY_SCRIPT_DIR/$(basename -- "$DEPLOY_SCRIPT")"
 [[ -x "$DEPLOY_SCRIPT" ]] || die "deploy script is not executable: $DEPLOY_SCRIPT"
-DEPLOY_SCRIPT_DIR="$(cd -- "$(dirname -- "$DEPLOY_SCRIPT")" && pwd)"
-WORK_DIR="$(cd -- "$DEPLOY_SCRIPT_DIR/../.." && pwd)"
+WORK_DIR="$(cd -- "$DEPLOY_SCRIPT_DIR/../.." && pwd)" \
+  || die "cannot resolve repository root from deploy script: $DEPLOY_SCRIPT"
 
-ON_CALENDAR="*-*-* ${normalized_hours}:00:00 ${TIMEZONE}"
 SERVICE_NAME="booking-${ENV_NAME}-deploy.service"
 TIMER_NAME="booking-${ENV_NAME}-deploy.timer"
 SERVICE_PATH="$UNIT_DIR/$SERVICE_NAME"
@@ -92,6 +110,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=${WORK_DIR}
+# A lingering user timer can start before the Docker daemon is ready.
+ExecStartPre=/bin/bash -c 'for i in {1..120}; do docker info >/dev/null 2>&1 && exit 0; sleep 5; done; exit 1'
 ExecStart=${DEPLOY_SCRIPT} ${ENV_NAME}
 # Docker build plus the two-minute health check need more than the default.
 TimeoutStartSec=45min
@@ -115,14 +135,17 @@ WantedBy=timers.target
 EOF
 }
 
+changed=0
 write_unit() {
   local path="$1" content="$2"
   if [[ -f "$path" ]] && [[ "$(cat -- "$path")" == "$content" ]]; then
     log "unchanged: $path"
+    changed=0
     return 0
   fi
   printf '%s\n' "$content" > "$path"
   log "wrote: $path"
+  changed=1
 }
 
 setup_user_bus() {
@@ -145,9 +168,12 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo
   echo "# commands"
   if [[ "$ENABLE" -eq 1 ]]; then
-    echo "loginctl enable-linger $(id -un)"
+    if [[ "$LINGER" -eq 1 ]]; then
+      echo "loginctl enable-linger $(id -un)"
+    fi
     echo "systemctl --user daemon-reload"
-    echo "systemctl --user enable --now $TIMER_NAME"
+    echo "systemctl --user enable $TIMER_NAME"
+    echo "systemctl --user restart $TIMER_NAME   # start, or re-arm after a unit change"
     echo "systemctl --user list-timers $TIMER_NAME"
   else
     echo "# --no-enable: unit files only"
@@ -157,18 +183,28 @@ fi
 
 mkdir -p "$UNIT_DIR"
 write_unit "$SERVICE_PATH" "$(service_content)"
+service_changed=$changed
 write_unit "$TIMER_PATH" "$(timer_content)"
+timer_changed=$changed
 
 if [[ "$ENABLE" -eq 1 ]]; then
   setup_user_bus
   user_name="$(id -un)"
-  if [[ "$(loginctl show-user "$user_name" -p Linger --value 2>/dev/null || true)" != "yes" ]]; then
-    if ! loginctl enable-linger "$user_name"; then
-      log "WARNING: could not enable linger; the timer stops when the user logs out"
+  if [[ "$LINGER" -eq 1 ]]; then
+    if [[ "$(loginctl show-user "$user_name" -p Linger --value 2>/dev/null || true)" != "yes" ]]; then
+      loginctl enable-linger "$user_name" \
+        || die "could not enable user lingering; run 'sudo loginctl enable-linger $user_name' or rerun with --no-linger"
     fi
+  else
+    log "skipping linger; the timer stops when the user logs out"
   fi
   systemctl --user daemon-reload
-  systemctl --user enable --now "$TIMER_NAME"
+  systemctl --user enable "$TIMER_NAME"
+  if [[ "$service_changed" -eq 1 || "$timer_changed" -eq 1 ]]; then
+    systemctl --user restart "$TIMER_NAME"
+  else
+    systemctl --user start "$TIMER_NAME"
+  fi
   systemctl --user list-timers "$TIMER_NAME" --no-pager || true
 else
   log "written; timer not enabled (--no-enable)"
