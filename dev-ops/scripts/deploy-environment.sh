@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy-environment.sh — deploy one environment (default: qa) from its branch.
+# deploy-environment.sh - deploy one environment (default: qa) from its branch.
 #
 # Usage:
 #   dev-ops/scripts/deploy-environment.sh [env] [--dry-run]
@@ -132,19 +132,51 @@ PY
 }
 
 surface_failure() {
-  local sha="$1" logtail="$2" cmd="${3:-${FAILED_CMD:-}}"
+  local sha="${1:-unknown}" cmd="${2:-${FAILED_CMD:-}}"
+  local ts
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  # Keep the full raw log on the host only. Nothing from it is published.
+  # The public issue gets only SHA, command, time, the local log path and the
+  # docker compose ps service status, none of which contain email bodies or
+  # login codes.
+  local compose_file="${COMPOSE_FILE:-}"
+  local log_file="" service_status="(no compose file)"
+  if [[ -n "$compose_file" && -f "$compose_file" ]]; then
+    local state_dir
+    if [[ -n "${XDG_STATE_HOME:-}" ]]; then
+      state_dir="${XDG_STATE_HOME%/}/booking-deploy"
+    elif [[ -n "${HOME:-}" ]]; then
+      state_dir="${HOME%/}/.local/state/booking-deploy"
+    else
+      state_dir="${TMPDIR:-/tmp}/booking-deploy-$(id -u)"
+    fi
+    # The raw log holds login codes and email bodies. Keep it private to the
+    # deploy user from the moment the file is created.
+    local old_umask
+    old_umask="$(umask)"
+    umask 077
+    if mkdir -p "$state_dir" 2>/dev/null; then
+      log_file="$state_dir/${ts}.log"
+      docker compose -f "$compose_file" logs --tail=100 >"$log_file" 2>&1 || true
+    fi
+    umask "$old_umask"
+    service_status="$(docker compose -f "$compose_file" ps 2>&1 || true)"
+  fi
+
   local issue_number=""
   issue_number=$(gh issue list --state open --search 'in:title "QA deployment failed"' --json number --jq '.[0].number' 2>/dev/null || true)
   local body
   body="Deployment of \`main\` to QA failed.
 
-Time (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Time (UTC): ${ts}
 Failing command: ${cmd:-unknown}
 Commit: ${sha:-unknown}
+Full deploy log (host only): ${log_file:-not available}
 
-Log tail:
+Service status:
 \`\`\`
-${logtail}
+${service_status}
 \`\`\`"
   if [[ -z "$issue_number" ]]; then
     gh issue create --title "QA deployment failed" --label bug --label dev-ops --body "$body" >/dev/null 2>&1 || true
@@ -185,15 +217,7 @@ on_error() {
     update_yaml "failed" "$sha" "" 2>/dev/null || true
   fi
 
-  local logtail=""
-  if [[ -n "${COMPOSE_FILE:-}" && -f "${COMPOSE_FILE:-}" ]]; then
-    logtail="$(docker compose -f "$COMPOSE_FILE" logs --tail=100 2>&1 || true)"
-  fi
-  if [[ -z "$logtail" ]]; then
-    logtail="(no compose logs available; failing command: $cmd)"
-  fi
-
-  surface_failure "$sha" "$logtail" "$cmd" 2>/dev/null || true
+  surface_failure "$sha" "$cmd" 2>/dev/null || true
   exit "$exit_code"
 }
 trap on_error ERR
@@ -259,7 +283,7 @@ acquire_lock() {
 
 if ! acquire_lock; then
   lock_error="could not open a deploy lock as $(id -un); tried: ${LOCK_CANDIDATES[*]}"
-  surface_failure "unknown" "$lock_error" "lock acquisition"
+  surface_failure "unknown" "lock acquisition"
   die "$lock_error"
 fi
 flock -x 9
@@ -357,9 +381,8 @@ export COMPOSE_PROJECT_NAME="booking-${ENV_NAME}"
 log "starting compose"
 if ! docker compose -f "$COMPOSE_FILE" up -d --build --remove-orphans; then
   trap - ERR 2>/dev/null || true
-  LOGTAIL="$(docker compose -f "$COMPOSE_FILE" logs --tail=100 2>&1 || true)"
   update_yaml "failed" "$DEPLOYED_SHA" ""
-  surface_failure "$DEPLOYED_SHA" "$LOGTAIL" "docker compose -f $COMPOSE_FILE up -d --build --remove-orphans"
+  surface_failure "$DEPLOYED_SHA" "docker compose -f $COMPOSE_FILE up -d --build --remove-orphans"
   die "docker compose up failed"
 fi
 
@@ -375,10 +398,8 @@ done
 
 if [[ "$healthy" -ne 1 ]]; then
   trap - ERR 2>/dev/null || true
-  LOGTAIL="$(docker compose -f "$COMPOSE_FILE" ps 2>&1 || true)
-$(docker compose -f "$COMPOSE_FILE" logs --tail=100 2>&1 || true)"
   update_yaml "failed" "$DEPLOYED_SHA" ""
-  surface_failure "$DEPLOYED_SHA" "$LOGTAIL" "curl healthz"
+  surface_failure "$DEPLOYED_SHA" "curl healthz"
   die "health check failed on port ${PORT}"
 fi
 
