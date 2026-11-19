@@ -88,13 +88,13 @@ Only one deploy per environment runs at a time: the script holds an exclusive
 user that runs the deploy (the systemd user timer, cron, or an interactive
 shell), so the script uses the first usable path from:
 
-1. `$DEPLOY_LOCK_FILE` — explicit override, used alone with no fallbacks.
+1. `$DEPLOY_LOCK_FILE` - explicit override, used alone with no fallbacks.
 2. `$XDG_STATE_HOME/booking-deploy-<env>.lock`, or
-   `~/.local/state/booking-deploy-<env>.lock` when `XDG_STATE_HOME` is unset —
+   `~/.local/state/booking-deploy-<env>.lock` when `XDG_STATE_HOME` is unset  - 
    the default, deterministic for a given user so a timer run and a cron run
    take the same lock.
-3. `${TMPDIR:-/tmp}/booking-deploy-<env>-<uid>.lock` — per-user fallback.
-4. `/var/lock/booking-deploy-<env>.lock` — shared lock, only if writable.
+3. `${TMPDIR:-/tmp}/booking-deploy-<env>-<uid>.lock` - per-user fallback.
+4. `/var/lock/booking-deploy-<env>.lock` - shared lock, only if writable.
 
 If none can be opened, the deploy stops before any other work, prints every
 attempted path, and reports a `QA deployment failed` issue through the same
@@ -271,7 +271,7 @@ policies** (e.g. only high severity/confidence rules) to control noise. Combined
 with the repo's *require conversation resolution* branch protection, unresolved
 findings block merging.
 
-- Workflow: `.github/workflows/semgrep.yml` — job name/context `semgrep/ci`,
+- Workflow: `.github/workflows/semgrep.yml` - job name/context `semgrep/ci`,
   runs `semgrep ci` in the `semgrep/semgrep` container on PRs to `main`,
   `master`, and `release/**` (diff-aware), plus push-to-main baseline scans,
   `workflow_dispatch`, and a daily full scan.
@@ -309,21 +309,22 @@ dev-ops/scripts/request-skills.sh --local  # install only, no PR
 
 Skills already present are skipped. Each installed skill carries a `.source`
 file recording its upstream origin or repository-local path. Review licenses
-(where applicable) and content before merging — skills are instructions loaded
+(where applicable) and content before merging - skills are instructions loaded
 by factory agents.
 
 ## Agentic Playwright testing (dev/QA only)
 
 A testing agent can drive the UI against the QA/dev environment using Playwright
-running inside a Docker container. Because login is passwordless (email code),
-the agent fetches the current 6-character code from the backend's Compose logs.
+running inside a Docker container. QA deployments run the application in QA
+mode, so sign-in does not require a 6-digit email code and built-in QA users are
+seeded.
 
 ### Environment variables
 
-- `BOOKING_DEV_SSH` — SSH target for the dev server (e.g. `user@host`), used
+- `BOOKING_DEV_SSH` - SSH target for the dev server (e.g. `user@host`), used
   when the script is not running on the dev server itself. Never committed.
-- `TEST_USER_EMAIL` — email of an existing QA user account used for tests.
-- `DEPLOY_DIR` (optional) — override the deploy checkout path
+- `TEST_USER_EMAIL` - email of an existing QA user account used for tests.
+- `DEPLOY_DIR` (optional) - override the deploy checkout path
   (default `/opt/booking-system-<env>`).
 
 ### Retrieve a login code
@@ -338,6 +339,7 @@ dev-ops/scripts/get-login-code.sh <email> [--env qa] [--request] [--local] [--fr
 - `--request` first POSTs to `/api/auth/request-code`, then polls logs ~15 s.
 - Only the code is printed to stdout; diagnostics go to stderr.
 - Refuses unknown env names and any env matching `prod`.
+- QA-mode sign-in does not require this step.
 
 ### Run Playwright tests
 
@@ -345,21 +347,17 @@ dev-ops/scripts/get-login-code.sh <email> [--env qa] [--request] [--local] [--fr
 dev-ops/scripts/run-playwright.sh [--env qa] [spec...]
 ```
 
-Single entry point: requests + fetches the code, builds the Playwright image,
-then runs the suite in a container with `BASE_URL`, `TEST_USER_EMAIL` and
-`LOGIN_CODE` passed as env vars (code never written to a file). HTML/JUnit
-reporters are disabled so codes do not leak into artifacts.
+Builds the Playwright image and runs the suite in a container with `BASE_URL`
+and `TEST_USER_EMAIL` passed as env vars against the target environment.
 
 ### Security
 
 - Dev/QA only. Never enable in production; `prod` env names are rejected.
-- Codes are passed as environment variables only and are not persisted to files
-  or CI artifacts.
 
 ## Self-hosting
 
 - [Self-hosting with Cloudflare Tunnels (HTTPS-compliant)](self-hosting-cloudflare-tunnel.md)
-  — repo preparation, deployment config surface, `cloudflared`/Caddy/Authelia
+  - repo preparation, deployment config surface, `cloudflared`/Caddy/Authelia
   guidance, and a validation checklist. Keep tunnel tokens, hostnames, and other
   deployment-specific identifiers in `projects/<name>/` config or environment
   variables, not in `product/`.

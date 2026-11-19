@@ -107,10 +107,20 @@ func main() {
 		} else if n > 0 {
 			logger.Info("seeded dev users", "count", n)
 		}
+		if cfg.QAMode {
+			if n, err := userService.SeedQAUsers(context.Background()); err != nil {
+				pool.Close()
+				logger.Error("seed qa users", "err", err)
+				os.Exit(1)
+			} else if n > 0 {
+				logger.Info("seeded qa users", "count", n)
+			}
+		}
 		bookingService := booking.NewService(app.Commands, bookings, userProjections, blocked)
 		broadcastService := broadcast.NewService(app.Commands, userProjections)
 		icalService := ical.NewService(app.Commands, icalProjections)
 		authService := auth.NewService(app.Commands, mailer, ratelimit.NewLimiter(), userProjections)
+		authService.QAMode = cfg.QAMode
 		authService.BootstrapAdmin = func(ctx context.Context, email string) error {
 			return userService.BootstrapAdmin(ctx, email)
 		}

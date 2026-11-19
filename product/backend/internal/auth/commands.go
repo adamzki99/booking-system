@@ -17,6 +17,8 @@ const (
 	RequestLoginCodeCommandType = "auth.RequestLoginCode"
 	// VerifyLoginCodeCommandType identifies VerifyLoginCode commands.
 	VerifyLoginCodeCommandType = "auth.VerifyLoginCode"
+	// CreateSessionCommandType identifies CreateSession commands.
+	CreateSessionCommandType = "auth.CreateSession"
 )
 
 // RequestLoginCode issues a login code for an email address.
@@ -42,12 +44,25 @@ type VerifyLoginCode struct {
 // CommandType implements command.Command.
 func (VerifyLoginCode) CommandType() string { return VerifyLoginCodeCommandType }
 
+// CreateSession creates a session without verifying a login code. It is used
+// for QA-mode login flows where the one-time code step is bypassed.
+type CreateSession struct {
+	Email            string
+	TokenHash        string
+	SessionExpiresAt time.Time
+	OccurredAt       time.Time
+}
+
+// CommandType implements command.Command.
+func (CreateSession) CommandType() string { return CreateSessionCommandType }
+
 // Register wires the auth commands and projections into the registry.
 func Register(r *registry.Registry) *Projections {
 	codes := NewLoginCodeProjection(r.DB())
 	sessions := NewSessionProjection(r.DB())
 	r.RegisterCommand(RequestLoginCodeCommandType, handleRequestLoginCode)
 	r.RegisterCommand(VerifyLoginCodeCommandType, handleVerifyLoginCode(codes))
+	r.RegisterCommand(CreateSessionCommandType, handleCreateSession)
 	r.RegisterProjection(codes)
 	r.RegisterProjection(sessions)
 	return &Projections{LoginCodes: codes, Sessions: sessions}
@@ -163,4 +178,49 @@ func handleVerifyLoginCode(codes *LoginCodeProjection) command.Handler {
 			OccurredAt:    occurredAt,
 		}}, nil
 	}
+}
+
+func handleCreateSession(_ context.Context, cmd command.Command) ([]eventstore.Event, error) {
+	var c CreateSession
+	switch typed := cmd.(type) {
+	case CreateSession:
+		c = typed
+	case *CreateSession:
+		if typed == nil {
+			return nil, errors.New("auth: command is nil")
+		}
+		c = *typed
+	default:
+		return nil, fmt.Errorf("auth: expected CreateSession, got %T", cmd)
+	}
+
+	email, err := NormalizeEmail(c.Email)
+	if err != nil {
+		return nil, err
+	}
+	if c.TokenHash == "" {
+		return nil, errors.New("auth: token hash is required")
+	}
+	if c.SessionExpiresAt.IsZero() {
+		return nil, errors.New("auth: session expiry is required")
+	}
+	occurredAt := c.OccurredAt
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	payload, err := json.Marshal(sessionCreatedPayload{
+		Email:     email,
+		TokenHash: c.TokenHash,
+		ExpiresAt: c.SessionExpiresAt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("auth: marshal event: %w", err)
+	}
+	return []eventstore.Event{{
+		AggregateType: AggregateType,
+		AggregateID:   email,
+		EventType:     SessionCreatedEventType,
+		Payload:       payload,
+		OccurredAt:    occurredAt,
+	}}, nil
 }

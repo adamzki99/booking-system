@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { currentUser, requestCode, verify } from "./auth";
+import { currentUser, getAuthConfig, qaLogin, requestCode, verify } from "./auth";
 
 const fetchMock = vi.fn();
 
@@ -39,6 +39,26 @@ describe("auth API", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/auth/verify");
     expect(init.body).toBe(JSON.stringify({ email: "user@example.com", code: "ABC123" }));
+  });
+
+  it("loads auth config", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { qaMode: true }));
+
+    const cfg = await getAuthConfig();
+
+    expect(cfg).toEqual({ qaMode: true });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/config");
+  });
+
+  it("signs in without a code in QA mode", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: "qa-tok" }));
+
+    const token = await qaLogin("user1@test.local");
+
+    expect(token).toBe("qa-tok");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/auth/qa-login");
+    expect(init.body).toBe(JSON.stringify({ email: "user1@test.local" }));
   });
 
   it("loads the current user", async () => {

@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -99,4 +100,22 @@ func (s *UserService) SeedUsers(ctx context.Context, seeds []SeedUser) (int, err
 		n++
 	}
 	return n, nil
+}
+
+// QASeedUsers returns the built-in users seeded for QA environments.
+func QASeedUsers() []SeedUser {
+	seeds := make([]SeedUser, 0, 8)
+	for i := 1; i <= 6; i++ {
+		seeds = append(seeds, SeedUser{Email: fmt.Sprintf("user%d@test.local", i), Role: RoleBasic})
+	}
+	seeds = append(seeds,
+		SeedUser{Email: "superuser@test.local", Role: RoleSuper},
+		SeedUser{Email: "admin@test.local", Role: RoleAdmin},
+	)
+	return seeds
+}
+
+// SeedQAUsers seeds the built-in QA users when they do not already exist.
+func (s *UserService) SeedQAUsers(ctx context.Context) (int, error) {
+	return s.SeedUsers(ctx, QASeedUsers())
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy-environment.sh — deploy one environment (default: qa) from its branch.
+# deploy-environment.sh - deploy one environment (default: qa) from its branch.
 #
 # Usage:
 #   dev-ops/scripts/deploy-environment.sh [env] [--dry-run]
@@ -324,27 +324,40 @@ UPDATE_FILE="$DEPLOY_DIR/dev-ops/environments.yaml"
 COMPOSE_FILE="$DEPLOY_DIR/projects/sauna/docker-compose.yml"
 SAUNA_ENV="$DEPLOY_DIR/projects/sauna/.env"
 if [[ -f "$SAUNA_ENV" ]]; then
-  python3 - "$SAUNA_ENV" <<'PY'
+  python3 - "$SAUNA_ENV" "$ENV_NAME" <<'PY'
 import sys
-path = sys.argv[1]
+
+path, env_name = sys.argv[1], sys.argv[2]
 with open(path) as f:
     lines = f.readlines()
-found = False
+
+qa_mode = "true" if env_name == "qa" else "false"
+found_otel = False
+found_qa = False
 out = []
 for line in lines:
     if line.startswith('OTEL_EXPORTER_OTLP_ENDPOINT='):
-        found = True
-        key, _, val = line.partition('=')
+        found_otel = True
+        _, _, val = line.partition('=')
         if val.strip() in ('', '""', "''"):
             out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318\n')
         else:
             out.append(line)
+    elif line.startswith('QA_MODE='):
+        found_qa = True
+        out.append(f'QA_MODE={qa_mode}\n')
     else:
         out.append(line)
-if not found:
+
+if not found_otel:
     if out and not out[-1].endswith('\n'):
         out[-1] += '\n'
     out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318\n')
+if not found_qa:
+    if out and not out[-1].endswith('\n'):
+        out[-1] += '\n'
+    out.append(f'QA_MODE={qa_mode}\n')
+
 if out != lines:
     with open(path, 'w') as f:
         f.writelines(out)

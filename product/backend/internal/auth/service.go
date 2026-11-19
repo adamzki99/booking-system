@@ -53,6 +53,7 @@ type AuthService struct {
 	limiter        rateLimiter
 	users          userDirectory
 	BootstrapAdmin func(context.Context, string) error
+	QAMode         bool
 }
 
 // NewService creates an auth service. The users directory is required for
@@ -165,6 +166,52 @@ func (s *AuthService) Verify(ctx context.Context, emailAddr, code, clientIP stri
 	cmd := VerifyLoginCode{
 		Email:            normalized,
 		Code:             code,
+		TokenHash:        tokenHash,
+		SessionExpiresAt: now.Add(SessionTTL),
+		OccurredAt:       now,
+	}
+	if err := s.commands.Execute(ctx, cmd); err != nil {
+		return "", err
+	}
+	if s.BootstrapAdmin != nil {
+		if err := s.BootstrapAdmin(ctx, normalized); err != nil {
+			return token, err
+		}
+	}
+	return token, nil
+}
+
+// QALogin creates a session without a one-time login code. It is only
+// available when QA mode is enabled and only for users allowed to log in.
+func (s *AuthService) QALogin(ctx context.Context, emailAddr, clientIP string) (string, error) {
+	if !s.QAMode {
+		return "", ErrInvalidOrExpiredCode
+	}
+	normalized, err := NormalizeEmail(emailAddr)
+	if err != nil {
+		return "", err
+	}
+	emailOK := s.limiter.Allow(verifyEmailKey(normalized), verifyEmailLimit, verifyEmailWindow)
+	ipOK := s.limiter.Allow(verifyIPKey(clientIP), verifyIPLimit, verifyIPWindow)
+	if !emailOK || !ipOK {
+		return "", ErrRateLimited
+	}
+	ok, err := s.canLogin(ctx, normalized)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", ErrInvalidOrExpiredCode
+	}
+
+	token, tokenHash, err := GenerateToken()
+	if err != nil {
+		return "", fmt.Errorf("auth: generate token: %w", err)
+	}
+
+	now := time.Now().UTC()
+	cmd := CreateSession{
+		Email:            normalized,
 		TokenHash:        tokenHash,
 		SessionExpiresAt: now.Add(SessionTTL),
 		OccurredAt:       now,
