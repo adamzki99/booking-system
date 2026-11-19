@@ -360,7 +360,7 @@ for line in lines:
         found = True
         key, _, val = line.partition('=')
         if val.strip() in ('', '""', "''"):
-            out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318\n')
+            out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318\n')
         else:
             out.append(line)
     else:
@@ -368,7 +368,7 @@ for line in lines:
 if not found:
     if out and not out[-1].endswith('\n'):
         out[-1] += '\n'
-    out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318\n')
+    out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318\n')
 if out != lines:
     with open(path, 'w') as f:
         f.writelines(out)
