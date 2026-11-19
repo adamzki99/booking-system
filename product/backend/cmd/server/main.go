@@ -72,11 +72,11 @@ func main() {
 		if cfg.SidecarURL != "" {
 			validator = sidecar.NewClient(cfg.SidecarURL, logger)
 		}
-		bookings, blocked := booking.Register(app, userProjections, validator)
+		bookings, blocked := booking.Register(app, userProjections.Users, validator)
 		outbox := notification.NewPostgresStore(pool)
-		booking.RegisterNotify(app, outbox, userProjections, bookings, logger)
-		broadcast.Register(app, userProjections)
-		broadcast.RegisterNotify(app, outbox, userProjections, logger)
+		booking.RegisterNotify(app, outbox, userProjections.Users, bookings, logger)
+		broadcast.Register(app, userProjections.Users)
+		broadcast.RegisterNotify(app, outbox, userProjections.Users, logger)
 		icalProjections := ical.Register(app)
 		if err := app.Projections.CatchUp(context.Background()); err != nil {
 			pool.Close()
