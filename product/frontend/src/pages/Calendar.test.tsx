@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../test-utils";
 import type { Booking } from "../api/auth";
 import { cancelBooking, createBooking, listBookings } from "../api/bookings";
+import { listUsers } from "../api/users";
 import { useSession } from "../auth/SessionContext";
 import Calendar from "./Calendar";
 
@@ -13,11 +14,13 @@ vi.mock("../api/bookings", () => ({
   cancelBooking: vi.fn(),
 }));
 vi.mock("../auth/SessionContext", () => ({ useSession: vi.fn() }));
+vi.mock("../api/users", () => ({ listUsers: vi.fn() }));
 
 const listMock = vi.mocked(listBookings);
 const createMock = vi.mocked(createBooking);
 const cancelMock = vi.mocked(cancelBooking);
 const useSessionMock = vi.mocked(useSession);
+const listUsersMock = vi.mocked(listUsers);
 
 function booking(id: string, userId: string, start: string): Booking {
   return { id, userId, start, end: start, status: "active" };
@@ -37,6 +40,8 @@ describe("Calendar page", () => {
   beforeEach(() => {
     listMock.mockReset();
     createMock.mockReset();
+    listUsersMock.mockReset();
+    listUsersMock.mockResolvedValue([]);
     cancelMock.mockReset();
     useSessionMock.mockReset();
     stubSession("u1");
