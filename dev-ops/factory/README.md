@@ -68,6 +68,11 @@ tick.sh --help
 | `FACTORY_LOG_SESSION_OUTPUT` | `tail` | `tail` retains last 16 KiB in failure events and writes session logs; `metadata` suppresses retained output. |
 | `FACTORY_PRESERVE_SESSION_LOGS` | `on-failure` | `on-failure` (delete on success), `always`, `never`. |
 | `FACTORY_CONTAINER_MODE` | `0` | `1` enables bwrap per-session sandbox; falls back to host if bwrap unavailable. |
+| `FACTORY_LOGIN` | (unset) | Login of the factory bot/app identity used to filter marker comments and attribute factory work. |
+| `FACTORY_GITHUB_APP_ID` | (unset) | GitHub App id used to mint a short-lived least-privilege installation token per tick. |
+| `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE` | (unset) | Path to the app private key PEM (preferred over inline key). |
+| `FACTORY_GITHUB_APP_PRIVATE_KEY` | (unset) | Inline app private key PEM (avoid; prefer file). |
+| `FACTORY_GITHUB_INSTALLATION_ID` | (unset) | Installation id; auto-discovered from the repository when unset. |
 | `MODELS_CONFIG` | `dev-ops/factory/models.yaml` | Label→model config. |
 
 OpenCode invocation uses `opencode run --auto --format json --file <prompt-file>`
@@ -165,11 +170,12 @@ Required env: `FACTORY_LOG_FILE`, `SIGNOZ_OTLP_ENDPOINT`, optional
 
 ## Security expectations
 
-- **Least-privilege GitHub token:** use a fine-grained token/PAT scoped to this
-  repository with only required permissions (typically Issues/PRs/Contents read
-  & write as needed for comments, branches, PR updates; Actions read for check
-  inspection). Avoid org-wide or admin scopes. Never print tokens; pass via
-  `gh auth`/environment, not argv.
+- **Least-privilege GitHub token:** prefer a GitHub App installation token minted
+  per tick via `FACTORY_GITHUB_APP_ID` and a private key. `tick.sh` exports it as
+  `GH_TOKEN`/`GITHUB_TOKEN` for `gh` and sessions; the token is never logged.
+  Set `FACTORY_LOGIN` to the app's bot login so marker comments and PRs are
+  attributable to the factory identity. Avoid org-wide or admin scopes. Never
+  print tokens; pass via environment, not argv.
 - **Agent/tool permissions:** factory sessions run opencode with repository
   access and shell tooling. Treat this as privileged automation: run on a
   trusted host/account, restrict filesystem/SSH credentials available to the
