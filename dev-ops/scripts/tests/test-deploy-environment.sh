@@ -78,7 +78,7 @@ lockdir="$tmp/locks"
 if run_deploy "$out" \
     DEPLOY_DIR="$deploy" \
     DEPLOY_LOCK_FILE="$lockdir/qa.lock" \
-    XDG_RUNTIME_DIR="$tmp/runtime" \
+    XDG_STATE_HOME="$tmp/state" \
     TMPDIR="$tmp/tmp" \
     -- qa; then
   pass
@@ -90,64 +90,98 @@ grep -qF "lock: $lockdir/qa.lock" "$out" && pass || fail "explicit lock path use
 grep -q "starting compose" "$out" && pass || fail "deploy proceeds past the lock step"
 grep -q "deploy complete" "$out" && pass || fail "deploy completes with fixture checkout"
 
-# A pinned but unwritable lock path must fail loudly, surface a deployment
-# failure issue, and never fall back to a different path silently.
-if [[ "$EUID" -eq 0 ]]; then
-  echo "SKIP: unwritable lock assertions are meaningless as root" >&2
+# A pinned but unusable lock path must fail loudly, surface a deployment
+# failure issue, and never fall back to a different path silently. /proc is
+# not writable even for root, so this case runs on every host.
+: > "$gh_log"
+out="$tmp/out-unusable.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$deploy" \
+    DEPLOY_LOCK_FILE="/proc/nonexistent/qa.lock" \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  fail "unusable explicit lock path should fail"
 else
-  readonly_dir="$tmp/read-only"
-  mkdir -p "$readonly_dir"
-  chmod 500 "$readonly_dir"
-  : > "$gh_log"
-  out="$tmp/out-unwritable.log"
+  pass
+fi
+grep -qF "lock path not writable: /proc/nonexistent/qa.lock" "$out" \
+  && pass || fail "unusable lock path reported"
+grep -q "could not open a deploy lock" "$out" \
+  && pass || fail "lock failure explains itself"
+grep -q "issue create" "$gh_log" \
+  && pass || fail "lock failure surfaced as a GitHub issue"
+grep -q "starting compose" "$out" \
+  && fail "unusable lock path must not reach the deploy steps" || pass
+
+# Without an explicit path, an unusable state dir falls through to a per-user
+# lock under TMPDIR instead of aborting on a shared stale file.
+mkdir -p "$tmp/tmp" "$tmp/state"
+out="$tmp/out-fallback.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$deploy" \
+    XDG_STATE_HOME="/proc/nonexistent" \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  pass
+else
+  fail "deploy should fall back to a writable lock path"
+fi
+grep -qF "lock path not writable: /proc/nonexistent/booking-deploy-qa.lock" "$out" \
+  && pass || fail "unusable state lock path reported"
+expected_lock="$tmp/tmp/booking-deploy-qa-$(id -u).lock"
+grep -qF "lock: $expected_lock" "$out" && pass || fail "per-user fallback lock used"
+grep -q "deploy complete" "$out" && pass || fail "fallback deploy completes"
+
+# The reported bug shape: a writable directory holding a lock file the deploy
+# user cannot open (a root-owned file in /var/lock). The deploy must fall
+# through to the next candidate instead of aborting. Root ignores file modes,
+# so this case is unprivileged-only.
+if [[ "$EUID" -eq 0 ]]; then
+  echo "SKIP: stale root-owned lock file shape is not reproducible as root" >&2
+else
+  shadow_state="$tmp/shadow-state"
+  mkdir -p "$shadow_state"
+  shadow_lock="$shadow_state/booking-deploy-qa.lock"
+  : > "$shadow_lock"
+  chmod 000 "$shadow_lock"
+  out="$tmp/out-stale.log"
   if run_deploy "$out" \
       DEPLOY_DIR="$deploy" \
-      DEPLOY_LOCK_FILE="$readonly_dir/qa.lock" \
+      XDG_STATE_HOME="$shadow_state" \
       TMPDIR="$tmp/tmp" \
       -- qa; then
-    fail "unwritable explicit lock path should fail"
-  else
     pass
+  else
+    fail "unreadable stale lock file should not abort the deploy"
   fi
-  grep -qF "lock path not writable: $readonly_dir/qa.lock" "$out" \
-    && pass || fail "unwritable lock path reported"
-  grep -q "could not open a deploy lock" "$out" \
-    && pass || fail "lock failure explains itself"
-  grep -q "issue create" "$gh_log" \
-    && pass || fail "lock failure surfaced as a GitHub issue"
-  chmod 700 "$readonly_dir"
+  grep -qF "lock path not writable: $shadow_lock" "$out" \
+    && pass || fail "stale unreadable lock reported"
+  grep -q "deploy complete" "$out" && pass || fail "deploy completes past stale lock"
+  chmod 600 "$shadow_lock"
 fi
 
-# Without an explicit path, an unusable runtime dir falls through to a
-# per-user lock under TMPDIR instead of aborting on a shared stale file.
-if [[ "$EUID" -eq 0 ]]; then
-  echo "SKIP: fallback lock assertions are meaningless as root" >&2
-else
-  readonly_runtime="$tmp/read-only-runtime"
-  mkdir -p "$readonly_runtime" "$tmp/tmp"
-  chmod 500 "$readonly_runtime"
-  out="$tmp/out-fallback.log"
+# The default lock path is deterministic for a user, so a timer run and a cron
+# run serialize against each other.
+for attempt in 1 2; do
+  out="$tmp/out-deterministic-$attempt.log"
   if run_deploy "$out" \
       DEPLOY_DIR="$deploy" \
-      XDG_RUNTIME_DIR="$readonly_runtime" \
+      XDG_STATE_HOME="$tmp/state" \
       TMPDIR="$tmp/tmp" \
       -- qa; then
     pass
   else
-    fail "deploy should fall back to a writable lock path"
+    fail "deploy with a state-dir lock should succeed (attempt $attempt)"
   fi
-  grep -qF "lock path not writable: $readonly_runtime/booking-deploy-qa.lock" "$out" \
-    && pass || fail "unwritable runtime lock path reported"
-  expected_lock="$tmp/tmp/booking-deploy-qa-$(id -u).lock"
-  grep -qF "lock: $expected_lock" "$out" && pass || fail "per-user fallback lock used"
-  grep -q "deploy complete" "$out" && pass || fail "fallback deploy completes"
-  chmod 700 "$readonly_runtime"
-fi
+  grep -qF "lock: $tmp/state/booking-deploy-qa.lock" "$out" \
+    && pass || fail "deterministic state-dir lock used (attempt $attempt)"
+done
 
-# Dry run reports the lock path it would use and creates nothing.
+# Dry run reports the first lock path it would try and creates nothing.
 out="$tmp/out-dry.log"
 dry_lock="$tmp/dry-locks/qa.lock"
-if DEPLOY_LOCK_FILE="$dry_lock" "$SCRIPT" qa --dry-run >"$out" 2>&1; then
+if env PATH="$stubs:$PATH" GH_LOG="$gh_log" DEPLOY_LOCK_FILE="$dry_lock" \
+    "$SCRIPT" qa --dry-run >"$out" 2>&1; then
   pass
 else
   fail "dry run should succeed"

@@ -207,17 +207,21 @@ DEPLOY_DIR="${DEPLOY_DIR:-/opt/booking-system-${ENV_NAME}}"
 
 # Deploy lock. Only one deploy per environment may run at a time. The lock file
 # must be creatable and openable by the deploy user (systemd user timer, cron,
-# or an interactive shell), so the first candidate is a user-writable path and
-# the system-wide /var/lock is only a last resort. An explicit DEPLOY_LOCK_FILE
-# is used alone: an operator who pins a path wants that failure to be loud
-# rather than silently replaced.
+# or an interactive shell), so the candidates below are user-writable paths and
+# the system-wide /var/lock is only a last resort. The first candidate is
+# deterministic for a given user (the same file under the systemd user timer and
+# under cron) so the two contexts still serialize against each other. An
+# explicit DEPLOY_LOCK_FILE is used alone: an operator who pins a path wants
+# that failure to be loud rather than silently replaced.
 ENV_LOCK_NAME="booking-deploy-${ENV_NAME}.lock"
 LOCK_CANDIDATES=()
 if [[ -n "${DEPLOY_LOCK_FILE:-}" ]]; then
   LOCK_CANDIDATES+=("$DEPLOY_LOCK_FILE")
 else
-  if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
-    LOCK_CANDIDATES+=("${XDG_RUNTIME_DIR%/}/$ENV_LOCK_NAME")
+  if [[ -n "${XDG_STATE_HOME:-}" ]]; then
+    LOCK_CANDIDATES+=("${XDG_STATE_HOME%/}/$ENV_LOCK_NAME")
+  elif [[ -n "${HOME:-}" ]]; then
+    LOCK_CANDIDATES+=("${HOME%/}/.local/state/$ENV_LOCK_NAME")
   fi
   LOCK_CANDIDATES+=("${TMPDIR:-/tmp}/booking-deploy-${ENV_NAME}-$(id -u).lock")
   LOCK_CANDIDATES+=("/var/lock/$ENV_LOCK_NAME")
@@ -240,7 +244,9 @@ acquire_lock() {
       log "lock path not writable: $candidate"
       continue
     fi
-    if ! exec 9>>"$candidate" 2>/dev/null; then
+    # Keep stderr attached: an unbraced "exec ... 2>/dev/null" would leave fd 2
+    # pointed at /dev/null for the rest of the run and hide later errors.
+    if ! { exec 9>>"$candidate"; } 2>/dev/null; then
       log "lock path not openable: $candidate"
       continue
     fi

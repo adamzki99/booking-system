@@ -89,15 +89,17 @@ user that runs the deploy (the systemd user timer, cron, or an interactive
 shell), so the script uses the first usable path from:
 
 1. `$DEPLOY_LOCK_FILE` — explicit override, used alone with no fallbacks.
-2. `$XDG_RUNTIME_DIR/booking-deploy-<env>.lock` — the user timer's runtime
-   directory, for example `/run/user/1000/booking-deploy-qa.lock`.
+2. `$XDG_STATE_HOME/booking-deploy-<env>.lock`, or
+   `~/.local/state/booking-deploy-<env>.lock` when `XDG_STATE_HOME` is unset —
+   the default, deterministic for a given user so a timer run and a cron run
+   take the same lock.
 3. `${TMPDIR:-/tmp}/booking-deploy-<env>-<uid>.lock` — per-user fallback.
 4. `/var/lock/booking-deploy-<env>.lock` — shared lock, only if writable.
 
 If none can be opened, the deploy stops before any other work, prints every
 attempted path, and reports a `QA deployment failed` issue through the same
 mechanism as other failures. `deploy-environment.sh <env> --dry-run` prints the
-lock path that would be used.
+first lock path it would try.
 
 The per-user name in step 3 is deliberate: a lock file left in `/tmp` or in the
 sticky `/var/lock` by an earlier `sudo` run is owned by `root`, so the deploy
