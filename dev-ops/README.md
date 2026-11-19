@@ -354,6 +354,91 @@ and `TEST_USER_EMAIL` passed as env vars against the target environment.
 
 - Dev/QA only. Never enable in production; `prod` env names are rejected.
 
+## Scheduled agent-driven UI/UX audit (dev/QA only)
+
+`dev-ops/scripts/run-ui-audit.sh` runs a recurring, **agent-driven** Playwright
+UI/UX audit against a non-production environment. Unlike fixed Playwright specs,
+the audit spawns an `opencode` agent session that dynamically explores the
+application at runtime, adapts to observed UI state, and records evidence.
+
+### What the audit does
+
+- Runs only against dev/QA environments (environment names matching `prod` are
+  rejected).
+- Authenticates and exercises three roles in QA mode: basic user, super user,
+  and admin user (defaults: `user1@test.local`, `superuser@test.local`,
+  `admin@test.local`, overridable with `--basic-email`, `--super-email`, and
+  `--admin-email` or `UI_AUDIT_*` environment variables).
+- Evaluates the experience against Nielsen's 10 usability heuristics and looks
+  for weird rendering errors, broken layouts, missing features, and regressions.
+- Writes timestamped artifacts per run: `report.md`, `findings.json`,
+  `run.json`, `audit-prompt.md`, `session.log`, and an `evidence/` directory
+  (screenshots/logs/notes produced by the agent).
+- Uses the prompt template at `dev-ops/ui-audit/AUDIT_PROMPT.md` to instruct the
+  dynamic agent.
+
+### Manual run
+
+```sh
+dev-ops/scripts/run-ui-audit.sh [--env qa] [--dry-run] [--issue-filing|--no-issue-filing]
+```
+
+- Resolves the target base URL from `dev-ops/environments.yaml` (port for the
+  selected environment). `--local` runs on the dev server; otherwise the script
+  re-executes over SSH using `BOOKING_DEV_SSH` (same pattern as
+  `run-playwright.sh`).
+- `--dry-run` prepares the artifact skeleton and rendered prompt without starting
+  the agent session (useful for validation and configuration checks).
+- A real run requires `opencode` (or `UI_AUDIT_AGENT_CMD`) on the execution host.
+  `--timeout-minutes` controls the agent session timeout (default: 60; `0`
+  disables).
+- Artifacts are written to
+  `${UI_AUDIT_ARTIFACT_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/booking-ui-audit}/<env>/<run-id>/`
+  by default (override with `--artifact-dir` or `UI_AUDIT_ARTIFACT_ROOT`).
+
+### Scheduled job (systemd user timer)
+
+Install or refresh a recurring schedule on the dev/QA host:
+
+```sh
+dev-ops/scripts/install-ui-audit-timer.sh [--env qa] [--timezone Europe/Stockholm] [--times 02]
+```
+
+This writes `booking-<env>-ui-audit.service` and
+`booking-<env>-ui-audit.timer` to
+`${XDG_CONFIG_HOME:-~/.config}/systemd/user/`, enables lingering when needed, and
+enables/starts the timer (use `--dry-run`, `--no-enable`, or `--no-linger` as
+with `install-deploy-timer.sh`). The default schedule is daily at 02:00 local
+time; adjust `--times` (comma-separated hours) for a different recurring cadence.
+Issue filing for scheduled runs is disabled by default (`--issue-filing` opts in).
+
+On hosts that prefer cron with `CRON_TZ` support, an equivalent recurring entry
+can run `dev-ops/scripts/run-ui-audit.sh --env qa --local --no-issue-filing`
+(keep stdout/stderr redirected to a user-writable log path).
+
+### Issue filing safeguards
+
+Issue filing is opt-in (`--issue-filing`). When enabled, the audit agent is
+instructed to:
+
+- Use a clear automated-origin title marker for every created issue
+  (default prefixes: `[agent-playwright-audit]` for findings and
+  `[agent-playwright-audit][run]` for the run parent).
+- Search and review existing open issues before creating a finding issue to avoid
+  duplicates.
+- Create one parent tracking issue per audit run that produces filed findings and
+  file/link all finding issues from that run under that single parent issue.
+- Not add labels at creation time and follow repository issue-writing rules
+  (including no em-dashes and no secrets/personal data in public content).
+
+### Safety
+
+- Dev/QA only. Never run against production or use production data.
+- Handle credentials, login codes, emails, and session data carefully; avoid
+  leaking them into logs, committed artifacts, or public reports.
+- Exploration is non-deterministic; review generated reports and any filed issues
+  for accuracy before acting on them.
+
 ## Self-hosting
 
 - [Self-hosting with Cloudflare Tunnels (HTTPS-compliant)](self-hosting-cloudflare-tunnel.md)
