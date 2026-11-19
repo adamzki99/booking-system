@@ -63,6 +63,13 @@ Run the installer test suite with:
 bash dev-ops/scripts/tests/test-install-deploy-timer.sh
 ```
 
+Run the deploy script test suite (lock handling and a stubbed end-to-end
+deploy) with:
+
+```sh
+bash dev-ops/scripts/tests/test-deploy-environment.sh
+```
+
 Check the schedule and recent runs:
 
 ```sh
@@ -73,6 +80,36 @@ journalctl --user -u booking-qa-deploy.service
 
 Run the same job immediately with `systemctl --user start
 booking-qa-deploy.service`.
+
+### Deploy lock ownership
+
+Only one deploy per environment runs at a time: the script holds an exclusive
+`flock` for its whole run. The lock file must be creatable and writable by the
+user that runs the deploy (the systemd user timer, cron, or an interactive
+shell), so the script uses the first usable path from:
+
+1. `$DEPLOY_LOCK_FILE` — explicit override, used alone with no fallbacks.
+2. `$XDG_RUNTIME_DIR/booking-deploy-<env>.lock` — the user timer's runtime
+   directory, for example `/run/user/1000/booking-deploy-qa.lock`.
+3. `${TMPDIR:-/tmp}/booking-deploy-<env>-<uid>.lock` — per-user fallback.
+4. `/var/lock/booking-deploy-<env>.lock` — shared lock, only if writable.
+
+If none can be opened, the deploy stops before any other work, prints every
+attempted path, and reports a `QA deployment failed` issue through the same
+mechanism as other failures. `deploy-environment.sh <env> --dry-run` prints the
+lock path that would be used.
+
+The per-user name in step 3 is deliberate: a lock file left in `/tmp` or in the
+sticky `/var/lock` by an earlier `sudo` run is owned by `root`, so the deploy
+user can neither open it nor replace it. To keep using the shared
+`/var/lock/booking-deploy-qa.lock`, fix its ownership once instead of relying on
+the fallback:
+
+```sh
+sudo touch /var/lock/booking-deploy-qa.lock
+sudo chown lasrvr:lasrvr /var/lock/booking-deploy-qa.lock
+sudo chmod 0644 /var/lock/booking-deploy-qa.lock
+```
 
 ### Cron alternative
 
