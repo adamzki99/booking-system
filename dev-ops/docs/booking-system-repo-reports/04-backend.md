@@ -226,7 +226,7 @@ Adopt `pressly/goose` or `golang-migrate` with `embed.FS`, or write a 30-line ru
 **Evidence**
 - Every login code request appends `auth.login_code_issued`, with a bcrypt code hash, and every login appends `auth.session_created`, with the session token hash (`internal/auth/commands.go:122-136,186-201`). These are permanent and replayed into `login_codes` and `sessions` on rebuild.
 - The authenticated identity is the email string. Sessions are keyed by email (`migrations/0004_create_auth_tables.sql`), the context carries `email` (`internal/auth/middleware.go:50`), and every service starts with `GetByEmail`. Changing an email therefore needs a special `auth.session_identity_changed` event that rewrites session rows (`internal/auth/projection.go:157-168`).
-- `sessions.revoked_at` exists but nothing ever sets it. There is no logout or revoke command, so the frontend's "logout" (commit 12d772b) only drops the token on the client, and the session lasts 7 days (`auth/service.go:16`). Deactivation works only because the middleware also checks `ActiveByEmail` on every request (`middleware.go:45-48`).
+- `sessions.revoked_at` exists but nothing ever sets it. There is no logout or revoke command, so the frontend's "logout" (commit 12d772b) only drops the token on the client, and the session lasts 24 hours (`auth/service.go:16`). Deactivation works only because the middleware also checks `ActiveByEmail` on every request (`middleware.go:45-48`).
 - Brief security notes:
   - `canLogin` lets *any* email log in while the users table is empty, and the first verifier becomes admin (`auth/service.go:85-88`, `user/service.go:61-78`, guarded only by an in-process mutex).
   - One code can create two sessions if verified concurrently (BE-07).

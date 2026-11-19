@@ -31,7 +31,7 @@ What's working well:
 | FE-11 | Medium | S | Static serving: no cache policy; redeploys can white-screen open tabs; no compression or CSP |
 | FE-12 | Medium | S | Login flow: no way back from the code step, deep links lost, no OTP and autofill hints |
 | FE-13 | Medium | S | The iCal URL can only be seen by regenerating it, which silently breaks existing subscriptions |
-| FE-14 | Medium | S | Logout is client-only; 7-day bearer token in `localStorage`; a dormant cookie path has no CSRF guard |
+| FE-14 | Medium | S | Logout is client-only; 24-hour bearer token in `localStorage`; a dormant cookie path has no CSRF guard |
 | FE-15 | Medium | S | Test suite: change-detector theme tests, UTC-pinned dates, no lint, no a11y checks |
 | FE-16 | Low | S | Routing and app structure: duplicated guards per route, no error boundary, blank loading |
 | FE-17 | Low | S | Dead code and multi-model drift (shim pages, unused aliases, misplaced types, wrong README) |
@@ -44,7 +44,7 @@ What's working well:
 - `product/frontend/src/api/client.ts:52-63`: a non-OK response just throws `ApiError`. Nothing reacts to `status === 401` (grep finds no `401` anywhere in `src/`).
 - The factory redeploys dev/QA hourly (`AppShell.tsx` shows a "Next redeploy" countdown), and logging in needs a fresh emailed code, which is rate-limited to 5 per 15 minutes (`product/backend/internal/auth/service.go:20-21`).
 
-**Why it matters.** A resident who opens the app during a redeploy, or on a flaky mobile connection, is silently logged out and has to fetch a new email code. The opposite case also exists: when a token really expires mid-session (TTL is 7 days, `auth/service.go:16`), the user stays on the page and every action shows "unauthorized" with no route back to login except the manual Log out button.
+**Why it matters.** A resident who opens the app during a redeploy, or on a flaky mobile connection, is silently logged out and has to fetch a new email code. The opposite case also exists: when a token really expires mid-session (TTL is 24 hours, `auth/service.go:16`), the user stays on the page and every action shows "unauthorized" with no route back to login except the manual Log out button.
 
 **Recommendation.** Only clear the token on 401 or 403. Add a central 401 hook in the client:
 ```ts
@@ -234,13 +234,13 @@ Chakra/Emotion injects inline styles, so `style-src` needs `'unsafe-inline'` (or
 
 **Recommendation.** Add `GET /account/calendar-token`, which returns the current URL and creates one if none exists (backend). In the UI, show it with "Add to calendar" (`webcal://…`) and "Copy" (with a toast), and move "Regenerate" behind a confirm dialog that explains old links will stop working.
 
-### FE-14: Logout is client-only; 7-day bearer token in `localStorage`; a dormant cookie path has no CSRF guard (Medium, S)
+### FE-14: Logout is client-only; 24-hour bearer token in `localStorage`; a dormant cookie path has no CSRF guard (Medium, S)
 
 **Evidence**
-- `client.ts:1, 24-34` stores the session token in `localStorage`. `SessionContext.tsx:67-70`: `logout()` only clears it locally. There is no logout or revoke route (`server.go:46-82`), although sessions have a `revoked_at` column (`auth/projection.go:183`). The TTL is 7 days (`auth/service.go:16`).
+- `client.ts:1, 24-34` stores the session token in `localStorage`. `SessionContext.tsx:67-70`: `logout()` only clears it locally. There is no logout or revoke route (`server.go:46-82`), although sessions have a `revoked_at` column (`auth/projection.go:183`). The TTL is 24 hours (`auth/service.go:16`).
 - The backend also accepts a `session` cookie (`product/backend/internal/auth/middleware.go:66`). The SPA never sets it, and the POST endpoints have no CSRF or Origin checks. Today the bearer-header design makes CSRF moot.
 
-**Why it matters.** On a shared family tablet, "Log out" does not end the session server-side, and any XSS can exfiltrate a token valid for a week (no CSP, FE-11). If someone later "simplifies" auth to cookies, the cookie path is CSRF-able.
+**Why it matters.** On a shared family tablet, "Log out" does not end the session server-side, and any XSS can exfiltrate a token valid for 24 hours (no CSP, FE-11). If someone later "simplifies" auth to cookies, the cookie path is CSRF-able.
 
 **Recommendation.** Add `POST /auth/logout`, which revokes the presented token, and call it from `logout()` with fire-and-forget plus a local clear. Either remove the cookie branch from `extractToken`, or document it as requiring `SameSite=Strict`, `HttpOnly` and an Origin check. Keep the bearer model for now, but add the CSP from FE-11.
 
