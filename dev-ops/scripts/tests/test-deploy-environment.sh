@@ -19,10 +19,25 @@ gh_log="$tmp/gh.log"
 cat > "$stubs/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_LOG"
+if [[ "${1:-}" == "issue" && "${2:-}" == "list" && -n "${GH_EXISTING_ISSUE:-}" ]]; then
+  printf '%s\n' "$GH_EXISTING_ISSUE"
+fi
 exit 0
 EOF
 cat > "$stubs/docker" <<'EOF'
 #!/usr/bin/env bash
+# Controlled docker compose stub. Fixtures let a test feed realistic compose
+# output, including the log lines that must never reach a public issue.
+args=" $* "
+if [[ "$args" == *" up "* && -n "${FAIL_COMPOSE_UP:-}" ]]; then
+  exit 1
+fi
+if [[ "$args" == *" logs "* && -n "${COMPOSE_LOG_FIXTURE:-}" ]]; then
+  cat "$COMPOSE_LOG_FIXTURE"
+fi
+if [[ "$args" == *" ps "* && -n "${COMPOSE_PS_FIXTURE:-}" ]]; then
+  cat "$COMPOSE_PS_FIXTURE"
+fi
 exit 0
 EOF
 cat > "$stubs/curl" <<'EOF'
@@ -43,6 +58,10 @@ make_deploy_checkout() {
   "$git_bin" -C "$checkout" config user.name "deploy-test"
   mkdir -p "$checkout/dev-ops"
   cp "$REPO_ROOT/dev-ops/environments.yaml" "$checkout/dev-ops/environments.yaml"
+  # A provisioned deploy has a compose file; failure reporting needs it to
+  # gather the host-local log tail and ps status.
+  mkdir -p "$checkout/projects/sauna"
+  echo "services: {}" > "$checkout/projects/sauna/docker-compose.yml"
   echo "# deploy fixture" > "$checkout/README.md"
   "$git_bin" -C "$checkout" add -A
   "$git_bin" -C "$checkout" commit -qm "test: fixture checkout"
@@ -275,6 +294,145 @@ grep -q "simulated push failure" "$out" \
 [[ "$("$git_bin" -C "$identity_origin" rev-parse main)" == "$origin_sha_before" ]] \
   && pass || fail "failed metadata push leaves origin unchanged"
 rm -f "$identity_deploy/.git/hooks/pre-push"
+
+# I-002: a failed deploy must never publish compose log lines to the public QA
+# failure issue. QA runs EMAIL_MODE=log, so compose logs hold login codes and
+# email recipients/bodies. Feed such a log through the stub and assert that the
+# issue body carries only metadata and service status, while the full raw log
+# stays in a host-local file.
+leak_log="$tmp/leak-compose.log"
+cat > "$leak_log" <<'EOF'
+backend  | email (log mode) to resident@example.invalid
+backend  | Your login code is 481516 for resident@example.invalid
+backend  | booking confirmation for unit 7 sent to resident@example.invalid
+frontend | GET /healthz 200
+EOF
+ps_out="$tmp/compose-ps.out"
+cat > "$ps_out" <<'EOF'
+NAME                SERVICE     STATUS
+booking-backend-1   backend     Up 2 minutes
+booking-frontend-1  frontend    Up 2 minutes
+EOF
+
+leak_origin="$tmp/leak-origin.git"
+leak_fixture="$tmp/leak-fixture"
+leak_deploy="$tmp/leak-deploy"
+make_deploy_checkout "$leak_origin" "$leak_fixture"
+"$git_bin" clone -q "$leak_origin" "$leak_deploy"
+leak_home="$tmp/leak-home"
+mkdir -p "$leak_home"
+
+: > "$gh_log"
+out="$tmp/out-leak.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$leak_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/leak.lock" \
+    HOME="$leak_home" \
+    XDG_STATE_HOME= \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_CONFIG_NOSYSTEM=1 \
+    TMPDIR="$tmp/tmp" \
+    FAIL_COMPOSE_UP=1 \
+    COMPOSE_LOG_FIXTURE="$leak_log" \
+    COMPOSE_PS_FIXTURE="$ps_out" \
+    -- qa; then
+  fail "compose-up failure should fail the deploy"
+else
+  pass
+fi
+grep -q "docker compose up failed" "$out" \
+  && pass || fail "compose-up failure reached the failure path"
+grep -q "issue create" "$gh_log" \
+  && pass || fail "compose-up failure surfaced as a GitHub issue"
+
+# Nothing sensitive from the compose log may appear in the published body.
+grep -qF "email (log mode" "$gh_log" \
+  && fail "issue body leaked an email (log mode line" || pass
+grep -qF "resident@example.invalid" "$gh_log" \
+  && fail "issue body leaked an email address" || pass
+grep -qF "Your login code" "$gh_log" \
+  && fail "issue body leaked a login code" || pass
+
+# The body still carries only the safe metadata and the ps service status.
+grep -qF "Failing command:" "$gh_log" && pass || fail "issue body has failing command"
+grep -qF "Commit:" "$gh_log" && pass || fail "issue body has commit"
+grep -qF "Time (UTC):" "$gh_log" && pass || fail "issue body has time"
+grep -qF "Service status:" "$gh_log" && pass || fail "issue body has service status"
+grep -qF "booking-backend-1" "$gh_log" && pass || fail "issue body has ps status rows"
+grep -qF "Log tail:" "$gh_log" \
+  && fail "issue body still has a Log tail section" || pass
+
+# The full raw log is written to the host-only state dir under HOME.
+log_file_count=$(find "$leak_home/.local/state/booking-deploy" -maxdepth 1 -type f -name '*.log' 2>/dev/null | wc -l || true)
+[[ "$log_file_count" -ge 1 ]] && pass || fail "host-local deploy log file created under HOME"
+first_log_file=$(find "$leak_home/.local/state/booking-deploy" -maxdepth 1 -type f -name '*.log' 2>/dev/null | head -1 || true)
+grep -qF "Your login code is 481516" "$first_log_file" \
+  && pass || fail "host-local log keeps the full raw log"
+[[ "$(stat -c '%a' "$first_log_file")" == "600" ]] \
+  && pass || fail "host-local log is private to the deploy user (mode 600)"
+grep -qF "Full deploy log (host only): $first_log_file" "$gh_log" \
+  && pass || fail "issue body names the host log path"
+
+# XDG_STATE_HOME, when set, takes precedence for the host-local log dir.
+xdg_state="$tmp/xdg-state"
+: > "$gh_log"
+out="$tmp/out-leak-xdg.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$leak_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/leak-xdg.lock" \
+    HOME="$leak_home" \
+    XDG_STATE_HOME="$xdg_state" \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_CONFIG_NOSYSTEM=1 \
+    TMPDIR="$tmp/tmp" \
+    FAIL_COMPOSE_UP=1 \
+    COMPOSE_LOG_FIXTURE="$leak_log" \
+    COMPOSE_PS_FIXTURE="$ps_out" \
+    -- qa; then
+  fail "compose-up failure with XDG_STATE_HOME should fail the deploy"
+else
+  pass
+fi
+[[ -n "$(find "$xdg_state/booking-deploy" -maxdepth 1 -type f -name '*.log' 2>/dev/null | head -1 || true)" ]] \
+  && pass || fail "host-local deploy log file created under XDG_STATE_HOME"
+grep -qF "resident@example.invalid" "$gh_log" \
+  && fail "issue body leaked an email address (XDG case)" || pass
+
+# When an open QA failure issue already exists, the same scrubbed body is a
+# comment. With no state dir set, the host log falls back under TMPDIR.
+: > "$gh_log"
+out="$tmp/out-leak-comment.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$leak_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/leak-comment.lock" \
+    HOME= \
+    XDG_STATE_HOME= \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_CONFIG_NOSYSTEM=1 \
+    TMPDIR="$tmp/tmp" \
+    GH_EXISTING_ISSUE=42 \
+    FAIL_COMPOSE_UP=1 \
+    COMPOSE_LOG_FIXTURE="$leak_log" \
+    COMPOSE_PS_FIXTURE="$ps_out" \
+    -- qa; then
+  fail "compose-up failure with an existing issue should fail the deploy"
+else
+  pass
+fi
+grep -q "issue comment 42" "$gh_log" \
+  && pass || fail "failure posted as a comment on the existing issue"
+grep -qF "resident@example.invalid" "$gh_log" \
+  && fail "issue comment leaked an email address" || pass
+grep -qF "Your login code" "$gh_log" \
+  && fail "issue comment leaked a login code" || pass
+tmp_log=$(find "$tmp/tmp/booking-deploy-$(id -u)" -maxdepth 1 -type f -name '*.log' 2>/dev/null | head -1 || true)
+[[ -n "$tmp_log" ]] && pass || fail "host-local deploy log created in TMPDIR fallback"
+grep -qF "Your login code is 481516" "$tmp_log" \
+  && pass || fail "TMPDIR fallback log keeps the full raw log"
+
+# The deploy script itself must no longer contain a Log tail section.
+grep -q "Log tail" "$SCRIPT" \
+  && fail "deploy script still has a Log tail section" || pass
 
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
