@@ -189,5 +189,92 @@ fi
 grep -qF "lock=$dry_lock" "$out" && pass || fail "dry run prints lock path"
 [[ ! -e "$dry_lock" ]] && pass || fail "dry run does not create the lock file"
 
+# A deploy checkout with no git identity at all (the reported bug) must still
+# record and push the deploy metadata. The script pins a local identity, so the
+# run has no global git config and an empty HOME.
+identity_origin="$tmp/identity-origin.git"
+identity_fixture="$tmp/identity-fixture"
+identity_deploy="$tmp/identity-deploy"
+make_deploy_checkout "$identity_origin" "$identity_fixture"
+"$git_bin" clone -q "$identity_origin" "$identity_deploy"
+no_identity_home="$tmp/no-identity-home"
+mkdir -p "$no_identity_home"
+out="$tmp/out-identity.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$identity_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/identity.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    HOME="$no_identity_home" \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_CONFIG_NOSYSTEM=1 \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  pass
+else
+  fail "deploy in a checkout without a git identity should succeed"
+fi
+[[ -n "$("$git_bin" -C "$identity_deploy" config --local --get user.email || true)" ]] \
+  && pass || fail "deploy checkout gets a local user.email"
+[[ -n "$("$git_bin" -C "$identity_deploy" config --local --get user.name || true)" ]] \
+  && pass || fail "deploy checkout gets a local user.name"
+"$git_bin" -C "$identity_origin" log -1 --format=%s main | grep -q "^chore(dev-ops): record qa deploy " \
+  && pass || fail "deploy metadata is committed and pushed without a preconfigured identity"
+
+# A failing metadata commit must not be swallowed by "|| true": the deploy
+# still succeeds (it recorded its events), but the log explains why
+# environments.yaml went stale.
+printf '#!/bin/sh\necho "simulated commit failure" >&2\nexit 1\n' \
+  > "$identity_deploy/.git/hooks/pre-commit"
+chmod +x "$identity_deploy/.git/hooks/pre-commit"
+origin_sha_before="$("$git_bin" -C "$identity_origin" rev-parse main)"
+out="$tmp/out-commit-failure.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$identity_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/identity.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    HOME="$no_identity_home" \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_CONFIG_NOSYSTEM=1 \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  pass
+else
+  fail "a metadata commit failure must not fail a successful deploy"
+fi
+grep -q "WARNING: failed to commit deploy metadata" "$out" \
+  && pass || fail "commit failure is logged instead of swallowed"
+grep -q "simulated commit failure" "$out" \
+  && pass || fail "commit failure includes git's own error output"
+[[ "$("$git_bin" -C "$identity_origin" rev-parse main)" == "$origin_sha_before" ]] \
+  && pass || fail "failed metadata commit is not pushed"
+rm -f "$identity_deploy/.git/hooks/pre-commit"
+
+# A failing metadata push must be visible too, and must not fail the deploy.
+printf '#!/bin/sh\necho "simulated push failure" >&2\nexit 1\n' \
+  > "$identity_deploy/.git/hooks/pre-push"
+chmod +x "$identity_deploy/.git/hooks/pre-push"
+origin_sha_before="$("$git_bin" -C "$identity_origin" rev-parse main)"
+out="$tmp/out-push-failure.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$identity_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/identity.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    HOME="$no_identity_home" \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_CONFIG_NOSYSTEM=1 \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  pass
+else
+  fail "a metadata push failure must not fail a successful deploy"
+fi
+grep -q "WARNING: failed to push deploy metadata" "$out" \
+  && pass || fail "push failure is logged instead of swallowed"
+grep -q "simulated push failure" "$out" \
+  && pass || fail "push failure includes git's own error output"
+[[ "$("$git_bin" -C "$identity_origin" rev-parse main)" == "$origin_sha_before" ]] \
+  && pass || fail "failed metadata push leaves origin unchanged"
+rm -f "$identity_deploy/.git/hooks/pre-push"
+
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
