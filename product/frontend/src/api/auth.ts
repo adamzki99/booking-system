@@ -21,6 +21,16 @@ export interface Booking {
   cancelledAt?: string;
 }
 
+/** Runtime auth configuration exposed by the backend. */
+export interface AuthConfig {
+  qaMode: boolean;
+}
+
+/** Fetches runtime auth configuration. */
+export function getAuthConfig(): Promise<AuthConfig> {
+  return get<AuthConfig>("/api/auth/config");
+}
+
 /** Asks the backend to email a login code to the address. */
 export function requestCode(email: string): Promise<void> {
   return post("/api/auth/request-code", { email });
@@ -31,6 +41,13 @@ export function requestCode(email: string): Promise<void> {
  */
 export function verify(email: string, code: string): Promise<string> {
   return post<{ token: string }>("/api/auth/verify", { email, code }).then(
+    (res) => res.token,
+  );
+}
+
+/** Signs in without a one-time code when QA mode is enabled. */
+export function qaLogin(email: string): Promise<string> {
+  return post<{ token: string }>("/api/auth/qa-login", { email }).then(
     (res) => res.token,
   );
 }

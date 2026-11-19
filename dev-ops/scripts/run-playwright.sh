@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# run-playwright.sh — single entry point for agentic Playwright testing.
+# run-playwright.sh - single entry point for agentic Playwright testing.
 #
 # Usage:
 #   dev-ops/scripts/run-playwright.sh [--env ENV] [spec...]
 #
-# Requests + fetches a login code, then runs the Playwright suite inside a
-# Docker container. Dev/QA only.
+# Runs the Playwright suite inside a Docker container against a QA/dev
+# environment. In QA mode the login flow does not require a one-time code.
 
 set -euo pipefail
 
@@ -75,9 +75,6 @@ PORT="$(read_port)" || exit 1
 EMAIL="${TEST_USER_EMAIL:-}"
 [[ -n "$EMAIL" ]] || { echo "TEST_USER_EMAIL is required" >&2; exit 1; }
 
-CODE="$("$SCRIPT_DIR/get-login-code.sh" "$EMAIL" --env "$ENV_NAME" --request --local)"
-[[ -n "$CODE" ]] || { echo "failed to obtain login code" >&2; exit 1; }
-
 IMAGE="booking-playwright:local"
 docker build -q -t "$IMAGE" "$REPO_ROOT/dev-ops/testing" >/dev/null
 
@@ -87,6 +84,5 @@ docker run --rm \
   -w /tests \
   -e BASE_URL="http://host.docker.internal:${PORT}" \
   -e TEST_USER_EMAIL="$EMAIL" \
-  -e LOGIN_CODE="$CODE" \
   "$IMAGE" \
   npx playwright test "${SPECS[@]}"
