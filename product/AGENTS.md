@@ -20,7 +20,8 @@ For full-stack or deployment-level checks, use the relevant deployment docs unde
 - **Generic only:** keep deployment-specific behavior, policies, and configuration out of `product/`. If a change is only needed for one deployment, implement it in that deployment's sidecar or configuration under `projects/<name>/`.
 - **CQRS and event sourcing:** commands record events; queries read projections. Events are append-only and are the source of truth. Do not mutate recorded events or write state directly from commands. Projections must remain rebuildable from the event stream.
 - **Product plus stateless sidecar:** deployment-specific logic is provided by a stateless sidecar called by the backend over REST. Do not give the sidecar persistent state and do not bake deployment rules into generic product code.
-- **Cross-component consistency:** when changing API contracts, event shapes, or auth/session behavior, update backend, frontend, and affected deployment docs/config together as needed.
+- **Frontend UI and mockups:** when supplied mockups or design references exist, frontend UI must follow them for layout, styling, coloring, spacing, typography, and component states. Keep the fixed frontend stack (**React 18, TypeScript, Vite, React Router, Chakra UI v2**) and implement mockup intent with Chakra primitives, theme tokens, and component recipes/variants (see [`frontend/AGENTS.md`](frontend/AGENTS.md) and [`frontend/README.md`](frontend/README.md)). Keep deployment-specific branding/copy/assets in `projects/<name>/`.
+- **Cross-component consistency:** when changing API contracts, event shapes, auth/session behavior, or UI flows, update backend, frontend, and affected deployment docs/config together as needed.
 - **Reuse and scope:** prefer extending existing product capabilities in ways that are useful to every deployment; avoid one-off branches for a single project.
 
 ## Canonical references

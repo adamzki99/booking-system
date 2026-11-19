@@ -27,12 +27,46 @@ CSS only when a Chakra primitive genuinely cannot express the design
 (accessibility, missing capability, or performance); document the reason in the
 PR.
 
+## Supplied mockups and visual alignment
+
+When UI mockups or design references are supplied for a flow, treat them as the
+visual source of truth for layout, hierarchy, spacing, coloring, typography,
+radii, component states, and responsive behavior. Implement them using the fixed
+stack (**React 18, TypeScript, Vite, React Router, Chakra UI v2**) and prefer
+Chakra primitives, theme tokens, semantic tokens, and component recipes in
+`src/theme.ts` over ad-hoc styles.
+
+- **Sauna (normal user) mockups:** `../../projects/sauna/docs/mocks/sauna_booking_website_normal_user_mock_desktop.html`
+  and `../../projects/sauna/docs/mocks/sauna_booking_website_normal_user_mock_mobile.html`.
+  These bundled reference artifacts show the intended sauna UI direction:
+  - **Brand/context:** "Stennäsets byförening" / "Bastubokning", signed-in member
+    context (for example Alex Morgan, Member).
+  - **Desktop shell:** left drawer with brand, primary "Create booking" action,
+    navigation, and member block; top bar with member search and notifications;
+    main "Bookings" view with date heading.
+  - **Bookings content:** "Quick book" (repeat an existing booking on the same
+    day/time in another week, with booking selection, repeat-on choices, action,
+    and summary state) and "Upcoming bookings" (member, date/time, per-row
+    actions, and view-all affordance).
+  - **Mobile:** bookings screen and menu-open state with the same warm visual
+    language and core actions.
+  - **Visual language:** warm neutral surfaces, accent red (`#9A2F22` / hover
+    `#7A241A` / tint `#F6E6E0`), Inter typography, rounded cards/controls, and
+    ~44px interactive control heights.
+
+Use these references to guide sauna-facing UI and to inform reusable generic
+tokens/recipes in `src/theme.ts` when a pattern is broadly useful. Keep
+deployment-specific branding, copy, and assets in `projects/<name>/` rather than
+hardcoding them into the generic product. If a mockup is ambiguous or cannot be
+fully inspected from a bundled artifact, state what was inferred and confirm
+with the relevant deployment docs or reviewer.
+
 ### Foundation
 
-- `src/theme.ts` — base theme with generic tokens (colors, spacing, typography,
+- `src/theme.ts`: base theme with generic tokens (colors, spacing, typography,
   radii, component defaults). Deployment-specific branding does NOT live here;
   deployments extend this theme from `projects/<name>/`.
-- `src/main.tsx` — wraps the app in `<ChakraProvider theme={theme}>`.
+- `src/main.tsx`: wraps the app in `<ChakraProvider theme={theme}>`.
 
 ### Design tokens
 
@@ -70,16 +104,16 @@ Other foundations:
 The theme ships component defaults so pages get the mockup styling without
 bespoke CSS:
 
-- **Button** — default `variant="accent"` (solid `accent` with `accentHover`
+- **Button**: default `variant="accent"` (solid `accent` with `accentHover`
   hover), `variant="accentOutline"` (accent border, tint on hover), and
   `variant="icon"` (44px square toolbar button). Sizes `md` (44px) and `lg`
   (48px); 12px radius. `colorScheme="brand"` remains available for Chakra's
   built-in variants.
-- **Card** — white surface with a `1px` `line` border and `16px` radius.
-- **Input**, **Select**, **Textarea** — `44px` control height (`md`), `line`
+- **Card**: white surface with a `1px` `line` border and `16px` radius.
+- **Input**, **Select**, **Textarea**: `44px` control height (`md`), `line`
   border, `accent` focus border with an `accentTint` ring, and muted
   placeholders.
-- **Avatar** — `avatarBg` background with `avatarFg` initials.
+- **Avatar**: `avatarBg` background with `avatarFg` initials.
 
 Adding bespoke component CSS to `src/index.css` is intentionally avoided; use
 these recipes or add tokens/variants in `src/theme.ts` instead.

@@ -26,9 +26,15 @@ No dedicated frontend lint/format script is defined for this deployment director
 - **Operational context:** this deployment is commonly used with dev/QA tooling described in [`../../dev-ops/README.md`](../../dev-ops/README.md). QA-mode/testing-agent behavior is dev/QA only; do not enable or assume it for production environments.
 - **Architecture alignment:** follow root/product rules (CQRS/event sourcing, append-only events, PR-based workflow, no issue labels at creation, no em-dashes).
 
+## UI mockups
+
+- Supplied sauna UI mockups are canonical visual references for the corresponding flows: [`docs/mocks/sauna_booking_website_normal_user_mock_desktop.html`](docs/mocks/sauna_booking_website_normal_user_mock_desktop.html) and [`docs/mocks/sauna_booking_website_normal_user_mock_mobile.html`](docs/mocks/sauna_booking_website_normal_user_mock_mobile.html).
+- When implementing or changing sauna UI, follow these mockups for layout, styling, coloring, spacing, typography, and component states while respecting the fixed frontend stack (**React 18, TypeScript, Vite, React Router, Chakra UI v2**) and generic frontend conventions in [`../../product/frontend/AGENTS.md`](../../product/frontend/AGENTS.md). Keep reusable visual patterns in generic theme/tokens/components when broadly useful; keep sauna-specific branding/copy/assets in this deployment.
+
 ## Canonical references
 
 - [`README.md`](README.md): roles, flows, E2E/smoke guidance, SigNoz/telemetry, sidecar overview, running/provisioning, Cloudflare tunnel and TLS notes.
+- [`docs/mocks/`](docs/mocks/): supplied sauna UI mockups (normal-user desktop and mobile).
 - [`sidecar/README.md`](sidecar/README.md): sidecar endpoints and configuration.
 - [`docker-compose.yml`](docker-compose.yml), [`docker-compose.cloudflare-tunnel.yml`](docker-compose.cloudflare-tunnel.yml), [`.env.example`](.env.example), [`config/`](config/): deployment runtime configuration.
 - [`scripts/smoke-calendar-feed.sh`](scripts/smoke-calendar-feed.sh), [`setup.sh`](setup.sh): deployment helper scripts.
