@@ -1,6 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { render } from "../test-utils";
 import { useSession } from "../auth/SessionContext";
 import type { User } from "../api/auth";
@@ -36,6 +37,21 @@ function stubSession(user: User) {
   });
 }
 
+/** Exposes the current query string so tests can assert the ?q= contract. */
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location-search">{location.search}</span>;
+}
+
+function renderUsers(entry = "/users") {
+  render(
+    <MemoryRouter initialEntries={[entry]}>
+      <Users />
+      <LocationProbe />
+    </MemoryRouter>,
+  );
+}
+
 describe("Users page", () => {
   beforeEach(() => {
     useSessionMock.mockReset();
@@ -48,7 +64,7 @@ describe("Users page", () => {
   it("shows directory table for basic users without management controls", async () => {
     stubSession(basicUser);
     listUsersMock.mockResolvedValue([basicUser]);
-    render(<Users />);
+    renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
     expect(screen.queryByText("Change address")).not.toBeInTheDocument();
     expect(screen.queryByText("Change role (admin)")).not.toBeInTheDocument();
@@ -58,7 +74,7 @@ describe("Users page", () => {
     stubSession(superUser);
     listUsersMock.mockResolvedValue([basicUser, superUser]);
     changeUserAddressMock.mockResolvedValue(basicUser);
-    render(<Users />);
+    renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
 
     const select = screen.getByLabelText("User") as HTMLSelectElement;
@@ -77,7 +93,7 @@ describe("Users page", () => {
     stubSession(superUser);
     listUsersMock.mockResolvedValue([basicUser]);
     removeUserMock.mockResolvedValue(undefined as never);
-    render(<Users />);
+    renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Remove" }));
@@ -87,7 +103,7 @@ describe("Users page", () => {
   it("shows role controls only for admins and excludes the signed-in user", async () => {
     stubSession(adminUser);
     listUsersMock.mockResolvedValue([basicUser, adminUser]);
-    render(<Users />);
+    renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
     expect(screen.getByText("Change role (admin)")).toBeInTheDocument();
     const selects = screen.getAllByLabelText("User");
@@ -101,7 +117,7 @@ describe("Users page", () => {
     stubSession(adminUser);
     listUsersMock.mockResolvedValue([basicUser]);
     changeUserRoleMock.mockResolvedValue(basicUser);
-    render(<Users />);
+    renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
     const user = userEvent.setup();
     const selects = screen.getAllByLabelText("User");
@@ -115,7 +131,7 @@ describe("Users page", () => {
   it("hides role controls for super users who are not admins", async () => {
     stubSession(superUser);
     listUsersMock.mockResolvedValue([basicUser]);
-    render(<Users />);
+    renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
     expect(screen.queryByText("Change role (admin)")).not.toBeInTheDocument();
   });
@@ -123,7 +139,7 @@ describe("Users page", () => {
   it("excludes ineligible (non-basic) targets from the address select", async () => {
     stubSession(superUser);
     listUsersMock.mockResolvedValue([basicUser, superUser]);
-    render(<Users />);
+    renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
     const selects = screen.getAllByLabelText("User");
     const addressSelect = selects[0] as HTMLSelectElement;
@@ -135,7 +151,7 @@ describe("Users page", () => {
     stubSession(superUser);
     listUsersMock.mockResolvedValue([basicUser]);
     changeUserAddressMock.mockRejectedValue(new Error("boom"));
-    render(<Users />);
+    renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
     const user = userEvent.setup();
     const select = screen.getByLabelText("User");
@@ -143,5 +159,57 @@ describe("Users page", () => {
     await user.type(document.getElementById("address-value") as HTMLElement, "New addr");
     await user.click(screen.getByRole("button", { name: "Change address" }));
     await screen.findByRole("alert");
+  });
+
+  it("renders an initials avatar for each directory member", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    renderUsers();
+    await screen.findByRole("cell", { name: "basic@example.com" });
+    expect(screen.getByText("BA")).toBeInTheDocument();
+    expect(screen.getByText("SU")).toBeInTheDocument();
+  });
+
+  it("hides non-matching directory rows when ?q= is provided", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    renderUsers("/users?q=super");
+    await screen.findByRole("cell", { name: "super@example.com" });
+    expect(
+      screen.queryByRole("cell", { name: "basic@example.com" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("filters rows and writes the query parameter as the user types", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    renderUsers();
+    await screen.findByRole("cell", { name: "basic@example.com" });
+
+    const usr = userEvent.setup();
+    await usr.type(screen.getByLabelText("Search members"), "super");
+
+    expect(
+      screen.queryByRole("cell", { name: "basic@example.com" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "super@example.com" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("location-search").textContent).toContain("q=super"),
+    );
+  });
+
+  it("keeps management select options complete while a search filters rows", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    renderUsers("/users?q=super");
+    await screen.findByRole("cell", { name: "super@example.com" });
+    expect(
+      screen.queryByRole("cell", { name: "basic@example.com" }),
+    ).not.toBeInTheDocument();
+
+    const addressSelect = screen.getByLabelText("User") as HTMLSelectElement;
+    expect(Array.from(addressSelect.options).map((o) => o.text)).toContain(
+      "basic@example.com",
+    );
   });
 });

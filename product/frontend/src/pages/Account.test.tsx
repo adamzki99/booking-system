@@ -6,6 +6,7 @@ import { useSession } from "../auth/SessionContext";
 import { currentUser } from "../api/auth";
 import type { User } from "../api/auth";
 import { confirmEmailChange, requestEmailChange } from "../api/users";
+import { regenerateCalendarUrl } from "../api/calendar";
 import Account from "./Account";
 
 vi.mock("../auth/SessionContext", () => ({ useSession: vi.fn() }));
@@ -20,6 +21,7 @@ const useSessionMock = vi.mocked(useSession);
 const currentUserMock = vi.mocked(currentUser);
 const requestEmailChangeMock = vi.mocked(requestEmailChange);
 const confirmEmailChangeMock = vi.mocked(confirmEmailChange);
+const regenerateCalendarUrlMock = vi.mocked(regenerateCalendarUrl);
 
 const user: User = {
   id: "u1",
@@ -47,6 +49,8 @@ describe("Account page email change", () => {
     currentUserMock.mockReset();
     requestEmailChangeMock.mockReset();
     confirmEmailChangeMock.mockReset();
+    regenerateCalendarUrlMock.mockReset();
+    regenerateCalendarUrlMock.mockResolvedValue("https://cal.example/feed.ics");
     stubSession();
     currentUserMock.mockResolvedValue(user);
     requestEmailChangeMock.mockResolvedValue({
@@ -63,6 +67,33 @@ describe("Account page email change", () => {
       expect(screen.getByTestId("account-email").textContent).toBe(
         "basic@example.com",
       ),
+    );
+  });
+
+  it("renders the Account, Email and Calendar section headings", async () => {
+    render(<Account />);
+    await screen.findByTestId("account-email");
+    expect(screen.getByRole("heading", { name: "Account", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Email", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Calendar", level: 2 })).toBeInTheDocument();
+  });
+
+  it("regenerates the calendar URL and copies it to the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    render(<Account />);
+    await screen.findByTestId("account-email");
+
+    await userEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+    expect(await screen.findByText("https://cal.example/feed.ics")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("https://cal.example/feed.ics"),
     );
   });
 
