@@ -3,12 +3,15 @@ import type { FormEvent } from "react";
 import {
   Alert,
   AlertIcon,
+  Avatar,
   Box,
   Button,
   Card,
   CardBody,
+  CardHeader,
   Flex,
   FormControl,
+  Grid,
   FormLabel,
   Heading,
   Input,
@@ -24,6 +27,7 @@ import {
 import { errorMessage } from "../api/client";
 import type { Booking, User } from "../api/auth";
 import { cancelBooking, createBooking, listBookings } from "../api/bookings";
+import { listUsers } from "../api/users";
 import { useSession } from "../auth/SessionContext";
 
 function canCancel(user: User | null, booking: Booking): boolean {
@@ -35,17 +39,6 @@ function canCancel(user: User | null, booking: Booking): boolean {
 /** Formats a booking interval in local time, "2026-11-08 08:00 – 09:00". */
 function pad(n: number): string {
   return String(n).padStart(2, "0");
-}
-
-function formatInstant(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function formatInterval(start: string, end: string): string {
-  const s = formatInstant(new Date(start));
-  const e = formatInstant(new Date(end));
-  // Same day: show the end time only.
-  return s.slice(0, 10) === e.slice(0, 10) ? `${s} – ${e.slice(-5)}` : `${s} – ${e}`;
 }
 
 const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -97,12 +90,36 @@ export function formatPageDate(d: Date): string {
   return `${WEEKDAYS_LONG[d.getDay()]}, ${d.getDate()} ${MONTHS_LONG[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-export function formatDayLabel(d: Date): string {
+export function formatDayLabel(input: Date | string): string {
+  const d = input instanceof Date ? input : new Date(input);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((target.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
   return `${WEEKDAYS_SHORT[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 }
 
 function formatTime(d: Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function formatTimeRange(start: string | Date, end: string | Date): string {
+  const s = start instanceof Date ? start : new Date(start);
+  const e = end instanceof Date ? end : new Date(end);
+  return `${formatTime(s)} – ${formatTime(e)}`;
+}
+
+export function memberLabel(user: User | undefined, booking: Booking): string {
+  if (user?.address) return user.address;
+  if (!user) return booking.userId;
+  return "Member";
+}
+
+export function memberInitials(label: string): string {
+  const chars = label.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase();
+  return chars || "?";
 }
 
 export function formatSlot(start: Date, end?: Date): string {
@@ -147,6 +164,8 @@ function RepeatChip(props: any) {
 export default function Calendar() {
   const { user } = useSession();
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [members, setMembers] = useState<Record<string, User>>({});
+  const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -163,6 +182,14 @@ export default function Calendar() {
       setError(null);
     } catch (err) {
       setError(errorMessage(err, "could not load bookings"));
+    }
+    try {
+      const users = await listUsers();
+      const map: Record<string, User> = {};
+      for (const u of users) map[u.id] = u;
+      setMembers(map);
+    } catch {
+      // Best-effort: bookings still render without member directory.
     }
   }, []);
 
@@ -360,47 +387,121 @@ export default function Calendar() {
           </CardBody>
         </Card>
 
-        <Box as="section">
-          <Heading as="h2" size="md" mb={3}>
-            All bookings
-          </Heading>
-          {error && (
-            <Alert status="error" role="alert" mb={3}>
-              <AlertIcon />
-              {error}
-            </Alert>
-          )}
-          {error === null && bookings.length === 0 && (
-            <Text color="gray.600">No bookings yet.</Text>
-          )}
-          <List spacing={2} role="list">
-            {bookings.map((booking) => (
-              <ListItem
-                key={booking.id}
-                role="listitem"
-                borderWidth="1px"
-                borderRadius="base"
-                p={3}
-              >
-                <Flex justify="space-between" align="center" gap={3}>
-                  <Box as="time" dateTime={booking.start}>
-                    {formatInterval(booking.start, booking.end)}
-                  </Box>
-                  {canCancel(user, booking) && (
-                    <Button
-                      size="sm"
-                      colorScheme="red"
-                      variant="outline"
-                      onClick={() => void onCancel(booking.id)}
+        <Card as="section" aria-label="Upcoming bookings">
+          <CardHeader>
+            <Flex justify="space-between" align="center">
+              <Heading as="h2" size="md">
+                Upcoming bookings
+              </Heading>
+            </Flex>
+          </CardHeader>
+          <CardBody>
+            {/* Column header row (desktop only) */}
+            <Flex
+              display={{ base: "none", md: "flex" }}
+              bg="#FBF8F4"
+              px={5}
+              py={2}
+              fontSize="12px"
+              textTransform="uppercase"
+              color="gray.600"
+              gap={3}
+            >
+              <Box flex="2">Member</Box>
+              <Box flex="1.4">Date and time</Box>
+              <Box w="44px" />
+            </Flex>
+
+            {error && (
+              <Alert status="error" role="alert" mb={3}>
+                <AlertIcon />
+                {error}
+              </Alert>
+            )}
+            {error === null && bookings.length === 0 && (
+              <Text color="gray.600">No bookings yet.</Text>
+            )}
+
+            <List spacing={0} role="list">
+              {(showAll ? bookings : bookings.slice(0, 5)).map((booking) => {
+                const m = members[booking.userId];
+                const label = memberLabel(m, booking);
+                return (
+                  <ListItem
+                    key={booking.id}
+                    role="listitem"
+                    borderTop="1px solid"
+                    borderColor="#E9DDD5"
+                    px={5}
+                    py={3}
+                  >
+                    <Grid
+                      templateColumns={{
+                        base: "auto 1fr auto",
+                        md: "minmax(0, 2fr) minmax(0, 1.4fr) 44px",
+                      }}
+                      gap={3}
+                      alignItems="center"
                     >
-                      Cancel booking
-                    </Button>
-                  )}
-                </Flex>
-              </ListItem>
-            ))}
-          </List>
-        </Box>
+                      <Flex align="center" gap={3} minW={0}>
+                        <Avatar
+                          size="sm"
+                          name={label}
+                          bg="#EFE3D6"
+                          color="#5B4331"
+                          getInitials={() => memberInitials(label)}
+                        />
+                        <Box minW={0}>
+                          <Text fontWeight="600" fontSize="15px" noOfLines={1}>
+                            {label}
+                          </Text>
+                          <Text fontSize="13px" color="#5E4B45" noOfLines={1}>
+                            {m?.address ?? "Member"}
+                          </Text>
+                        </Box>
+                      </Flex>
+
+                      <Box as="time" dateTime={booking.start}>
+                        <Text fontWeight="600" fontSize="15px">
+                          {formatDayLabel(booking.start)}
+                        </Text>
+                        <Text fontSize="13px" color="#5E4B45">
+                          {formatTimeRange(booking.start, booking.end)}
+                        </Text>
+                      </Box>
+
+                      <Box w="44px" display="flex" justifyContent="flex-end">
+                        {canCancel(user, booking) && (
+                          <Button
+                            size="sm"
+                            colorScheme="red"
+                            variant="outline"
+                            onClick={() => void onCancel(booking.id)}
+                          >
+                            Cancel booking
+                          </Button>
+                        )}
+                      </Box>
+                    </Grid>
+                  </ListItem>
+                );
+              })}
+            </List>
+
+            {bookings.length > 5 && (
+              <Box borderTop="1px solid" borderColor="#E9DDD5" pt={3} mt={2}>
+                <Button
+                  minH="44px"
+                  borderRadius="12px"
+                  w="100%"
+                  onClick={() => setShowAll((v) => !v)}
+                >
+                  {showAll ? "Show fewer bookings" : "View all bookings"}
+                </Button>
+              </Box>
+            )}
+          </CardBody>
+        </Card>
       </VStack>
     </Box>
   );

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../test-utils";
 import type { Booking } from "../api/auth";
 import { cancelBooking, createBooking, listBookings } from "../api/bookings";
+import { listUsers } from "../api/users";
 import { useSession } from "../auth/SessionContext";
 import Calendar from "./Calendar";
 
@@ -12,12 +13,14 @@ vi.mock("../api/bookings", () => ({
   createBooking: vi.fn(),
   cancelBooking: vi.fn(),
 }));
+vi.mock("../api/users", () => ({ listUsers: vi.fn() }));
 vi.mock("../auth/SessionContext", () => ({ useSession: vi.fn() }));
 
 const listMock = vi.mocked(listBookings);
 const createMock = vi.mocked(createBooking);
 const cancelMock = vi.mocked(cancelBooking);
 const useSessionMock = vi.mocked(useSession);
+const usersMock = vi.mocked(listUsers);
 
 function booking(id: string, userId: string, start: string): Booking {
   return { id, userId, start, end: start, status: "active" };
@@ -39,6 +42,8 @@ describe("Calendar page", () => {
     createMock.mockReset();
     cancelMock.mockReset();
     useSessionMock.mockReset();
+    usersMock.mockReset();
+    usersMock.mockResolvedValue([]);
     stubSession("u1");
   });
 
@@ -115,6 +120,40 @@ describe("Calendar page", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Cancel booking" }));
     await waitFor(() => expect(cancelMock).toHaveBeenCalledWith("b1"));
+  });
+
+  it("renders member avatar and label from directory lookup", async () => {
+    usersMock.mockResolvedValue([
+      { id: "u2", email: "u2@example.com", role: "basic", address: "Sauna Lane 2", active: true },
+    ]);
+    listMock.mockResolvedValue([
+      booking("b1", "u2", "2026-11-08T08:00:00Z"),
+      booking("b2", "unknown-user", "2026-11-09T10:00:00Z"),
+    ]);
+
+    render(<Calendar />);
+
+    expect(await screen.findAllByText("Sauna Lane 2")).toHaveLength(2);
+    // avatar initials derived from label
+    expect(screen.getByText("SA")).toBeInTheDocument();
+    // fallback to userId for unknown member
+    expect(screen.getByText("unknown-user")).toBeInTheDocument();
+  });
+
+  it("toggles view all bookings when more than five exist", async () => {
+    listMock.mockResolvedValue(
+      Array.from({ length: 6 }, (_, i) =>
+        booking(`b${i}`, "u1", `2026-11-0${i + 1}T08:00:00Z`),
+      ),
+    );
+
+    render(<Calendar />);
+
+    await screen.findByRole("list");
+    expect(screen.getAllByRole("listitem")).toHaveLength(5);
+    const toggle = screen.getByRole("button", { name: "View all bookings" });
+    await userEvent.click(toggle);
+    expect(screen.getAllByRole("listitem")).toHaveLength(6);
   });
 
   it("focuses the creation form when opened with ?create=1", async () => {
