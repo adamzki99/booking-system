@@ -52,11 +52,12 @@ func newTestServerWithPool(t *testing.T, sidecarURL ...string) (*httptest.Server
 		t.Fatal(err)
 	}
 	projections := auth.Register(app)
-	users := user.Register(app)
+	userProjections := user.RegisterWithProjections(app)
+	users := userProjections.Users
 
 	sender := &captureSender{}
 	svc := auth.NewService(app.Commands, sender, ratelimit.NewLimiter(), users)
-	userService := user.NewService(app.Commands, users, nil, nil)
+	userService := user.NewService(app.Commands, users, userProjections.EmailChanges, nil, nil)
 	svc.BootstrapAdmin = func(ctx context.Context, email string) error {
 		return userService.BootstrapAdmin(ctx, email)
 	}

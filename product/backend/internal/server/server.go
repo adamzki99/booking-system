@@ -37,7 +37,8 @@ type Deps struct {
 	CalendarTokens       *ical.CalendarTokenProjection
 	Bookings             *booking.BookingsProjection
 
-	SidecarURL string
+	SidecarURL    string
+	PublicBaseURL string
 }
 
 // NewMux builds the HTTP router.
@@ -53,10 +54,13 @@ func NewMux(deps Deps) *http.ServeMux {
 	// User endpoints (all require a valid session).
 	mux.Handle("GET /users", protect(deps.Middleware, user.HandleListUsers(deps.UserService)))
 	mux.Handle("GET /users/me", protect(deps.Middleware, user.HandleMe(deps.UserService)))
+	mux.Handle("GET /users/me/email-change", protect(deps.Middleware, user.HandleGetPendingEmailChange(deps.UserService)))
 	mux.Handle("POST /users", protect(deps.Middleware, user.HandleCreateUser(deps.UserService)))
 	mux.Handle("POST /users/{id}/remove", protect(deps.Middleware, user.HandleRemoveUser(deps.UserService)))
 	mux.Handle("PATCH /users/me/email", protect(deps.Middleware, user.HandleChangeOwnEmail(deps.UserService)))
 	mux.Handle("POST /users/me/email/confirm", protect(deps.Middleware, user.HandleConfirmEmailChange(deps.UserService)))
+	mux.Handle("POST /users/me/email-change/cancel", protect(deps.Middleware, user.HandleCancelEmailChange(deps.UserService)))
+	mux.Handle("POST /users/me/email-change/resend", protect(deps.Middleware, user.HandleResendEmailChange(deps.UserService)))
 	mux.Handle("PATCH /users/{id}/address", protect(deps.Middleware, user.HandleChangeUserAddress(deps.UserService)))
 	mux.Handle("PATCH /users/{id}/role", protect(deps.Middleware, user.HandleChangeUserRole(deps.UserService)))
 
@@ -78,7 +82,7 @@ func NewMux(deps Deps) *http.ServeMux {
 	mux.HandleFunc("GET /calendar/", ical.HandleFeed(deps.CalendarTokens, deps.Bookings, ratelimit.NewLimiter(), feedUsers))
 
 	// Regenerate calendar token (authenticated).
-	mux.Handle("POST /account/calendar-token", protect(deps.Middleware, ical.HandleRegenerateToken(icalServiceFromDeps(deps), deps.UserService)))
+	mux.Handle("POST /account/calendar-token", protect(deps.Middleware, ical.HandleRegenerateToken(icalServiceFromDeps(deps), deps.UserService, deps.PublicBaseURL)))
 
 	// Chrome info (authenticated; sourced from sidecar).
 	mux.Handle("GET /chrome", protect(deps.Middleware, handleChrome(deps.SidecarURL)))

@@ -75,6 +75,9 @@ func (ChangeOwnEmail) CommandType() string { return ChangeOwnEmailCommandType }
 // ConfirmOwnEmailChangeCommandType identifies ConfirmOwnEmailChange commands.
 const ConfirmOwnEmailChangeCommandType = "user.ConfirmOwnEmailChange"
 
+// CancelOwnEmailChangeCommandType identifies CancelOwnEmailChange commands.
+const CancelOwnEmailChangeCommandType = "user.CancelOwnEmailChange"
+
 // ConfirmOwnEmailChange verifies the code emailed to the new address and
 // commits the email change together with the session re-keying event.
 type ConfirmOwnEmailChange struct {
@@ -85,6 +88,15 @@ type ConfirmOwnEmailChange struct {
 
 // CommandType implements command.Command.
 func (ConfirmOwnEmailChange) CommandType() string { return ConfirmOwnEmailChangeCommandType }
+
+// CancelOwnEmailChange cancels a pending, unverified email change.
+type CancelOwnEmailChange struct {
+	UserID         string
+	RequesterEmail string
+}
+
+// CommandType implements command.Command.
+func (CancelOwnEmailChange) CommandType() string { return CancelOwnEmailChangeCommandType }
 
 // ChangeUserAddress changes a basic user's address (super/admin only).
 type ChangeUserAddress struct {
@@ -124,6 +136,18 @@ var defaultChanges *EmailChangesProjection
 
 // Register wires the user commands and projection into the registry.
 func Register(r *registry.Registry) *UsersProjection {
+	p := RegisterWithProjections(r)
+	return p.Users
+}
+
+// Projections bundles user read models (for parity with auth).
+type Projections struct {
+	Users        *UsersProjection
+	EmailChanges *EmailChangesProjection
+}
+
+// RegisterWithProjections registers user commands/projections and returns them.
+func RegisterWithProjections(r *registry.Registry) *Projections {
 	users := NewUsersProjection(r.DB())
 	changes := NewEmailChangesProjection(r.DB())
 	defaultUsers = users
@@ -133,24 +157,13 @@ func Register(r *registry.Registry) *UsersProjection {
 	r.RegisterCommand(RemoveUserCommandType, handleRemoveUser(users))
 	r.RegisterCommand(ChangeOwnEmailCommandType, handleChangeOwnEmail(users))
 	r.RegisterCommand(ConfirmOwnEmailChangeCommandType, handleConfirmOwnEmail(users, changes))
+	r.RegisterCommand(CancelOwnEmailChangeCommandType, handleCancelOwnEmail(users, changes))
 	r.RegisterCommand(ChangeUserAddressCommandType, handleChangeUserAddress(users))
 	r.RegisterCommand(ChangeUserRoleCommandType, handleChangeUserRole(users))
 	r.RegisterCommand(SeedUserCommandType, handleSeedUser(users))
 	r.RegisterProjection(users)
 	r.RegisterProjection(changes)
-	return users
-}
-
-// Projections bundles user read models (for parity with auth).
-type Projections struct {
-	Users        *UsersProjection
-	EmailChanges *EmailChangesProjection
-}
-
-// RegisterWithProjections is an alias returning a Projections wrapper.
-func RegisterWithProjections(r *registry.Registry) *Projections {
-	_ = Register(r)
-	return &Projections{Users: defaultUsers, EmailChanges: defaultChanges}
+	return &Projections{Users: users, EmailChanges: changes}
 }
 
 func handleBootstrapAdmin(users *UsersProjection) command.Handler {
@@ -512,6 +525,69 @@ func handleConfirmOwnEmail(users *UsersProjection, changes *EmailChangesProjecti
 				OccurredAt:    now,
 			},
 		}, nil
+	}
+}
+
+func handleCancelOwnEmail(users *UsersProjection, changes *EmailChangesProjection) command.Handler {
+	return func(ctx context.Context, cmd command.Command) ([]eventstore.Event, error) {
+		var c CancelOwnEmailChange
+		switch typed := cmd.(type) {
+		case CancelOwnEmailChange:
+			c = typed
+		case *CancelOwnEmailChange:
+			if typed == nil {
+				return nil, errors.New("user: command is nil")
+			}
+			c = *typed
+		default:
+			return nil, fmt.Errorf("user: expected CancelOwnEmailChange, got %T", cmd)
+		}
+
+		target, err := users.GetByID(ctx, c.UserID)
+		if err != nil {
+			if errors.Is(err, ErrUserNotFound) {
+				return nil, ErrUserNotFound
+			}
+			return nil, err
+		}
+
+		requesterEmail, err := NormalizeEmail(c.RequesterEmail)
+		if err != nil {
+			return nil, ErrForbidden
+		}
+		reqUser, rerr := users.GetByEmail(ctx, requesterEmail)
+		allowed := false
+		if rerr == nil {
+			if requesterEmail == target.Email {
+				allowed = true
+			}
+			if reqUser.Role.AtLeast(RoleAdmin) {
+				allowed = true
+			}
+		}
+		if !allowed {
+			return nil, ErrForbidden
+		}
+
+		if _, err := changes.Pending(ctx, target.ID); err != nil {
+			return nil, err
+		}
+
+		now := time.Now().UTC()
+		payload, err := json.Marshal(UserEmailChangeCancelledPayload{
+			UserID:      target.ID,
+			CancelledAt: now,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("user: marshal event: %w", err)
+		}
+		return []eventstore.Event{{
+			AggregateType: AggregateType,
+			AggregateID:   target.ID,
+			EventType:     UserEmailChangeCancelledEventType,
+			Payload:       payload,
+			OccurredAt:    now,
+		}}, nil
 	}
 }
 

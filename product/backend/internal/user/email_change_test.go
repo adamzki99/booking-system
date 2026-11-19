@@ -61,7 +61,7 @@ func (s *fakeSender) lastSubject(subject string) (sentMessage, bool) {
 }
 
 func newEmailChangeService(ta *userTestApp, sender *fakeSender) *user.UserService {
-	return user.NewService(ta.app.Commands, ta.users, sender, nil)
+	return user.NewService(ta.app.Commands, ta.users, ta.changes, sender, nil)
 }
 
 // requestChange drives the request step through the service and returns the
