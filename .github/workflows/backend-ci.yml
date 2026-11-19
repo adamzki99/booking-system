@@ -1,14 +1,7 @@
 name: Backend CI
 
 on:
-  pull_request:
-    paths:
-      - 'product/backend/**'
-      - '.github/workflows/backend-ci.yml'
-  push:
-    paths:
-      - 'product/backend/**'
-      - '.github/workflows/backend-ci.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:

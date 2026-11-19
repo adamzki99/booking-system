@@ -1,6 +1,18 @@
 # GitHub Actions workflows
 
+`ci.yml` is the single entry point for pull requests and pushes to `main`. It runs a `changes` job (pinned `dorny/paths-filter`) and calls the reusable suite workflows, gating backend, frontend and sidecar on the filter outputs. `ci-gate` is the only required check: it always runs and fails only when a needed job failed or was cancelled; skipped suites pass. New suites must be added to `ci-gate`'s `needs:` list.
+
 Path-filtered workflows for this monorepo-style layout. Keep workflows minimal and avoid coupling product CI to deployment-specific sidecar behavior except where explicitly testing a deployment package.
+
+## `ci.yml`
+
+**Triggers:** every `pull_request`, push to `main`, and `workflow_dispatch`.
+
+**Jobs:**
+- **Detect changed paths** (`changes`): uses `dorny/paths-filter` to decide which of backend, frontend and sidecar run.
+- **Backend CI**, **Frontend CI**, **Sidecar CI**: reusable workflow calls, gated on the filter outputs.
+- **Security**, **Semgrep**: reusable workflow calls that always run.
+- **ci-gate**: always runs; fails if any needed job failed or was cancelled. This is the only required check.
 
 ## `backend-ci.yml`
 
@@ -53,14 +65,14 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 
 ## Required secrets
 
-`SEMGREP_APP_TOKEN` (repository secret) is required by `.github/workflows/semgrep.yml` for `semgrep ci` to report to the Semgrep AppSec Platform. No other workflow-specific repository secrets are required for the current CI/security checks. Future deployment or image-publish workflows will need secrets (registry credentials, SSH/runner access, database/application configuration) — document them here when added.
+`SEMGREP_APP_TOKEN` (repository secret) is required by `.github/workflows/semgrep.yml` for `semgrep ci` to report to the Semgrep AppSec Platform. No other workflow-specific repository secrets are required for the current CI/security checks. Future deployment or image-publish workflows will need secrets (registry credentials, SSH/runner access, database/application configuration) - document them here when added.
 
 ### Secret handling policy
 
 - Never commit secrets. Runtime values live in `projects/<name>/.env` (gitignored) or in
   GitHub Environment/Repository secrets; document required keys in `projects/<name>/.env.example`.
 - The `secret-scan` job runs gitleaks on every PR/push to catch accidental commits.
-- If a secret is ever committed, rotate it — deleting the file is not enough.
+- If a secret is ever committed, rotate it - deleting the file is not enough.
 
 ## Running checks locally
 

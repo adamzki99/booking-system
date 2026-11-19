@@ -1,18 +1,7 @@
 name: Semgrep
 
 on:
-  pull_request:
-    branches:
-      - main
-      - master
-      - 'release/**'
-  push:
-    branches:
-      - main
-      - master
-      - 'release/**'
-    paths:
-      - '.github/workflows/semgrep.yml'
+  workflow_call:
   workflow_dispatch:
   schedule:
     - cron: '23 4 * * *' # daily full scan (randomized time)

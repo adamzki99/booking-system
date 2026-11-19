@@ -1,16 +1,7 @@
 name: Sidecar CI
 
 on:
-  pull_request:
-    paths:
-      - 'projects/sauna/sidecar/**'
-      - '.github/workflows/sidecar-ci.yml'
-  push:
-    branches:
-      - main
-    paths:
-      - 'projects/sauna/sidecar/**'
-      - '.github/workflows/sidecar-ci.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
