@@ -103,6 +103,8 @@ generated URL works without an auth header. To smoke-check a deployed stack:
    event must appear and then disappear. Invalid tokens must return a
    non-calendar error.
 
+## SigNoz / telemetry
+
 The backend exports traces and metrics via OTLP/HTTP. SigNoz (APM) runs as a
 **persistent dev-ops service** under `dev-ops/signoz/` (separate compose
 project, independent of `booking-*` environments). Bring it up once on the dev
