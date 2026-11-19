@@ -69,7 +69,8 @@ func newE2EApp(t *testing.T) *e2eApp {
 		t.Fatal(err)
 	}
 	authProj := auth.Register(app)
-	users := user.Register(app)
+	userProjections := user.RegisterWithProjections(app)
+	users := userProjections.Users
 	sender := &captureSender{}
 	delivery := &flakySender{delegate: sender}
 	outbox := notification.NewMemoryStore()
@@ -81,7 +82,7 @@ func newE2EApp(t *testing.T) *e2eApp {
 		MaxAttempts: 5,
 		BaseDelay:   time.Nanosecond,
 	})
-	userService := user.NewService(app.Commands, users, sender, nil)
+	userService := user.NewService(app.Commands, users, userProjections.EmailChanges, sender, nil)
 	bookingService := booking.NewService(app.Commands, bookings, users, blocked)
 	broadcastService := broadcast.NewService(app.Commands, users)
 	authService := auth.NewService(app.Commands, sender, ratelimit.NewLimiter(), users)

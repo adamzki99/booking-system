@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { render } from "../test-utils";
+import { ApiError } from "../api/client";
 import { useSession } from "../auth/SessionContext";
 import { getAuthConfig, requestCode } from "../api/auth";
 import Login from "./Login";
@@ -69,6 +70,18 @@ describe("Login page", () => {
     expect(await screen.findByLabelText("Code")).toBeInTheDocument();
   });
 
+  it("shows an accessible validation message for malformed email", async () => {
+    renderLogin();
+
+    await userEvent.type(screen.getByLabelText("Email"), "user");
+    await userEvent.click(screen.getByRole("button", { name: "Request code" }));
+
+    expect(
+      await screen.findByText(/enter a valid email address/i),
+    ).toBeInTheDocument();
+    expect(requestCodeMock).not.toHaveBeenCalled();
+  });
+
   it("signs in with the code and redirects to the calendar", async () => {
     const login = vi.fn().mockResolvedValue(undefined);
     stubSession(login);
@@ -84,6 +97,25 @@ describe("Login page", () => {
       expect(login).toHaveBeenCalledWith("user@example.com", "ABC123"),
     );
     expect(await screen.findByText("calendar")).toBeInTheDocument();
+  });
+
+  it("shows a friendly message for invalid or expired codes without raw auth prefix", async () => {
+    const login = vi
+      .fn()
+      .mockRejectedValue(new ApiError("auth: invalid or expired code", 401));
+    stubSession(login);
+    renderLogin();
+
+    await userEvent.type(screen.getByLabelText("Email"), "user@example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Request code" }));
+    await screen.findByLabelText("Code");
+    await userEvent.type(screen.getByLabelText("Code"), "ABC123");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(
+      await screen.findByText(/code is invalid or has expired/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/auth:/i)).not.toBeInTheDocument();
   });
 
   it("signs in without a code in QA mode", async () => {

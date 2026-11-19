@@ -148,7 +148,11 @@ function RepeatChip(props: any) {
 export default function Calendar() {
   const { user } = useSession();
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [quickBusy, setQuickBusy] = useState(false);
   const [members, setMembers] = useState<Record<string, User>>({});
   const [showAll, setShowAll] = useState(false);
   const [start, setStart] = useState("");
@@ -163,9 +167,9 @@ export default function Calendar() {
       const list = await listBookings();
       list.sort((a, b) => a.start.localeCompare(b.start));
       setBookings(list);
-      setError(null);
+      setListError(null);
     } catch (err) {
-      setError(errorMessage(err, "could not load bookings"));
+      setListError(errorMessage(err, "Could not load bookings."));
     }
     try {
       const users = await listUsers();
@@ -198,31 +202,54 @@ export default function Calendar() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
+    setCreateError(null);
+    setCreateSuccess(null);
+    if (!start || !end) {
+      setCreateError("Choose both a start and end time for the booking.");
+      return;
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      setCreateError("Enter valid start and end times.");
+      return;
+    }
+    if (endDate <= startDate) {
+      setCreateError("The end time must be after the start time.");
+      return;
+    }
+
+    setCreateBusy(true);
     try {
       await createBooking({
-        start: new Date(start).toISOString(),
-        end: new Date(end).toISOString(),
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
       });
       setStart("");
       setEnd("");
-      setError(null);
+      setCreateSuccess("Booking created.");
       await refresh();
     } catch (err) {
-      setError(errorMessage(err, "could not create booking"));
+      setCreateError(errorMessage(err, "Could not create the booking. Please try again."));
+    } finally {
+      setCreateBusy(false);
     }
   }
 
   async function onCancel(id: string) {
     try {
       await cancelBooking(id);
-      setError(null);
+      setListError(null);
       await refresh();
     } catch (err) {
-      setError(errorMessage(err, "could not cancel booking"));
+      setListError(errorMessage(err, "Could not cancel the booking."));
     }
   }
 
-  const canSubmit = useMemo(() => start !== "" && end !== "", [start, end]);
+  const canSubmit = useMemo(
+    () => start !== "" && end !== "" && !createBusy,
+    [start, end, createBusy],
+  );
 
   const selectedSource = useMemo(
     () => bookings.find((b) => b.id === sourceId) ?? (bookings.length ? bookings[0] : null),
@@ -240,15 +267,20 @@ export default function Calendar() {
     const weeks = Number(selectedWeeks);
     const newStart = addWeeks(new Date(selectedSource.start), weeks);
     const newEnd = addWeeks(new Date(selectedSource.end), weeks);
+    setCreateError(null);
+    setCreateSuccess(null);
+    setQuickBusy(true);
     try {
       await createBooking({
         start: newStart.toISOString(),
         end: newEnd.toISOString(),
       });
-      setError(null);
+      setCreateSuccess("Booking created.");
       await refresh();
     } catch (err) {
-      setError(errorMessage(err, "could not create booking"));
+      setCreateError(errorMessage(err, "Could not create the booking. Please try again."));
+    } finally {
+      setQuickBusy(false);
     }
   }
 
@@ -329,7 +361,8 @@ export default function Calendar() {
               <Button
                 colorScheme="teal"
                 onClick={() => void onQuickBook()}
-                isDisabled={disabled || !selectedSource || !selectedWeeks}
+                isDisabled={disabled || !selectedSource || !selectedWeeks || quickBusy}
+                isLoading={quickBusy}
               >
                 Quick book
               </Button>
@@ -342,8 +375,20 @@ export default function Calendar() {
             <Heading as="h2" size="md" mb={3}>
               Create booking
             </Heading>
-            <Box as="form" onSubmit={onSubmit}>
+            <Box as="form" onSubmit={onSubmit} noValidate>
               <VStack spacing={4} align="stretch">
+                {createError && (
+                  <Alert status="error" role="alert">
+                    <AlertIcon />
+                    {createError}
+                  </Alert>
+                )}
+                {createSuccess && (
+                  <Alert status="success" role="status">
+                    <AlertIcon />
+                    {createSuccess}
+                  </Alert>
+                )}
                 <FormControl>
                   <FormLabel htmlFor="start">Start</FormLabel>
                   <Input
@@ -351,7 +396,11 @@ export default function Calendar() {
                     id="start"
                     type="datetime-local"
                     value={start}
-                    onChange={(e) => setStart(e.target.value)}
+                    onChange={(e) => {
+                      setStart(e.target.value);
+                      setCreateError(null);
+                      setCreateSuccess(null);
+                    }}
                   />
                 </FormControl>
                 <FormControl>
@@ -360,10 +409,19 @@ export default function Calendar() {
                     id="end"
                     type="datetime-local"
                     value={end}
-                    onChange={(e) => setEnd(e.target.value)}
+                    onChange={(e) => {
+                      setEnd(e.target.value);
+                      setCreateError(null);
+                      setCreateSuccess(null);
+                    }}
                   />
                 </FormControl>
-                <Button type="submit" alignSelf="flex-start" isDisabled={!canSubmit}>
+                <Button
+                  type="submit"
+                  alignSelf="flex-start"
+                  isDisabled={!canSubmit}
+                  isLoading={createBusy}
+                >
                   Create booking
                 </Button>
               </VStack>
@@ -378,13 +436,13 @@ export default function Calendar() {
             </Heading>
           </CardHeader>
           <CardBody>
-            {error && (
+            {listError && (
               <Alert status="error" role="alert" mb={3}>
                 <AlertIcon />
-                {error}
+                {listError}
               </Alert>
             )}
-            {error === null && bookings.length === 0 && (
+            {listError === null && bookings.length === 0 && (
               <Text color="gray.600">No bookings yet.</Text>
             )}
             <Box

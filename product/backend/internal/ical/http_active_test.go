@@ -83,7 +83,7 @@ func TestHandleRegenerateTokenRejectsInactiveUser(t *testing.T) {
 	req = req.WithContext(auth.WithEmail(req.Context(), "alice@example.com"))
 	rec := httptest.NewRecorder()
 
-	HandleRegenerateToken(&Service{}, resolver)(rec, req)
+	HandleRegenerateToken(&Service{}, resolver, "")(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusUnauthorized, rec.Body.String())

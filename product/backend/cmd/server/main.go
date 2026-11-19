@@ -67,16 +67,16 @@ func main() {
 		}
 		sample.Register(app)
 		projections := auth.Register(app)
-		userProjections := user.Register(app)
+		userProjections := user.RegisterWithProjections(app)
 		var validator booking.BookingValidator
 		if cfg.SidecarURL != "" {
 			validator = sidecar.NewClient(cfg.SidecarURL, logger)
 		}
-		bookings, blocked := booking.Register(app, userProjections, validator)
+		bookings, blocked := booking.Register(app, userProjections.Users, validator)
 		outbox := notification.NewPostgresStore(pool)
-		booking.RegisterNotify(app, outbox, userProjections, bookings, logger)
-		broadcast.Register(app, userProjections)
-		broadcast.RegisterNotify(app, outbox, userProjections, logger)
+		booking.RegisterNotify(app, outbox, userProjections.Users, bookings, logger)
+		broadcast.Register(app, userProjections.Users)
+		broadcast.RegisterNotify(app, outbox, userProjections.Users, logger)
 		icalProjections := ical.Register(app)
 		if err := app.Projections.CatchUp(context.Background()); err != nil {
 			pool.Close()
@@ -99,7 +99,7 @@ func main() {
 			}
 		}()
 
-		userService := user.NewService(app.Commands, userProjections, mailer, ratelimit.NewLimiter())
+		userService := user.NewService(app.Commands, userProjections.Users, userProjections.EmailChanges, mailer, ratelimit.NewLimiter())
 		if n, err := user.SeedDevUsers(context.Background(), userService, cfg.DevMode, cfg.SeedUsersFile); err != nil {
 			pool.Close()
 			logger.Error("seed dev users", "err", err)
@@ -116,16 +116,16 @@ func main() {
 				logger.Info("seeded qa users", "count", n)
 			}
 		}
-		bookingService := booking.NewService(app.Commands, bookings, userProjections, blocked)
-		broadcastService := broadcast.NewService(app.Commands, userProjections)
+		bookingService := booking.NewService(app.Commands, bookings, userProjections.Users, blocked)
+		broadcastService := broadcast.NewService(app.Commands, userProjections.Users)
 		icalService := ical.NewService(app.Commands, icalProjections)
-		authService := auth.NewService(app.Commands, mailer, ratelimit.NewLimiter(), userProjections)
+		authService := auth.NewService(app.Commands, mailer, ratelimit.NewLimiter(), userProjections.Users)
 		authService.QAMode = cfg.QAMode
 		authService.BootstrapAdmin = func(ctx context.Context, email string) error {
 			return userService.BootstrapAdmin(ctx, email)
 		}
 		deps.Auth = authService
-		deps.Middleware = auth.NewSessionMiddleware(projections.Sessions, userProjections)
+		deps.Middleware = auth.NewSessionMiddleware(projections.Sessions, userProjections.Users)
 		deps.UserService = userService
 		deps.BookingService = bookingService
 		deps.BroadcastService = broadcastService
@@ -138,6 +138,7 @@ func main() {
 	}
 
 	deps.SidecarURL = cfg.SidecarURL
+	deps.PublicBaseURL = cfg.PublicBaseURL
 
 	srv := server.New(cfg, logger, deps)
 	logger.Info("starting server", "port", cfg.Port)

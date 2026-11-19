@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ const (
 type UserService struct {
 	commands commandExecutor
 	users    *UsersProjection
+	changes  *EmailChangesProjection
 	sender   email.Sender
 	limiter  rateLimiter
 	mu       sync.Mutex
@@ -45,18 +47,22 @@ type UserService struct {
 
 // NewService creates a user service. The sender delivers the verification
 // email for email changes and the limiter (nil disables rate limiting) guards
-// verification emails against abuse.
-func NewService(commands commandExecutor, users *UsersProjection, sender email.Sender, limiter rateLimiter) *UserService {
-	return &UserService{commands: commands, users: users, sender: sender, limiter: limiter}
+// verification emails against abuse. The email-changes projection may be nil
+// when pending email-change reads are not needed.
+func NewService(commands commandExecutor, users *UsersProjection, changes *EmailChangesProjection, sender email.Sender, limiter rateLimiter) *UserService {
+	return &UserService{commands: commands, users: users, changes: changes, sender: sender, limiter: limiter}
 }
 
 // NewUserService is an alias for NewService.
-func NewUserService(commands commandExecutor, users *UsersProjection, sender email.Sender, limiter rateLimiter) *UserService {
-	return NewService(commands, users, sender, limiter)
+func NewUserService(commands commandExecutor, users *UsersProjection, changes *EmailChangesProjection, sender email.Sender, limiter rateLimiter) *UserService {
+	return NewService(commands, users, changes, sender, limiter)
 }
 
 // Users returns the underlying projection.
 func (s *UserService) Users() *UsersProjection { return s.users }
+
+// EmailChanges returns the email-change read model projection.
+func (s *UserService) EmailChanges() *EmailChangesProjection { return s.changes }
 
 // BootstrapAdmin creates the first admin user if none exist.
 func (s *UserService) BootstrapAdmin(ctx context.Context, email string) error {
@@ -163,9 +169,26 @@ type PendingEmailChange struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
+// GetPendingEmailChange returns the pending email change for a user, if any.
+func (s *UserService) GetPendingEmailChange(ctx context.Context, userID string) (*PendingEmailChange, error) {
+	if s.changes == nil {
+		return nil, nil
+	}
+	pending, err := s.changes.Pending(ctx, userID)
+	if err != nil {
+		if errors.Is(err, ErrNoPendingEmailChange) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &PendingEmailChange{NewEmail: pending.NewEmail, ExpiresAt: pending.ExpiresAt}, nil
+}
+
 // RequestEmailChange records a pending email change and emails the
 // verification code to the new address. The account's login address is
-// unchanged until the code is confirmed.
+// unchanged until the code is confirmed. Requesting again replaces any
+// existing pending change, which can be used to resend a code or correct the
+// target address.
 func (s *UserService) RequestEmailChange(ctx context.Context, userID, newEmail, requesterEmail, clientIP string) (PendingEmailChange, error) {
 	normalized, err := NormalizeEmail(newEmail)
 	if err != nil {
@@ -224,6 +247,14 @@ func (s *UserService) ConfirmEmailChange(ctx context.Context, userID, code, requ
 		return User{}, err
 	}
 	return u, nil
+}
+
+// CancelEmailChange cancels any pending email change for the user.
+func (s *UserService) CancelEmailChange(ctx context.Context, userID, requesterEmail string) error {
+	return s.commands.Execute(ctx, CancelOwnEmailChange{
+		UserID:         userID,
+		RequesterEmail: requesterEmail,
+	})
 }
 
 // ChangeUserAddress changes a basic user's address.
