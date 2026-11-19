@@ -267,9 +267,9 @@ dev-ops/scripts/validate-issue-body.sh /path/to/issue-body.md
 ### Semgrep AppSec Platform (Option 1)
 
 Semgrep posts inline PR comments automatically, filtered by **remediation
-policies** (e.g. only high severity/confidence rules) to control noise. Combined
-with the repo's *require conversation resolution* branch protection, unresolved
-findings block merging.
+policies** (e.g. only high severity/confidence rules) to control noise.
+Findings are reported on the pull request; merging is gated by the `main`
+ruleset, which requires a pull request and the `ci-gate` status check.
 
 - Workflow: `.github/workflows/semgrep.yml` - job name/context `semgrep/ci`,
   runs `semgrep ci` in the `semgrep/semgrep` container on PRs to `main`,
@@ -279,8 +279,8 @@ findings block merging.
   `.semgrepignore` (excludes build artifacts, vendored/generated code).
 - Rule selection, severity gating (Block / Comment / Monitor), and remediation
   policies are managed in the Semgrep AppSec Platform for this repository.
-- Findings fail the check (and thus block merge via branch protection once
-  `semgrep/ci` is a required status check on `main`).
+- Findings fail the check (and thus can block merge once `semgrep/ci` is
+  added to the required status checks of the `main` ruleset).
 
 **Manual steps (owner):**
 - [x] Create a Semgrep AppSec Platform account + organization (free tier: ≤10 contributors)
@@ -288,7 +288,7 @@ findings block merging.
 - [ ] Add `SEMGREP_APP_TOKEN` as a repository secret
 - [ ] Configure remediation policies in the platform to control which rules leave PR comments
 - [ ] (Optional) Configure a custom PR/MR comment footer in **Settings > General > Global > Custom PR/MR comments footers** (max 400 characters; plaintext and markdown links supported) to point to internal docs or your team's channel. Example: "Questions about this issue? Check [our documentation](https://notion.so/appsecdocs) on fixing security issues here or post in #appsec on Slack."
-- [ ] Wire `semgrep/ci` as a required status check on `main` branch protection (preserve existing required PR reviews, linear history, and conversation resolution).
+- [ ] Add `semgrep/ci` to the required status checks of the `main` ruleset.
 
 A Semgrep instance also runs on the development server, connected to this repo,
 performing checks on merges into `main` and release branches.
