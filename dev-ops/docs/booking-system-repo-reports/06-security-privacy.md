@@ -80,7 +80,7 @@ The weakest boundaries are **TB1 and TB2**: nothing filters the text an agent re
 | SEC-07 | High | M | Rate limits key on the proxy's IP, so one global bucket lets anyone lock out all logins; targeted lockout; unbounded limiter memory |
 | SEC-08 | Medium | S | On an empty database, the first person to request a code becomes admin |
 | SEC-09 | Medium | S | Any resident can list every resident's email, address, role and status (`GET /users` has no role check) |
-| SEC-10 | Medium | M | Sessions: bearer token in `localStorage`, fixed 7-day TTL, no server-side logout or revocation, no rotation |
+| SEC-10 | Medium | M | Sessions: bearer token in `localStorage`, fixed 24-hour TTL, no server-side logout or revocation, no rotation |
 | SEC-11 | Medium | S | No security headers; app served over plain HTTP on :80/:8080; Cloudflare tunnel can be bypassed via published origin ports |
 | SEC-12 | Medium | S | SigNoz UI and unauthenticated OTLP ingestion published on 0.0.0.0; traces likely contain iCal tokens |
 | SEC-13 | Medium | S | One shared `.env` (tunnel token, SMTP and SSH credentials) is injected into the backend and Postgres containers |
@@ -272,8 +272,8 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 
 **Evidence**
 - The token is stored in `localStorage` (`product/frontend/src/api/client.ts:1`, `15-34`), so any XSS (there is no CSP; see SEC-11) can read it.
-- The TTL is a fixed 7 days (`internal/auth/service.go:16`), with no idle timeout and no rotation.
-- There is no logout or revoke endpoint. Nothing ever writes `revoked_at`; it is only read (`internal/auth/projection.go:162,183`). Frontend logout only clears storage (`SessionContext.tsx:67-70`), so a copied token keeps working for up to 7 days unless the user is deactivated.
+- The TTL is a fixed 24 hours (`internal/auth/service.go:16`), with no idle timeout and no rotation.
+- There is no logout or revoke endpoint. Nothing ever writes `revoked_at`; it is only read (`internal/auth/projection.go:162,183`). Frontend logout only clears storage (`SessionContext.tsx:67-70`), so a copied token keeps working for up to 24 hours unless the user is deactivated.
 - When the email changes, existing sessions are **re-keyed instead of revoked** (`internal/auth/projection.go:154-169`).
 - The middleware also accepts a `session` cookie (`middleware.go:66`) that nothing sets. That is harmless today, but if a cookie is introduced later without SameSite, it becomes a CSRF vector.
 - Positive: deactivation is enforced on every request (`middleware.go:44-48`).
@@ -472,7 +472,7 @@ fi
 - `tls-letsencrypt.md:30-33` says the catch-all exists for the health check and that `SITE_ADDRESS` requests are auto-redirected. Whether Caddy's automatic redirect still applies alongside an explicit catch-all is unverified (SEC-11).
 - There is no HSTS (SEC-11). The redirect, even when it works, covers only the exact `SITE_ADDRESS`.
 
-**Attack scenario.** A resident follows an `http://` link, an old bookmark, or the raw IP or `:8080` address that appears in deploy issues and docs. They log in, and the login code and the bearer token (`Authorization` header; SEC-10) cross the network in cleartext. On shared Wi-Fi, an attacker on path takes over the session for up to 7 days. Without HSTS, an active attacker can also strip the redirect on first visit.
+**Attack scenario.** A resident follows an `http://` link, an old bookmark, or the raw IP or `:8080` address that appears in deploy issues and docs. They log in, and the login code and the bearer token (`Authorization` header; SEC-10) cross the network in cleartext. On shared Wi-Fi, an attacker on path takes over the session for up to 24 hours. Without HSTS, an active attacker can also strip the redirect on first visit.
 
 **Recommendation.** Separate the health listener from the public listener, and make public HTTP redirect-only.
 

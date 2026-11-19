@@ -12,8 +12,9 @@ import (
 const (
 	// CodeTTL is how long a login code remains valid.
 	CodeTTL = 10 * time.Minute
-	// SessionTTL is how long a session remains valid.
-	SessionTTL = 7 * 24 * time.Hour
+	// SessionTTL is the absolute lifetime of a session from creation; normal
+	// API activity does not extend it.
+	SessionTTL = 24 * time.Hour
 
 	loginCodeSubject = "Your login code"
 

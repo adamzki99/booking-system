@@ -3,8 +3,11 @@ package auth_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
@@ -18,10 +21,11 @@ import (
 )
 
 type testApp struct {
-	pool    *pgxpool.Pool
-	sender  *fakeSender
-	service *auth.AuthService
-	users   *user.UsersProjection
+	pool            *pgxpool.Pool
+	sender          *fakeSender
+	service         *auth.AuthService
+	users           *user.UsersProjection
+	authProjections *auth.Projections
 }
 
 func newTestApp(t *testing.T) *testApp {
@@ -33,7 +37,7 @@ func newTestApp(t *testing.T) *testApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	auth.Register(app)
+	authProjections := auth.Register(app)
 	users := user.Register(app)
 	sender := &fakeSender{}
 	service := auth.NewService(app.Commands, sender, ratelimit.NewLimiter(), users)
@@ -41,7 +45,7 @@ func newTestApp(t *testing.T) *testApp {
 	service.BootstrapAdmin = func(ctx context.Context, email string) error {
 		return userService.BootstrapAdmin(ctx, email)
 	}
-	return &testApp{pool: pool, sender: sender, service: service, users: users}
+	return &testApp{pool: pool, sender: sender, service: service, users: users, authProjections: authProjections}
 }
 
 func TestRequestCodeCreatesLoginCodeRow(t *testing.T) {
@@ -101,6 +105,58 @@ func TestVerifyCreatesSessionAndConsumesCode(t *testing.T) {
 	}
 	if !consumed {
 		t.Fatal("expected login code to be consumed")
+	}
+}
+
+func TestSessionExpiryIsAbsoluteAndNotExtendedByActivity(t *testing.T) {
+	ta := newTestApp(t)
+	ctx := context.Background()
+
+	if err := ta.service.RequestCode(ctx, "alice@example.com", "1.2.3.4"); err != nil {
+		t.Fatal(err)
+	}
+	token, err := ta.service.Verify(ctx, "alice@example.com", ta.sender.body, "1.2.3.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token == "" {
+		t.Fatal("expected a session token")
+	}
+
+	tokenHash := auth.HashToken(token)
+	var createdAt, expiresAt time.Time
+	readExpiry := func() {
+		t.Helper()
+		if err := ta.pool.QueryRow(ctx,
+			`SELECT created_at, expires_at FROM sessions WHERE token_hash = $1`, tokenHash,
+		).Scan(&createdAt, &expiresAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readExpiry()
+
+	if got := expiresAt.Sub(createdAt); got != auth.SessionTTL {
+		t.Fatalf("session lifetime = %v, want %v", got, auth.SessionTTL)
+	}
+
+	mw := auth.NewSessionMiddleware(ta.authProjections.Sessions, ta.users)
+	handler := mw.Require(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("authenticated request %d status = %d, want %d", i+1, rec.Code, http.StatusOK)
+		}
+	}
+
+	before := expiresAt
+	readExpiry()
+	if !expiresAt.Equal(before) {
+		t.Fatalf("session expiry moved from %v to %v after authenticated requests", before, expiresAt)
 	}
 }
 

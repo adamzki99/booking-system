@@ -106,6 +106,12 @@ func TestVerifyReturnsToken(t *testing.T) {
 	if cmd.TokenHash != auth.HashToken(token) {
 		t.Fatal("command token hash should match the returned token")
 	}
+	if auth.SessionTTL != 24*time.Hour {
+		t.Fatalf("SessionTTL = %v, want 24h", auth.SessionTTL)
+	}
+	if got := cmd.SessionExpiresAt.Sub(cmd.OccurredAt); got != auth.SessionTTL {
+		t.Fatalf("session expires %v after verification, want %v", got, auth.SessionTTL)
+	}
 }
 
 func TestRequestCodeRateLimitedDoesNotExecute(t *testing.T) {

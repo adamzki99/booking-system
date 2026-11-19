@@ -144,6 +144,41 @@ func TestSessionMiddlewareRejects(t *testing.T) {
 	}
 }
 
+func TestSessionMiddlewareExpiryBoundary(t *testing.T) {
+	cases := []struct {
+		name      string
+		expiresAt time.Time
+		want      int
+	}{
+		{"before expiry", time.Now().Add(time.Hour), http.StatusOK},
+		{"at expiry", time.Now(), http.StatusUnauthorized},
+		{"after expiry", time.Now().Add(-time.Hour), http.StatusUnauthorized},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			reader := &fakeSessionReader{find: func(context.Context, string) (auth.Session, error) {
+				return auth.Session{Email: "alice@example.com", ExpiresAt: c.expiresAt}, nil
+			}}
+			mw := auth.NewSessionMiddleware(reader, activeMiddlewareUsers())
+			var called bool
+			handler := mw.Require(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("Authorization", "Bearer secret-token")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != c.want {
+				t.Fatalf("status = %d, want %d", rec.Code, c.want)
+			}
+			if called != (c.want == http.StatusOK) {
+				t.Fatalf("handler called = %v, want %v", called, c.want == http.StatusOK)
+			}
+		})
+	}
+}
+
 func TestSessionMiddlewareActiveUserCheck(t *testing.T) {
 	reader := &fakeSessionReader{find: func(context.Context, string) (auth.Session, error) {
 		return auth.Session{Email: "alice@example.com", ExpiresAt: time.Now().Add(time.Hour)}, nil
