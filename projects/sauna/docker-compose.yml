@@ -68,6 +68,9 @@ services:
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-booking-backend}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - signoz
     depends_on:
       postgres:
         condition: service_healthy
@@ -131,3 +134,9 @@ volumes:
     name: ${COMPOSE_PROJECT_NAME:-sauna}-caddy-data
   frontend-dist:
   postgres-data:
+
+networks:
+  default: {}
+  signoz:
+    external: true
+    name: signoz-net

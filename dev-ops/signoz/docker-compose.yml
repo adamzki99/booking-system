@@ -8,11 +8,11 @@
 # Stop:       docker compose -f dev-ops/signoz/docker-compose.yml down
 #             (volumes are preserved; data survives reboots/restarts)
 #
-# OTLP endpoint for booking backends on the same host:
-#   OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
-# (collector ports 4317/4318 are published to the host)
+# OTLP endpoint for booking backends on the shared signoz-net network:
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318
+# (collector ports 4317/4318 are published on loopback only)
 #
-# SigNoz UI: http://<host>:3301
+# SigNoz UI: http://127.0.0.1:3301 (reach over SSH tunnel/Tailscale)
 #
 # Config/images derived from SigNoz deploy patterns (MIT). Pin/upgrade versions
 # together with the collector config when updating.
@@ -134,7 +134,7 @@ services:
     command:
       - --config=/root/config/prometheus.yml
     ports:
-      - "${SIGNOZ_UI_PORT:-3301}:8080"
+      - "127.0.0.1:${SIGNOZ_UI_PORT:-3301}:8080"
     volumes:
       - ./signoz/prometheus.yml:/root/config/prometheus.yml:ro
       - signoz-sqlite:/var/lib/signoz/
@@ -170,7 +170,6 @@ services:
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
       - ./signoz/otel-collector-opamp-config.yaml:/etc/manager-config.yaml:ro
-      - /:/hostfs:ro
       - /proc:/hostfs/proc:ro
       - /sys:/hostfs/sys:ro
     environment:
@@ -178,12 +177,9 @@ services:
       - LOW_CARDINAL_EXCEPTION_GROUPING=false
       - HOST_PROC=/hostfs/proc
       - HOST_SYS=/hostfs/sys
-      - HOST_ETC=/hostfs/etc
-      - HOST_VAR=/hostfs/var
-      - HOST_RUN=/hostfs/run
     ports:
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
+      - "127.0.0.1:4317:4317" # OTLP gRPC
+      - "127.0.0.1:4318:4318" # OTLP HTTP
     healthcheck:
       test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/13133"]
       interval: 30s
@@ -234,3 +230,7 @@ volumes:
     name: signoz-zookeeper-data
   signoz-user-scripts:
     name: signoz-user-scripts
+
+networks:
+  default:
+    name: signoz-net
