@@ -205,17 +205,62 @@ PORT="$(printf '%s' "$ENV_INFO" | cut -f2)"
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/booking-system-${ENV_NAME}}"
 
+# Deploy lock. Only one deploy per environment may run at a time. The lock file
+# must be creatable and openable by the deploy user (systemd user timer, cron,
+# or an interactive shell), so the candidates below are user-writable paths and
+# the system-wide /var/lock is only a last resort. The first candidate is
+# deterministic for a given user (the same file under the systemd user timer and
+# under cron) so the two contexts still serialize against each other. An
+# explicit DEPLOY_LOCK_FILE is used alone: an operator who pins a path wants
+# that failure to be loud rather than silently replaced.
+ENV_LOCK_NAME="booking-deploy-${ENV_NAME}.lock"
+LOCK_CANDIDATES=()
+if [[ -n "${DEPLOY_LOCK_FILE:-}" ]]; then
+  LOCK_CANDIDATES+=("$DEPLOY_LOCK_FILE")
+else
+  if [[ -n "${XDG_STATE_HOME:-}" ]]; then
+    LOCK_CANDIDATES+=("${XDG_STATE_HOME%/}/$ENV_LOCK_NAME")
+  elif [[ -n "${HOME:-}" ]]; then
+    LOCK_CANDIDATES+=("${HOME%/}/.local/state/$ENV_LOCK_NAME")
+  fi
+  LOCK_CANDIDATES+=("${TMPDIR:-/tmp}/booking-deploy-${ENV_NAME}-$(id -u).lock")
+  LOCK_CANDIDATES+=("/var/lock/$ENV_LOCK_NAME")
+fi
+
 if [[ "$DRY_RUN" -eq 1 ]]; then
   log "env=$ENV_NAME branch=$BRANCH port=$PORT deploy_dir=$DEPLOY_DIR"
   log "compose=$DEPLOY_DIR/projects/sauna/docker-compose.yml"
+  log "lock=${LOCK_CANDIDATES[0]}"
   exit 0
 fi
 
-LOCK_FILE="/var/lock/booking-deploy-${ENV_NAME}.lock"
-mkdir -p "$(dirname "$LOCK_FILE")" 2>/dev/null || true
-if ! exec 9>"$LOCK_FILE" 2>/dev/null; then
-  LOCK_FILE="${TMPDIR:-/tmp}/booking-deploy-${ENV_NAME}.lock"
-  exec 9>"$LOCK_FILE"
+acquire_lock() {
+  local candidate
+  for candidate in "${LOCK_CANDIDATES[@]}"; do
+    mkdir -p "$(dirname "$candidate")" 2>/dev/null || true
+    # Probe in a subshell: a redirection failure on the probe, or on a stale
+    # file owned by another user, must never abort the deploy before it starts.
+    if ! ( : >>"$candidate" ) 2>/dev/null; then
+      log "lock path not writable: $candidate"
+      continue
+    fi
+    # Keep stderr attached: an unbraced "exec ... 2>/dev/null" would leave fd 2
+    # pointed at /dev/null for the rest of the run and hide later errors.
+    if ! { exec 9>>"$candidate"; } 2>/dev/null; then
+      log "lock path not openable: $candidate"
+      continue
+    fi
+    LOCK_FILE="$candidate"
+    log "lock: $LOCK_FILE"
+    return 0
+  done
+  return 1
+}
+
+if ! acquire_lock; then
+  lock_error="could not open a deploy lock as $(id -un); tried: ${LOCK_CANDIDATES[*]}"
+  surface_failure "unknown" "$lock_error" "lock acquisition"
+  die "$lock_error"
 fi
 flock -x 9
 
