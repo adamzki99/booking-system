@@ -62,6 +62,7 @@ tick.sh --help
 | `FACTORY_CLAIM_TTL` | `7200` | Claim lease TTL seconds. |
 | `FACTORY_CLAIM_DIR` | `/tmp/factory-claims` | Atomic lease directory. |
 | `FACTORY_WORKTREE` | sibling `<repo>-factory-worktree` | Isolated factory worktree. |
+| `FACTORY_CONFIG_TAG` | `factory-config` | Owner-moved git tag holding the signed-off guardrail snapshot. |
 | `FACTORY_LOG_FILE` | `${XDG_STATE_HOME:-~/.local/state}/factory/tick.jsonl` | JSONL event log. |
 | `FACTORY_ENV` | `dev` | `deployment.environment` field. |
 | `FACTORY_SESSION_LOG_DIR` | `/tmp/opencode` | Session logs and prompt temp files. |
@@ -99,6 +100,36 @@ for robust prompt delivery and session ID capture.
   `dirty_worktree_skipped_reset`.
 - **Timeouts/interrupts:** each session runs under `timeout` when
   `FACTORY_SESSION_TIMEOUT>0`; signals emit `tick_interrupted`.
+- **Guardrail drift gate:** `tick.sh` starts no session when the guardrail files
+  it loads from `origin/main` differ from the owner-moved `factory-config` tag
+  (see below).
+
+## Guardrail drift gate
+
+The agent and config files that OpenCode loads in the worktree
+(`.opencode/agents/`, `opencode.jsonc`, `AGENTS.md`) are guardrails for every
+session. Before issue discovery, `tick.sh` compares those files in `origin/main`
+against the owner-moved `factory-config` tag. On drift it emits `guardrail_drift`
+and exits non-zero, so no session starts. A missing or unfetchable tag also fails
+closed. A clean comparison emits `guardrail_ok`. Override the tag name with
+`FACTORY_CONFIG_TAG`.
+
+**How the owner moves the tag.** Only the repository owner moves
+`factory-config`. After reviewing and merging a change to any guardrail file,
+move the tag to the signed-off commit on the default branch and replace the
+remote tag:
+
+```
+git fetch origin main
+git tag -f factory-config origin/main
+git push -f origin refs/tags/factory-config
+```
+
+The force update is required because the tag is moved deliberately. Do this in
+the same review window as the guardrail change: until the tag is moved, tick
+fails closed and starts no sessions. `CODEOWNERS` (`.github/CODEOWNERS`) plus the
+`protect-main` ruleset option "Require review from Code Owners" make those
+guardrail changes owner-reviewed on GitHub.
 
 ## Failure classification, retry, and exit semantics
 
@@ -155,7 +186,8 @@ Representative events include `tick_start/end/result/interrupted`,
 `lock_skipped`, `gh_op_retry/gh_op_failed`, `fix_discovery_error`,
 `build_discovery_error`, `discovery_failed`, `project_priority_fallback`,
 `claim_conflict`, `dirty_worktree_skipped_reset`, `git_fetch_failed`,
-`session_*`, `usage_filled`, `backup_retry/ok`, `free_retry`, `dry_run`,
+`guardrail_drift/guardrail_ok`, `session_*`, `usage_filled`, `backup_retry/ok`,
+`free_retry`, `dry_run`,
 `marker_skip`, and `nothing_to_do`.
 
 Cron (keep human output separate):
