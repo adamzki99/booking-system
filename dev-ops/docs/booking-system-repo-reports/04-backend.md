@@ -54,7 +54,7 @@ The code also shows clear drift from the many models that wrote it. There are 35
 
 ---
 
-### BE-01 — Projection runner can permanently skip events or crash-loop on a poison event (Critical, M)
+### BE-01 - Projection runner can permanently skip events or crash-loop on a poison event (Critical, M)
 
 **Evidence**
 - Event IDs come from `BIGSERIAL` inside the append transaction (`migrations/0001_create_events.sql:2`, `internal/eventstore/eventstore.go:107-131`). Transactions can commit in a different order from their IDs.
@@ -79,7 +79,7 @@ A skipped `booking.created` means the booking is in the event log and the confir
 4. Isolate failures per projection. A failing projection stops at its own checkpoint, logs the event ID, increments a `projection.errors` metric and does not block the others. `CatchUp` failures should mark the projection as degraded instead of calling `os.Exit`.
 5. Add a test that commits id N+1 before id N and checks that both are projected.
 
-### BE-02 — Create-booking advisory lock can exhaust the pool and covers only create-vs-create (High, M)
+### BE-02 - Create-booking advisory lock can exhaust the pool and covers only create-vs-create (High, M)
 
 **Evidence**
 - `PostgresStore.Lock` borrows a pooled connection and blocks on `SELECT pg_advisory_lock($1)` (`internal/eventstore/eventstore.go:148-171`). The lock holder then needs *more* pooled connections for `bookings.List`, `HasOverlap`, `users.GetByID`, `Append`, 8×`Apply` and 8×`checkpoints.Set` (`internal/booking/commands.go:102-122`, `internal/command/service.go:99-115`).
@@ -104,7 +104,7 @@ tx.Commit(ctx)
 ```
 This requires `command.Service` to pass a transaction to handlers and to the store, for example `Handler func(ctx, tx pgx.Tx, cmd)`. A cheaper alternative is a command-side consistency table, written in the same transaction as the event, with `EXCLUDE USING gist (slot WITH &&) WHERE (released_at IS NULL)` on `tstzrange(start,"end")`. Then the database rejects overlaps even if a code path forgets the lock. In both cases, set `pool_max_conns` explicitly and fail fast on lock timeout with a 503 and `Retry-After`. Extend the guarded set to `BlockTimePeriod` and the cancel commands.
 
-### BE-03 — Commands report failure after the event is committed; no idempotency (High, S)
+### BE-03 - Commands report failure after the event is committed; no idempotency (High, S)
 
 **Evidence**
 - `Execute` appends and then publishes: `recorded, err := s.store.Append(...)` and then `if err := s.publisher.Publish(ctx, recorded); err != nil { … return err }` (`internal/command/service.go:105-115`). Any error from projection, checkpoint or subscriber is returned to the HTTP handler, which responds with 500 even though the event is permanent.
@@ -117,7 +117,7 @@ A user who gets a 500 and retries creates a second booking, or a second cancella
 **Recommendation**
 After a successful append, `Execute` should return success with the recorded events. Log projection or notify errors and retry them asynchronously through the catch-up loop in BE-01. Add an optional `Idempotency-Key` header on `POST /bookings` and `POST /broadcast`. Store it in the event metadata with a unique index on `(event_type, idempotency_key)`, and return the original result when the key repeats.
 
-### BE-04 — The outbox is a best-effort dual write, never replayed (High, M)
+### BE-04 - The outbox is a best-effort dual write, never replayed (High, M)
 
 **Evidence**
 - Notifiers run as dispatcher subscribers *after* the event transaction has committed (`internal/booking/notify.go:32`, `internal/broadcast/notifier.go:73`). They call `Enqueue` in its own statement (`internal/notification/postgres.go:15-29`) and only log failures: "an enqueue error is logged and never surfaced" (`notify.go:19-21`, `notify.go:107-121`).
@@ -135,7 +135,7 @@ There are two good options. Both reuse the existing unique key, which already ma
 
 Option 2 is the smaller change. Put the owner's user ID in `BookingCancelledPayload` so the notifier needs no projection lookup.
 
-### BE-05 — Per-IP rate limits are global behind Caddy (High, S)
+### BE-05 - Per-IP rate limits are global behind Caddy (High, S)
 
 **Evidence**
 - Three copies of `clientIP` use `r.RemoteAddr` (`internal/server/server.go:254-260`, `internal/user/http.go:33-39`, `internal/ical/http.go:109-115`). Caddy proxies everything with `reverse_proxy backend:8080` (`projects/sauna/config/Caddyfile:27-38`), so `RemoteAddr` is always the Caddy container.
@@ -148,7 +148,7 @@ After 20 login code requests in an hour across the *whole association*, nobody c
 **Recommendation**
 Configure Caddy to set the client IP (`header_up X-Real-IP {remote_host}`, already covered by `trusted_proxies`). Read it in one shared `httpx.ClientIP(r, trustedProxies)` helper that falls back to `RemoteAddr` only when the peer is not a trusted proxy. Prune expired windows, for example in a sweep run from `Allow`. If more than one replica will ever run, move the limits to Postgres (`INSERT … ON CONFLICT … RETURNING count`).
 
-### BE-06 — Email retry gives up after about 15 s; SMTP has no timeout (Medium, S)
+### BE-06 - Email retry gives up after about 15 s; SMTP has no timeout (Medium, S)
 
 **Evidence**
 - Defaults are `MaxAttempts 5`, `BaseDelay 1s`, `MaxDelay 1m` (`internal/notification/worker.go:14-16`, `internal/config/config.go:51-52`). The delays are 1+2+4+8 s, plus up to 5 s per tick, so a row is marked `failed` (`worker.go:128-135`) within about 30–40 s of the first attempt. An SMTP outage of a minute permanently fails every confirmation sent during it. Nothing re-drives failed rows. `Store.List` exists but has no endpoint.
@@ -162,7 +162,7 @@ A short provider outage turns into permanently missing confirmations and cancell
 **Recommendation**
 Change the defaults to something like `MaxAttempts 10`, `BaseDelay 30s`, `MaxDelay 1h`, with jitter, which spans about a day. Classify SMTP 5xx errors as permanent and fail them immediately. Dial with `net.Dialer{Timeout: 10*time.Second}` and set `conn.SetDeadline` (or use a context-aware mail library). Set the lease from the batch's worst-case send time, or claim one row per send. Add an admin endpoint or CLI to list and requeue `failed` rows.
 
-### BE-07 — No stream versioning or optimistic concurrency; no event schema versioning (Medium, M)
+### BE-07 - No stream versioning or optimistic concurrency; no event schema versioning (Medium, M)
 
 **Evidence**
 - The `events` table has no `stream_version` and no uniqueness per aggregate (`migrations/0001_create_events.sql`). `Append` has no expected-version argument (`eventstore.go:92`). Aggregates are never rebuilt from their own stream (`LoadByAggregate` has no callers). Every handler validates against a read model.
@@ -178,7 +178,7 @@ Domain invariants hold only on a quiet day. Without versioning, each future payl
 **Recommendation**
 Add `stream_version INT NOT NULL` and `UNIQUE (aggregate_type, aggregate_id, stream_version)`. Give `Append` an `expectedVersion` argument and map the unique violation to `ErrConcurrencyConflict`, which becomes HTTP 409 or a retry. For decisions that cross aggregates (email uniqueness, slot overlap), use a reservation stream such as `aggregate_type='email', aggregate_id=<email>` with expected version 0, or the transaction-scoped lock from BE-02. Add `schema_version SMALLINT DEFAULT 1` and a `metadata JSONB` column (actor, correlation or trace ID, idempotency key). Put upcasters in one `eventstore.Upcast(event)` step before `Apply`.
 
-### BE-08 — Booking emails show UTC times (Medium, S)
+### BE-08 - Booking emails show UTC times (Medium, S)
 
 **Evidence**
 - The frontend sends `new Date(start).toISOString()` (`product/frontend/src/pages/Calendar.tsx:72-73`), which is always in UTC (`Z`). Go keeps that offset, and the notifier formats it without converting: `payload.Start.Format("2006-01-02 15:04")` (`internal/booking/notify.go:61`).
@@ -190,7 +190,7 @@ A Stockholm resident who books 18:00–19:00 is told "17:00 to 18:00" in winter 
 **Recommendation**
 Add `DISPLAY_TIMEZONE` to `config.Config`, load it once with `time.LoadLocation` and fail at startup if it is invalid. Format as `start.In(loc).Format("Mon 2 Jan 15:04 MST")`. Include the zone abbreviation so it is unambiguous across DST changes. Alternatively, have the sidecar provide formatting or templates through a `/functions/render-notification` endpoint.
 
-### BE-09 — Backend–sidecar contract problems (Medium, M)
+### BE-09 - Backend–sidecar contract problems (Medium, M)
 
 **Evidence**
 - **Capacity is hard-coded in the product.** After the sidecar check, the backend always rejects any overlap: `HasOverlap … WHERE status='active' AND start < $2 AND "end" > $1` (`internal/booking/projection.go:82`, used at `internal/booking/commands.go:111-117`). The sidecar's `SAUNA_CAPACITY` and its `capacity` request field (`projects/sauna/sidecar/internal/server/server.go:148-150`) therefore have no effect. A deployment rule ("one at a time") sits in `product/`.
@@ -210,7 +210,7 @@ Turn the contract into a versioned DTO, for example `POST /functions/v1/validate
 ```
 Remove `HasOverlap` from the product, or make it a configurable default that applies when no sidecar is configured. Treat an empty or invalid 200 response as `ErrSidecarUnavailable`. Log at startup when `SIDECAR_URL` is unset, and in production refuse to start without it. Fix the sidecar date check to use `end.Add(-time.Nanosecond)`, and make an invalid timezone a startup error.
 
-### BE-10 — Migrations rerun every file on every boot (Medium, S)
+### BE-10 - Migrations rerun every file on every boot (Medium, S)
 
 **Evidence**
 `runMigrations` walks the embedded files and `pool.Exec`s each one on every start (`internal/eventstore/eventstore.go:223-252`). There is no `schema_migrations` table, no lock, and no transaction per file. It only works because every file uses `CREATE … IF NOT EXISTS`.
@@ -221,7 +221,7 @@ The first `ALTER TABLE … ADD COLUMN` without `IF NOT EXISTS`, or any data back
 **Recommendation**
 Adopt `pressly/goose` or `golang-migrate` with `embed.FS`, or write a 30-line runner. It needs a `schema_migrations(version)` table, a `pg_advisory_lock` around the run, and one transaction per file. Mark 0001–0010 as applied for existing databases.
 
-### BE-11 — Auth design: credentials in the event log, identity keyed by email, no revocation (Medium, M)
+### BE-11 - Auth design: credentials in the event log, identity keyed by email, no revocation (Medium, M)
 
 **Evidence**
 - Every login code request appends `auth.login_code_issued`, with a bcrypt code hash, and every login appends `auth.session_created`, with the session token hash (`internal/auth/commands.go:122-136,186-201`). These are permanent and replayed into `login_codes` and `sessions` on rebuild.
@@ -237,7 +237,7 @@ Ephemeral, high-volume, secret-bearing state is the worst fit for an append-only
 **Recommendation**
 Key sessions and the context on `user_id` and resolve email only for display. Add `auth.session_revoked` (logout, plus "log out everywhere" on deactivation). Consider moving login codes and sessions into ordinary tables with TTL and recording only security-relevant facts as events (`user.logged_in`). AGENTS.md already allows outbox-style operational tables, so this needs a short ADR. Disable empty-table bootstrap unless an explicit `ADMIN_BOOTSTRAP_EMAIL` is set.
 
-### BE-12 — Inconsistent HTTP layer (Medium, S)
+### BE-12 - Inconsistent HTTP layer (Medium, S)
 
 **Evidence**
 - **Decoding:** `server.decodeJSON` limits the body to 1 MiB and rejects trailing data (`internal/server/server.go:216-225`). Seven other handlers use a bare `json.NewDecoder(r.Body).Decode` with no limit (`internal/booking/http.go:84,136`, `internal/broadcast/http.go:41`, `internal/user/http.go:124,186,226,265,301`).
@@ -250,7 +250,7 @@ Key sessions and the context on `user_id` and resolve email only for display. Ad
 **Recommendation**
 Create an `internal/httpx` package with `Decode(w, r, dst)` (using `http.MaxBytesReader` and `DisallowUnknownFields`), `JSON`, `Error(w, err)` that maps sentinel errors to status and a *stable code* and logs everything else as 500 "internal error", and `ClientIP`. Have the middleware use it. Choose one key style (the frontend seems to use camelCase) and remove the duplicates after checking the frontend. Default `GET /bookings` to `from=now-7d` and require `to - from <= 1 year`.
 
-### BE-13 — AI-generated drift: aliases, duplicated boilerplate, dead code (Medium, M)
+### BE-13 - AI-generated drift: aliases, duplicated boilerplate, dead code (Medium, M)
 
 **Evidence**
 - **Aliases:** `grep -i alias` finds 35 alias declarations in non-test code. Examples:
@@ -284,7 +284,7 @@ func As[T command.Command](cmd command.Command) (T, error) {
 ```
 Use `github.com/google/uuid` instead of the three `NewID`s. Add `golangci-lint` (`dupl`, `revive:exported`, `gci`, `unused`) to Backend CI, and add an AGENTS.md rule: "never add alias functions or errors; rename callers instead."
 
-### BE-14 — Test suite gaps (Medium, M)
+### BE-14 - Test suite gaps (Medium, M)
 
 **Evidence**
 - CI runs `go test ./...` without `-race` (`.github/workflows/backend-ci.yml`), although the runner, limiter, worker and lock code are concurrent.
@@ -296,7 +296,7 @@ Use `github.com/google/uuid` instead of the three `NewID`s. Add `golangci-lint` 
 **Recommendation**
 Add `-race` and `-shuffle=on`. Extract `internal/testutil/pg.go` with a single container per `TestMain` and a fresh schema per test (`CREATE SCHEMA t_<rand>; SET search_path`). Add the regression tests listed above, starting with BE-01's out-of-order commit test.
 
-### BE-15 — `sample` scaffolding registered in production (Low, S)
+### BE-15 - `sample` scaffolding registered in production (Low, S)
 
 **Evidence**
 `sample.Register(app)` runs in production `main` (`cmd/server/main.go:68`). Its projection is in every `Handle`, so every event costs an extra checkpoint read and write. Migration `0003_create_sample_items.sql` creates the `sample_items` table, and `projection_checkpoints` has a `sample_items` row. The sidecar still exposes `POST /functions/echo` (`projects/sauna/sidecar/internal/server/server.go:44`).
@@ -304,7 +304,7 @@ Add `-race` and `-shuffle=on`. Extract `internal/testutil/pg.go` with a single c
 **Recommendation**
 Remove the `sample` package and the `main.go` call. Keep 0003 in place, since migrations shouldn't be deleted, and add a later migration `DROP TABLE IF EXISTS sample_items; DELETE FROM projection_checkpoints WHERE projection_name='sample_items';`. This affects only derived data, not events. Move the "how to add a projection" example into `product/backend/README.md`.
 
-### BE-16 — Config handling (Low, S)
+### BE-16 - Config handling (Low, S)
 
 **Evidence**
 - An invalid `PORT` or `SMTP_PORT` silently falls back to the default (`internal/config/config.go:35-46`). `DEV_MODE` has an odd two-step parse (`config.go:59-67`).
@@ -315,7 +315,7 @@ Remove the `sample` package and the `main.go` call. Keep 0003 in place, since mi
 **Recommendation**
 Have `config.Load() (Config, error)` validate everything. Require `DATABASE_URL` and `PUBLIC_BASE_URL` outside dev mode. Pass `PublicBaseURL` into `ical.HandleRegenerateToken`. Add `/readyz`, which pings the database and the sidecar, and keep `/healthz` for liveness.
 
-### BE-17 — Observability gaps (Low, M)
+### BE-17 - Observability gaps (Low, M)
 
 **Evidence**
 - There are spans for `command.execute` and `projection.apply`, and `otelhttp` on the server (`internal/command/service.go:78`, `internal/projection/runner.go:138`, `internal/server/server.go:90`).
@@ -327,7 +327,7 @@ Have `config.Load() (Config, error)` validate everything. Require `DATABASE_URL`
 **Recommendation**
 Add `github.com/exaring/otelpgx` to the pool config, `otelhttp.NewTransport` to both sidecar clients, and an `slog.Handler` wrapper that adds `trace_id` and `span_id`. Replace `pending` with an observable gauge that queries `SELECT status, count(*), min(created_at) … GROUP BY status` every 30 s. Export `projection.checkpoint_lag = max(events.id) − checkpoint` per projection.
 
-### BE-18 — Performance hotspots (Low, M)
+### BE-18 - Performance hotspots (Low, M)
 
 **Evidence**
 - Every command takes the global `Runner.mu` (`runner.go:57-61`), and for each of the 8 projections runs `checkpoints.Get`, then `Apply` and `checkpoints.Set` per event (`runner.go:140-159`). That is about 24 sequential round-trips per command, even for a login code request that only touches `login_codes`, and it serializes every write in the process.
@@ -337,7 +337,7 @@ Add `github.com/exaring/otelpgx` to the pool config, `otelhttp.NewTransport` to 
 **Recommendation**
 Let projections declare the event types they handle (`Handles() []string`) and skip both `Apply` and `Set` for others. Advance the checkpoint lazily or batch it in the BE-01 transaction. Stream catch-up in pages (`WHERE id > $1 ORDER BY id LIMIT 1000`). Bound the feed to `now−30d … now+1y`. None of this is urgent at HOA scale. It matters once the product is reused for other deployments.
 
-### BE-19 — Domain gaps (Low, S)
+### BE-19 - Domain gaps (Low, S)
 
 **Evidence**
 - `user.removed` only flips `active` (`internal/user/projection.go:152-163`). The removed user's future bookings stay active and keep blocking slots, and no projection reacts.
@@ -349,7 +349,7 @@ Let projections declare the event types they handle (`Handles() []string`) and s
 **Recommendation**
 Add an `on user.removed` policy that issues `CancelAnyBooking` for that user's future bookings, as a process manager driven by the checkpointed runner. Have `BlockTimePeriod` return conflicting bookings so the super user can choose to cancel them. Add `LiftBlockedPeriod`. Forbid demoting the last admin.
 
-### BE-20 — Append-only by convention only; rebuild can't be triggered in operation (Low, S)
+### BE-20 - Append-only by convention only; rebuild can't be triggered in operation (Low, S)
 
 **Evidence**
 - Nothing in the database stops `UPDATE` or `DELETE` on `events`. The only guard is the source-grep test (BE-14).

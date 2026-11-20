@@ -74,8 +74,8 @@ func (n *Notifier) enqueueCancelled(ctx context.Context, event eventstore.Event)
 		n.logger.Error("booking notify: decode cancelled event", "event", event.ID, "err", err)
 		return
 	}
-	// The cancellation notice goes to the user that made the booking — the
-	// owner — whether they cancelled it themselves or a super user did.
+	// The cancellation notice goes to the user that made the booking - the
+	// owner - whether they cancelled it themselves or a super user did.
 	var ownerID string
 	if n.bookings != nil {
 		b, err := n.bookings.GetByID(ctx, payload.BookingID)

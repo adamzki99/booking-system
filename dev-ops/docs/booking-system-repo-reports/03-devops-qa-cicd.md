@@ -58,7 +58,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
 
 ---
 
-### OPS-01 — Deploy-failure alerting reaches no one, and several failure paths never alert
+### OPS-01 - Deploy-failure alerting reaches no one, and several failure paths never alert
 **Severity:** High · **Effort:** S
 
 **Evidence**
@@ -91,7 +91,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
 
 ---
 
-### OPS-02 — Failure alerts post raw compose logs (login codes, emails) to a public GitHub issue
+### OPS-02 - Failure alerts post raw compose logs (login codes, emails) to a public GitHub issue
 **Severity:** High · **Effort:** S
 
 **Evidence**
@@ -115,7 +115,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
 
 ---
 
-### OPS-03 — No backups or restore procedure for the Postgres event store (system of record)
+### OPS-03 - No backups or restore procedure for the Postgres event store (system of record)
 **Severity:** High · **Effort:** M
 
 **Evidence**
@@ -140,7 +140,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
 
 ---
 
-### OPS-04 — Deploy ships `main` HEAD with no CI gate, no rollback and no versioned images
+### OPS-04 - Deploy ships `main` HEAD with no CI gate, no rollback and no versioned images
 **Severity:** High · **Effort:** M
 
 **Evidence**
@@ -175,7 +175,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
 
 ---
 
-### OPS-05 — Semgrep is a silent no-op, dependency review cannot fail, and the docs claim gating that doesn't exist
+### OPS-05 - Semgrep is a silent no-op, dependency review cannot fail, and the docs claim gating that doesn't exist
 **Severity:** High · **Effort:** S
 
 **Evidence**
@@ -204,7 +204,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
 
 ---
 
-### OPS-06 — The only browser e2e test cannot pass and nothing runs it
+### OPS-06 - The only browser e2e test cannot pass and nothing runs it
 **Severity:** High · **Effort:** M
 
 **Evidence**
@@ -237,7 +237,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
 
 ---
 
-### OPS-07 — Recording deploy state by pushing to `main` needs a write token on the QA box, races the factory, and never records failures
+### OPS-07 - Recording deploy state by pushing to `main` needs a write token on the QA box, races the factory, and never records failures
 **Severity:** Medium · **Effort:** M
 
 **Evidence**
@@ -270,7 +270,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
 
 ---
 
-### OPS-08 — CI skips the deploy scripts, compose/Caddy config, two of three images and a full-stack smoke test
+### OPS-08 - CI skips the deploy scripts, compose/Caddy config, two of three images and a full-stack smoke test
 **Severity:** Medium · **Effort:** M
 
 **Evidence**
@@ -307,7 +307,7 @@ jobs:
 
 ---
 
-### OPS-09 — Path-filtered workflows will deadlock once checks become required
+### OPS-09 - Path-filtered workflows will deadlock once checks become required
 **Severity:** Medium · **Effort:** S
 
 **Evidence**
@@ -316,7 +316,7 @@ jobs:
 - No workflow sets `concurrency:`.
 - The README's plan is to "wire `semgrep/ci` as a required status check" (`dev-ops/README.md:291`).
 
-**Why it matters:** When branch protection is enabled (OPS-05), a required check that a path filter skipped stays "Expected — Waiting" forever. For example, a docs-only PR would wait on Backend CI. The factory's fix agent would then loop on PRs it cannot unblock.
+**Why it matters:** When branch protection is enabled (OPS-05), a required check that a path filter skipped stays "Expected - Waiting" forever. For example, a docs-only PR would wait on Backend CI. The factory's fix agent would then loop on PRs it cannot unblock.
 
 **Recommendation:** Keep path filtering inside a single always-run workflow and require one aggregate job:
 ```yaml
@@ -334,7 +334,7 @@ Also add `concurrency: { group: ${{ github.workflow }}-${{ github.ref }}, cancel
 
 ---
 
-### OPS-10 — Migrations re-execute every file on every boot, with no version table and no transactions
+### OPS-10 - Migrations re-execute every file on every boot, with no version table and no transactions
 **Severity:** Medium · **Effort:** M
 
 **Evidence**
@@ -361,7 +361,7 @@ Add a CI test that boots the previous release's schema, applies the new migratio
 
 ---
 
-### OPS-11 — The health check is shallow: static `/healthz` via the Caddy catch-all, with no DB, sidecar, SPA or version check
+### OPS-11 - The health check is shallow: static `/healthz` via the Caddy catch-all, with no DB, sidecar, SPA or version check
 **Severity:** Medium · **Effort:** S
 
 **Evidence**
@@ -380,7 +380,7 @@ Add a CI test that boots the previous release's schema, applies the new migratio
 
 ---
 
-### OPS-12 — The 3.2 GB host is overcommitted; deploys collide with factory ticks; disk is never reclaimed
+### OPS-12 - The 3.2 GB host is overcommitted; deploys collide with factory ticks; disk is never reclaimed
 **Severity:** Medium · **Effort:** M
 
 **Evidence**
@@ -408,7 +408,7 @@ Add a CI test that boots the previous release's schema, applies the new migratio
 
 ---
 
-### OPS-13 — SigNoz publishes UI and OTLP on all interfaces, mounts host `/`, and has no alert rules
+### OPS-13 - SigNoz publishes UI and OTLP on all interfaces, mounts host `/`, and has no alert rules
 **Severity:** Medium · **Effort:** S
 
 **Evidence**
@@ -435,7 +435,7 @@ Add a CI test that boots the previous release's schema, applies the new migratio
 
 ---
 
-### OPS-14 — The Caddy `:80` catch-all probably serves the app over plain HTTP alongside HTTPS
+### OPS-14 - The Caddy `:80` catch-all probably serves the app over plain HTTP alongside HTTPS
 **Severity:** Medium · **Effort:** S
 
 **Evidence**
@@ -468,7 +468,7 @@ For the tunnel override, point cloudflared at `http://caddy:8080`.
 
 ---
 
-### OPS-15 — The whole `.env` is injected into containers, and the "read-only" SSH class can read secrets without approval
+### OPS-15 - The whole `.env` is injected into containers, and the "read-only" SSH class can read secrets without approval
 **Severity:** Medium · **Effort:** S
 
 **Evidence**
@@ -491,7 +491,7 @@ For the tunnel override, point cloudflared at `http://caddy:8080`.
 
 ---
 
-### OPS-16 — Agents on the QA host have root-equivalent access; the SSH approval gate is advisory
+### OPS-16 - Agents on the QA host have root-equivalent access; the SSH approval gate is advisory
 **Severity:** Medium · **Effort:** M
 
 **Evidence**
@@ -514,7 +514,7 @@ For the tunnel override, point cloudflared at `http://caddy:8080`.
 
 ---
 
-### OPS-17 — QA is not production-like: log-mode email, a stub Authelia, a tunnel the deploy would delete, fixed host ports
+### OPS-17 - QA is not production-like: log-mode email, a stub Authelia, a tunnel the deploy would delete, fixed host ports
 **Severity:** Medium · **Effort:** S
 
 **Evidence**
@@ -538,7 +538,7 @@ For the tunnel override, point cloudflared at `http://caddy:8080`.
 
 ---
 
-### OPS-18 — No promotion path to production: no prod environment, registry, tags or release process
+### OPS-18 - No promotion path to production: no prod environment, registry, tags or release process
 **Severity:** Medium · **Effort:** L
 
 **Evidence**
@@ -557,7 +557,7 @@ For the tunnel override, point cloudflared at `http://caddy:8080`.
 
 ---
 
-### OPS-19 — QA data and test accounts are unmanaged; an empty DB lets the first login become admin
+### OPS-19 - QA data and test accounts are unmanaged; an empty DB lets the first login become admin
 **Severity:** Low · **Effort:** S
 
 **Evidence**
@@ -575,7 +575,7 @@ For the tunnel override, point cloudflared at `http://caddy:8080`.
 
 ---
 
-### OPS-20 — The timer has no `OnFailure=`, no on-demand trigger, and batches many merges into each deploy
+### OPS-20 - The timer has no `OnFailure=`, no on-demand trigger, and batches many merges into each deploy
 **Severity:** Low · **Effort:** S
 
 **Evidence**
@@ -598,7 +598,7 @@ For the tunnel override, point cloudflared at `http://caddy:8080`.
 
 ---
 
-### OPS-21 — Floating container tags, no `--pull`, and no image vulnerability scanning
+### OPS-21 - Floating container tags, no `--pull`, and no image vulnerability scanning
 **Severity:** Low · **Effort:** S
 
 **Evidence**
@@ -618,7 +618,7 @@ For the tunnel override, point cloudflared at `http://caddy:8080`.
 
 ---
 
-### OPS-22 — Provisioning (`setup.sh`) conflicts with the deploy path; several docs are stale
+### OPS-22 - Provisioning (`setup.sh`) conflicts with the deploy path; several docs are stale
 **Severity:** Low · **Effort:** S
 
 **Evidence**

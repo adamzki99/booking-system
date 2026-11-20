@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install-deploy-timer.sh — install or refresh the systemd user timer that
+# install-deploy-timer.sh - install or refresh the systemd user timer that
 # deploys one environment twice daily.
 #
 # The dev host runs UTC and Debian cron does not implement CRON_TZ, so a plain

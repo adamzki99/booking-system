@@ -113,7 +113,7 @@ SigNoz is a solid start for a two-week-old project:
 | OBS-13 | Low | S | Fragile shipper settings: `start_at: end` with no offset storage, and an unverified timestamp layout |
 | OBS-14 | Low | M | The sidecar and frontend are invisible |
 
-### OBS-01 — Factory telemetry can't answer cost, skill, outcome or flow questions (High, M)
+### OBS-01 - Factory telemetry can't answer cost, skill, outcome or flow questions (High, M)
 
 **Evidence**
 - The session events carry `kind`, `issue`/`pr`, `model`, `exit_code`, `duration_ms`, `outcome`, `session_id` and an optional `output_tail` (`tick.sh:753-904`). Nothing else.
@@ -130,7 +130,7 @@ SigNoz is a solid start for a two-week-old project:
 3. **Queue snapshot per tick.** Emit `factory_queue` with counts of infant, planned, approved-not-started, in-PR, blocked and needs-info issues.
 4. Keep `schema_version` and bump it to 2.
 
-### OBS-02 — The factory log shipper isn't installed by anything in the repo, so factory telemetry may never reach SigNoz (High, S)
+### OBS-02 - The factory log shipper isn't installed by anything in the repo, so factory telemetry may never reach SigNoz (High, S)
 
 **Evidence**
 - `factory/otel-collector.yaml:1-4`: "Runs as a user systemd unit on the cron host". `dev-ops/factory/README.md` (Observability) says to ship via `otelcol-contrib` "running as a **user** systemd unit".
@@ -143,7 +143,7 @@ SigNoz is a solid start for a two-week-old project:
 - Add `dev-ops/factory/install-telemetry.sh`, modeled on `install-deploy-timer.sh`. It should download a **pinned** `otelcol-contrib` release with a checksum (or run the `otel/opentelemetry-collector-contrib:<ver>` image under the existing `signoz` compose project), write `~/.config/systemd/user/factory-otelcol.service` with the env from a gitignored file, and enable it.
 - **Simpler alternative:** mount the factory's JSONL file read-only into the existing SigNoz collector and add a second `filelog` pipeline there. One collector, already deterministic, with nothing extra to install.
 
-### OBS-03 — SigNoz users, dashboards, alerts and retention aren't provisioned as code (High, M)
+### OBS-03 - SigNoz users, dashboards, alerts and retention aren't provisioned as code (High, M)
 
 **Evidence:** none of these exist under `dev-ops/signoz/`. SigNoz keeps them in SQLite on the `signoz-sqlite` volume (`docker-compose.yml:140,144`). The UI port is published on all interfaces (`:137`), so the first visitor completes the admin signup.
 
@@ -159,7 +159,7 @@ dev-ops/signoz/
     alerts/    factory-silent.json  session-failure-rate.json  usage-filled.json
                deploy-failed.json   backend-5xx.json  outbox-failed.json
                projection-lag.json  host-memory.json  host-disk.json
-    retention.json        # e.g. traces 7d, logs 14d, metrics 30d — sized for the host's disk
+    retention.json        # e.g. traces 7d, logs 14d, metrics 30d - sized for the host's disk
     provision.sh          # idempotent: wait for /api/v1/health, register admin from .env if no user,
                           # obtain API key/token, upsert dashboards/alerts by title, set retention TTLs,
                           # create the notification channel (email/Slack/ntfy) from .env
@@ -170,7 +170,7 @@ dev-ops/signoz/
 - The exact API endpoints and auth flow differ between SigNoz versions, so pin them to `v0.96.1` and verify on the box.
 - Bind `:3301` to `127.0.0.1` (OPS-13) so nobody claims the admin account first.
 
-### OBS-04 — No alerting on anything: a silent factory, a failed deploy or a full disk all go unnoticed (High, S)
+### OBS-04 - No alerting on anything: a silent factory, a failed deploy or a full disk all go unnoticed (High, S)
 
 **Evidence**
 - No alert rules exist (`prometheus.yml:12` has `rule_files: []`, and none are provisioned).
@@ -189,7 +189,7 @@ dev-ops/signoz/
 | Event sourcing | `notifications.failed` rises, projection lag above N events (OBS-08) |
 | Host | Memory above 90 % for 10 min, any filesystem above 85 %, no hostmetrics for 5 min (collector down) |
 
-### OBS-05 — The `session_id` join key is always empty and `agent` isn't recorded (Medium, S)
+### OBS-05 - The `session_id` join key is always empty and `agent` isn't recorded (Medium, S)
 
 **Evidence**
 - `tick.sh:763` passes a multi-line Python program to `python3 -c` inside single quotes, with literal `\n` sequences. Python receives one line containing backslash-n, which raises `SyntaxError`, and `2>/dev/null` hides it. So `session_id` is empty on every event. (This is FAC-13, confirmed by reading the code.)
@@ -197,7 +197,7 @@ dev-ops/signoz/
 
 **Recommendation:** move the parsing into `lib/factory.py` (`factory.py session-id <logfile>`) with a unit test, and add `agent="$agent"` to every `session_*` event. With `session_id` populated, any session can be opened in OpenCode's own store to see its full transcript, tokens and tool calls (`opencode session` commands or the export, depending on the version).
 
-### OBS-06 — Deploys aren't observable, and the backend carries no version or environment (Medium, S)
+### OBS-06 - Deploys aren't observable, and the backend carries no version or environment (Medium, S)
 
 **Evidence**
 - `deploy-environment.sh` writes no telemetry; its only outputs are a commit to `main` and a GitHub issue on failure (report 03).
@@ -221,7 +221,7 @@ res, err := resource.New(ctx,
     resource.WithAttributes(semconv.ServiceName(serviceName)))
 ```
 
-### OBS-07 — Backend APM lacks database, sidecar and SMTP spans, logs, route names and runtime metrics (Medium, M)
+### OBS-07 - Backend APM lacks database, sidecar and SMTP spans, logs, route names and runtime metrics (Medium, M)
 
 **Evidence**
 - `server.go:90` wraps the whole mux as `otelhttp.NewHandler(NewMux(deps), "http")`, so every server span shares the operation name `http`. Whether `http.route` is filled from the Go 1.22 mux pattern depends on the otelhttp version (`v0.72.0`, `go.mod:9`); not verified.
@@ -236,7 +236,7 @@ res, err := resource.New(ctx,
 - **Logs:** `otelslog` bridge plus `otlploghttp`. Add a logs pipeline exporter (the collector already has `logs` with `clickhouselogsexporter`) and include `trace_id` in stdout logs too.
 - **Runtime metrics:** `go.opentelemetry.io/contrib/instrumentation/runtime` for goroutines, GC and heap, which matters on a 512 MB container.
 
-### OBS-08 — There are no business or event-sourcing health metrics (Medium, M)
+### OBS-08 - There are no business or event-sourcing health metrics (Medium, M)
 
 **Evidence:** the only custom metrics are the six notification counters (`outbox.go:84-95`), and `notifications.pending` is wrong after a restart (BE-17). There are no counters for events appended, bookings created or cancelled, logins, or rejected double bookings, and no projection-lag or checkpoint metrics, even though the projection runner can silently skip events (BE-01).
 
@@ -253,7 +253,7 @@ res, err := resource.New(ctx,
 
 Put them on an "Event sourcing" and a "Product" dashboard (OBS-03).
 
-### OBS-09 — No per-container, Postgres or Caddy metrics on a memory-starved shared host (Medium, S)
+### OBS-09 - No per-container, Postgres or Caddy metrics on a memory-starved shared host (Medium, S)
 
 **Evidence**
 - `hostmetrics` only (`otel-collector-config.yaml:11-21`). The README notes the host has about 3.2 GB of RAM (`signoz/README.md:104`).
@@ -268,7 +268,7 @@ Put them on an "Event sourcing" and a "Product" dashboard (OBS-03).
 
 That gives a "Host & containers" dashboard that answers "who is eating the RAM during a factory session?"
 
-### OBS-10 — Factory events are logs with flat attributes rather than traces and metrics (Medium, S)
+### OBS-10 - Factory events are logs with flat attributes rather than traces and metrics (Medium, S)
 
 **Evidence**
 - `emit_event` writes one flat JSON object per event (`tick.sh:131-160`). The shipper parses it into **log attributes** (`json_parser`, `otel-collector.yaml:16-20`) and upserts only `service.name` on the resource (`:26-30`).
@@ -281,7 +281,7 @@ That gives a "Host & containers" dashboard that answers "who is eating the RAM d
 - **Better path:** emit a **trace per tick**. The root span is `factory.tick`, with child spans `factory.discovery`, `factory.plan`, `factory.build` and `factory.fix`, each carrying the OBS-01 attributes. Do it from the Python helper with the OTel SDK, or with `otel-cli` from bash. SigNoz then shows each tick as a waterfall, and span metrics give session-duration percentiles per `model` and `kind` for free.
 - Count dropped events: write failures to stderr and add a `telemetry_errors` field to `tick_end`.
 
-### OBS-11 — Telemetry can carry secrets and PII (session output tails, iCal tokens in URLs) (Medium, S)
+### OBS-11 - Telemetry can carry secrets and PII (session output tails, iCal tokens in URLs) (Medium, S)
 
 **Evidence**
 - `session_failed` includes `output_tail` (last 16 KiB of OpenCode output; `tick.sh:816-904`; README: `FACTORY_LOG_SESSION_OUTPUT=tail` is the default). That can include file contents, environment values or residents' data the agent read. It is shipped to SigNoz as a log attribute.
@@ -293,7 +293,7 @@ That gives a "Host & containers" dashboard that answers "who is eating the RAM d
 - Add a `redaction` or `transform` processor to both collectors to drop or mask `output_tail`, `url.full`/`url.path` on iCal routes, `user.email` and anything matching token patterns.
 - Set retention (OBS-03) so PII doesn't sit in ClickHouse indefinitely (SEC-15).
 
-### OBS-12 — Fresh-host reproducibility gaps: unverified UDF download, unstable `host.name`, stale alertmanager target (Low, S)
+### OBS-12 - Fresh-host reproducibility gaps: unverified UDF download, unstable `host.name`, stale alertmanager target (Low, S)
 
 **Evidence**
 - `docker-compose.yml:74-82` downloads `histogram-quantile` from GitHub releases at every init with no checksum, and the README says it "requires outbound network".
@@ -307,7 +307,7 @@ That gives a "Host & containers" dashboard that answers "who is eating the RAM d
 - Remove the stale alertmanager block.
 - Pin images by digest (Dependabot's `docker` ecosystem can keep the digests fresh; see ST-07).
 
-### OBS-13 — Fragile shipper settings: `start_at: end` with no offset storage, and an unverified timestamp layout (Low, S)
+### OBS-13 - Fragile shipper settings: `start_at: end` with no offset storage, and an unverified timestamp layout (Low, S)
 
 **Evidence**
 - `factory/otel-collector.yaml:15` sets `start_at: end` with no `file_storage` extension. Every shipper restart skips events written while it was down, and the first start ships nothing historical.
@@ -315,7 +315,7 @@ That gives a "Host & containers" dashboard that answers "who is eating the RAM d
 
 **Recommendation:** add `extensions: file_storage` with `storage: file_storage` on the receiver so offsets survive restarts, and use `start_at: beginning` for first-time backfill. Switch to `layout_type: gotime` with `layout: "2006-01-02T15:04:05.000Z07:00"`. Add a test that feeds one sample line through the collector (`otelcol validate` plus a fixture) in factory CI (FAC-18).
 
-### OBS-14 — The sidecar and frontend are invisible (Low, M)
+### OBS-14 - The sidecar and frontend are invisible (Low, M)
 
 **Evidence:** no OpenTelemetry code under `projects/sauna/sidecar/` or `product/frontend/src/` (grep).
 
@@ -340,7 +340,7 @@ That gives a "Host & containers" dashboard that answers "who is eating the RAM d
 **Now (this week)**
 1. OBS-02: get factory events flowing. The quickest route is a second `filelog` pipeline in the existing SigNoz collector, with the JSONL mounted read-only.
 2. OBS-05: fix the `session_id` parser and add `agent` to session events.
-3. OBS-04 (minimal): three alerts — factory silent, deploy failed, host disk/memory — to a channel the owner reads. Bind `:3301` to localhost first (OBS-03, OPS-13).
+3. OBS-04 (minimal): three alerts - factory silent, deploy failed, host disk/memory - to a channel the owner reads. Bind `:3301` to localhost first (OBS-03, OPS-13).
 4. OBS-11: ship `metadata` only, and redact `output_tail`.
 
 **Next (this month)**

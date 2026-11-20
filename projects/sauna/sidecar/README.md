@@ -5,15 +5,15 @@ product so the product can be reused for other booking applications.
 
 - Runs as its own container in the docker compose cluster.
 - Communicates via a REST API (called by the product backend).
-- **Stateless:** it only performs functions — no state is kept here.
+- **Stateless:** it only performs functions - no state is kept here.
 
 ## Endpoints
 
-- `GET /healthz` — liveness check.
-- `GET /functions/chrome` — header/footer content; includes `nextRedeploy`
+- `GET /healthz` - liveness check.
+- `GET /functions/chrome` - header/footer content; includes `nextRedeploy`
   (RFC3339) when `REDEPLOY_TIMES` is configured.
-- `POST /functions/echo` — echo `{input}`.
-- `POST /functions/validate-booking` — validates a booking interval against the
+- `POST /functions/echo` - echo `{input}`.
+- `POST /functions/validate-booking` - validates a booking interval against the
   sauna booking rules (single day, no overlap beyond capacity). Request:
   `{"start":"<RFC3339>","end":"<RFC3339>","capacity":1,"existing":[...]}`.
   Returns 200 with `{"allowed":true}` or `{"allowed":false,"code":...,"message":...}`.
@@ -21,9 +21,9 @@ product so the product can be reused for other booking applications.
 ## Configuration
 
 - `PORT` (default 8081)
-- `BOOKING_TIMEZONE` (default `Europe/Stockholm`) — IANA timezone used to
+- `BOOKING_TIMEZONE` (default `Europe/Stockholm`) - IANA timezone used to
   determine the calendar day boundary for the single-day rule.
-- `REDEPLOY_TIMES` (default empty) — comma-separated daily redeploy times in
+- `REDEPLOY_TIMES` (default empty) - comma-separated daily redeploy times in
   `HH:MM` form (e.g. `00:00,12:00`), interpreted in `BOOKING_TIMEZONE`. When
   set, `GET /functions/chrome` returns `nextRedeploy` as an RFC3339 timestamp.
   Leave empty in production so the header indicator is hidden.

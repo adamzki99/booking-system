@@ -105,15 +105,15 @@ No separate lint or typecheck script is defined; type checking runs as part of `
 
 ### Login page (`/login`)
 
-- [ ] Displays the booking mark, "Booking" heading, and mode/step-appropriate description.
-- [ ] On mount, fetches auth config to determine QA mode and falls back to non-QA behavior if config loading fails.
-- [ ] QA mode: shows email form with "Sign in" button; button is disabled without email and shows loading while busy; successful QA sign-in navigates to `/` (replace).
-- [ ] Non-QA initial step: shows email form with "Request code" button; button is disabled without email and shows loading while busy.
-- [ ] Requesting a code sends the entered email and transitions to the code-entry step on success.
-- [ ] Code-entry step shows confirmation text including the destination email and 10-minute validity, an uppercased 6-character code input, and a "Sign in" button disabled until the code length is 6.
-- [ ] Successful code sign-in navigates to `/` (replace).
-- [ ] Sign-in/request-code failures are shown in an error alert with a user-displayable message.
-- [ ] Relevant inputs receive focus automatically for the active step/mode.
+- [x] Displays the booking mark, "Booking" heading, and mode/step-appropriate description.
+- [x] On mount, fetches auth config to determine QA mode and falls back to non-QA behavior if config loading fails.
+- [x] QA mode: shows email form with "Sign in" button; button is disabled without email and shows loading while busy; successful QA sign-in navigates to `/` (replace).
+- [x] Non-QA initial step: shows email form with "Request code" button; button is disabled without email and shows loading while busy.
+- [x] Requesting a code sends the entered email and transitions to the code-entry step on success.
+- [x] Code-entry step shows confirmation text including the destination email and 10-minute validity, an uppercased 6-character code input, and a "Sign in" button disabled until the code length is 6.
+- [x] Successful code sign-in navigates to `/` (replace).
+- [x] Sign-in/request-code failures are shown in an error alert with a user-displayable message.
+- [x] Relevant inputs receive focus automatically for the active step/mode.
 
 ### Calendar page (`/`)
 

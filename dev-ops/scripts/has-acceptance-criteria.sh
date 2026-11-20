@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# check-acceptance-criteria.sh — verify that an issue body (or issue) contains
+# check-acceptance-criteria.sh - verify that an issue body (or issue) contains
 # an "Acceptance Criteria" section with at least one measurable checkbox.
 #
 # Usage:

@@ -7,20 +7,20 @@ The automation that turns GitHub issues into merged PRs.
 1. [`tick.sh`](tick.sh) runs on a 1-hour interval (e.g. via cron) and fetches
    issues and pull requests from GitHub.
 2. Per tick, it may start:
-   - **one planning session** — for the oldest unlabeled ("infant") issue, but
+   - **one planning session** - for the oldest unlabeled ("infant") issue, but
      only if it has an `## Acceptance Criteria` section with at least one
      measurable checkbox (gated by
      `dev-ops/scripts/check-acceptance-criteria.sh`).
      A planner agent posts the implementation plan as a comment and categorizes
      the issue with labels. It never applies `owner approved`.
    - **build-path sessions** (fixes, then optionally a new build):
-     - **fix sessions** — for open factory PRs (head `factory/issue-*`) that are
+     - **fix sessions** - for open factory PRs (head `factory/issue-*`) that are
        blocked from merge (failing/status checks, changes requested, or merge
        conflicts/non-mergeable). A fixer resumes the builder lifecycle to make
        the PR mergeable. Up to `--max-fix-sessions` /
        `FACTORY_MAX_FIX_SESSIONS` per tick (default: 1). Fix execution is
        serialized per tick to avoid shared-worktree races.
-     - **one building session** — for the highest-priority `owner approved`
+     - **one building session** - for the highest-priority `owner approved`
        issue with no build marker and no open factory PR, selected by build
        priority: issues in a GitHub Project (v2) come before others; among
        project issues, the oldest project (by `createdAt`) wins, then the
@@ -29,7 +29,7 @@ The automation that turns GitHub issues into merged PRs.
 3. Labels select the model for the session, per [`models.yaml`](models.yaml)
    (fix sessions use the related issue's labels).
 
-The total number of sessions is not limited — only the rate at which they are
+The total number of sessions is not limited - only the rate at which they are
 created. The system owner steers the project by interacting with issues only.
 
 ## Invariants
@@ -247,10 +247,10 @@ set for quota fallback.
 
 ## Files
 
-- `tick.sh` — factory tick orchestrator.
-- `models.yaml` — label→model mapping.
-- `lib/factory.py` — validation, classification, event helpers, claim helpers.
-- `discover_fix_candidates.py`, `discover_build_candidates.py` — discovery logic.
-- `nightly-cleanup.sh` — worktree/log/claim retention cleanup.
-- `factory-tick.logrotate` — JSONL logrotate example.
-- `otel-collector.yaml` — optional SigNoz/log shipping config.
+- `tick.sh` - factory tick orchestrator.
+- `models.yaml` - label→model mapping.
+- `lib/factory.py` - validation, classification, event helpers, claim helpers.
+- `discover_fix_candidates.py`, `discover_build_candidates.py` - discovery logic.
+- `nightly-cleanup.sh` - worktree/log/claim retention cleanup.
+- `factory-tick.logrotate` - JSONL logrotate example.
+- `otel-collector.yaml` - optional SigNoz/log shipping config.

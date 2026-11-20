@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# tick.sh — one tick of the software factory.
+# tick.sh - one tick of the software factory.
 #
 # (see header comments in git history)
 #
@@ -584,7 +584,7 @@ $PLAN_MARKER
 
 3. Categorize the issue with labels (see gh label list). If the task is
    large, also add the heavy-build-task label. Never add the
-   "$APPROVED_LABEL" label — only the repository owner applies it.
+   "$APPROVED_LABEL" label - only the repository owner applies it.
 
 Do not modify any code or files.
 
@@ -602,23 +602,23 @@ You are the builder agent of this software factory. Implement GitHub issue
 .opencode/agents/builder.md (single owner of the issue-to-merged-PR lifecycle).
 
 Load and follow these OpenCode skills (use the skill tool) as they apply:
-- \`implement\` — build the issue from its spec/plan.
-- \`tdd\` — drive red-green-refactor when the project has tests.
-- \`code-review\` — review changes before landing when available.
-- \`diagnosing-bugs\` — use for hard bugs or performance regressions.
-- \`domain-modeling\` — use when changing domain terminology, CQRS/event-sourced
+- \`implement\` - build the issue from its spec/plan.
+- \`tdd\` - drive red-green-refactor when the project has tests.
+- \`code-review\` - review changes before landing when available.
+- \`diagnosing-bugs\` - use for hard bugs or performance regressions.
+- \`domain-modeling\` - use when changing domain terminology, CQRS/event-sourced
   models, or project glossary/ADR-worthy decisions.
-- \`frontend-design\` / \`webapp-testing\` — use for \`product/frontend/\` UI
+- \`frontend-design\` / \`webapp-testing\` - use for \`product/frontend/\` UI
   work and Playwright/browser verification when relevant.
-- \`pr\` — when opening the pull request, write the PR body in that format
+- \`pr\` - when opening the pull request, write the PR body in that format
   (Summary, Evidence, Merge Danger). Include \`Closes #$1\` in the body.
-- \`caveman\` — concise reporting style for issue/PR summaries and comments where
+- \`caveman\` - concise reporting style for issue/PR summaries and comments where
   appropriate.
 - \`investigate-first\`, \`lean-build\`, \`surgical-patch\`, \`safe-refactor\`,
-  \`migration\`, \`verify-and-stop\` — work-pattern skills; apply only when
+  \`migration\`, \`verify-and-stop\` - work-pattern skills; apply only when
   relevant (investigate before changing, minimal build, targeted edits, safe
   refactors, migrations, stop after verification).
-- \`caveman-commit\`, \`caveman-review\`, \`caveman-compress\` — concise commit
+- \`caveman-commit\`, \`caveman-review\`, \`caveman-compress\` - concise commit
   messages, PR review, and context compression; use when drafting commits/PR
   bodies or compressing context.
 

@@ -21,7 +21,7 @@ SKIP_EXTENSIONS = {
     ".dockerfile", ".makefile", ".csv", ".ini", ".cfg",
 }
 
-# Well-known build/config files that carry no (or a misleading) extension —
+# Well-known build/config files that carry no (or a misleading) extension  - 
 # `Dockerfile` has no suffix so `.dockerfile` above never matches it, and
 # `CMakeLists.txt` would ride the compressible `.txt` rule. Checked by
 # basename before any extension rule.
@@ -34,7 +34,7 @@ KNOWN_CODE_FILENAMES = {
 
 # Dotfiles whose entire name sits where pathlib expects a suffix, so
 # `Path(".cursorrules").suffix` is `""` just as it is for `.env`. These are the
-# prose ones — Cursor's and its imitators' legacy single-file rule formats —
+# prose ones - Cursor's and its imitators' legacy single-file rule formats  - 
 # and the only bare dotfiles that may be compressed. Everything else is
 # treated as config; see the dotfile branch in `detect_file_type`.
 PROSE_DOTFILES = {
@@ -103,7 +103,7 @@ def detect_file_type(filepath: Path) -> str:
     # A bare dotfile carries its whole name where pathlib expects a suffix, so
     # `Path(".env").suffix` is `""` and every table below was skipped. The file
     # then reached the extensionless content sniffer, which only recognises
-    # brace-and-quote code — so `.env`, `.gitignore` and `.editorconfig` all
+    # brace-and-quote code - so `.env`, `.gitignore` and `.editorconfig` all
     # came back `natural_language` and `/caveman-compress .gitignore` shipped
     # the bytes to the configured provider and rewrote the file in place.
     # Resolve the name against the tables, and treat anything unrecognised as
@@ -124,7 +124,7 @@ def detect_file_type(filepath: Path) -> str:
     if ext in SKIP_EXTENSIONS:
         return "code" if ext not in CONFIG_EXTENSIONS else "config"
 
-    # Extensionless files (like CLAUDE.md, TODO) — check content
+    # Extensionless files (like CLAUDE.md, TODO) - check content
     if not ext:
         try:
             text = filepath.read_text(encoding="utf-8", errors="ignore")

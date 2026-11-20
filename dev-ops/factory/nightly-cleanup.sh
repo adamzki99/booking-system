@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# nightly-cleanup.sh — remove factory git worktrees, session logs, and stale claims.
+# nightly-cleanup.sh - remove factory git worktrees, session logs, and stale claims.
 #
 # Intended for a nightly cron job (and safe to run manually). It:
 #   - removes registered git worktrees created for factory work that are clean

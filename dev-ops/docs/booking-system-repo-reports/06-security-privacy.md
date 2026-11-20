@@ -1,4 +1,4 @@
-# Security & Privacy Review — Sauna Booking System and its AI Software Factory
+# Security & Privacy Review - Sauna Booking System and its AI Software Factory
 
 **Scope** · Security across the whole repo `adamzki99/booking-system`. That covers the factory (`dev-ops/factory/**`, `.opencode/**`, `opencode.jsonc`, skills supply chain), GitHub Actions, the backend (`product/backend/**`), the sidecar (`projects/sauna/sidecar/**`), the frontend (`product/frontend/src/**`), deployment config (`projects/sauna/**`, `dev-ops/signoz/**`, `dev-ops/scripts/**`), git history, and GDPR basics. This was a static review: I read files and local git history, ran no repo scripts and did no live testing. · **Reviewed** 2026-11-19 at commit 45f6ee5
 
@@ -101,7 +101,7 @@ The weakest boundaries are **TB1 and TB2**: nothing filters the text an agent re
 
 ---
 
-### SEC-01 — Any GitHub user can steer the factory (Critical, S)
+### SEC-01 - Any GitHub user can steer the factory (Critical, S)
 
 **Evidence**
 - The plan path selects the oldest open issue with no labels, from any author: `dev-ops/factory/tick.sh:233-234`, `gh issue list --state open ... --json number,labels,createdAt --jq '[.[] | select((.labels | length) == 0)] ...'`. No `author` or `authorAssociation` filter exists anywhere under `dev-ops/factory/` (grep for `author|association` matches nothing).
@@ -125,7 +125,7 @@ The weakest boundaries are **TB1 and TB2**: nothing filters the text an agent re
 4. Narrow the planner: allow only `gh issue comment` and `gh issue edit --add-label <type/size labels>`, and remove `gh issue edit*`.
 5. Reduce exposure. Set GitHub *interaction limits* to "collaborators only", or make the repo private while the factory runs unattended.
 
-### SEC-02 — Fork PRs named `factory/issue-N` enter the fix path (Critical, S)
+### SEC-02 - Fork PRs named `factory/issue-N` enter the fix path (Critical, S)
 
 **Evidence**
 - `dev-ops/factory/discover_fix_candidates.py:14` lists **all** open PRs with `number,headRefName,headRefOid,mergeable,reviewDecision,statusCheckRollup,isDraft,createdAt`. It does not include `isCrossRepository`, `headRepositoryOwner` or `author`.
@@ -138,7 +138,7 @@ The weakest boundaries are **TB1 and TB2**: nothing filters the text an agent re
 
 **Recommendation.** Add `isCrossRepository,author,headRepositoryOwner` to the `--json` field list. In `fix_candidates_from_prs`, skip any PR where `isCrossRepository` is true or the author is not the factory or owner identity. Add a regression test in `dev-ops/scripts/tests/test-factory-lib.py`.
 
-### SEC-03 — Unsandboxed agents with `--auto`, owner credentials and host secrets (Critical, M)
+### SEC-03 - Unsandboxed agents with `--auto`, owner credentials and host secrets (Critical, M)
 
 **Evidence**
 - `tick.sh:707`: `local args=(run --auto --title "$1" --format json --file "$prompt_file" ...)`. In the OpenCode CLI, `--auto` is defined as **"Auto-approve permissions that are not explicitly denied"** (from GitHub metadata: `anomalyco/opencode` `packages/cli/src/commands/commands.ts`). So `"gh pr merge*": ask` (`builder.md:26`, `fixer.md:28`) is effectively *allow*. That matches the observed 2–5 minute merges with no review.
@@ -156,7 +156,7 @@ The weakest boundaries are **TB1 and TB2**: nothing filters the text an agent re
 3. **Real isolation.** Run each session in a throwaway container or VM with no host `$HOME`, no Docker socket, a short-lived token injected from outside, and an egress allowlist (GitHub, the model API, Go and npm registries). Move the factory off the QA host.
 4. **Drop `--auto`,** or keep it only together with an explicit, complete deny-list (SEC-04). Do merges outside the LLM: `tick.sh` merges only when checks are green and the PR was opened by the bot for an issue the owner approved.
 
-### SEC-04 — OpenCode permission rules are bypassable and partly in a deprecated format (High, S)
+### SEC-04 - OpenCode permission rules are bypassable and partly in a deprecated format (High, S)
 
 **Evidence**
 - I checked the root config against the current schema. In OpenCode V2, `permissions` as an array of `{action, resource, effect}` **is the valid key**. The published schema lists `permissions` as "Ordered tool permission rules" (`Permission.Ruleset`), lists `permission` as `deprecated: true`, and sets `additionalProperties: false` (from opencode.ai docs/schema, `https://opencode.ai/config.json`). So `opencode.jsonc:26-42` is *not* silently ignored on a V2 build, but on a pre-V2 build the key would be unknown. The installed version is logged as `opencode_version` in the `tick_start` event (`tick.sh:220`); please confirm it.
@@ -185,7 +185,7 @@ The weakest boundaries are **TB1 and TB2**: nothing filters the text an agent re
 ```
 Convert the four agent files to `permissions:` lists in the same style. Remember that permission rules are a guard against mistakes, not a security boundary; SEC-03 isolation is still required.
 
-### SEC-05 — Unpinned third-party skills with executable scripts (High, S)
+### SEC-05 - Unpinned third-party skills with executable scripts (High, S)
 
 **Evidence**
 - `dev-ops/skills.yaml:16-109`: none of the 21 remote skills has a `ref`. Twelve come from an individual's repo (`juliusbrussee/caveman`), six from `mattpocock/skills`, four from `anthropics/skills`.
@@ -198,7 +198,7 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 
 **Recommendation.** Pin every entry to a full commit SHA (`ref: 3f2a…`) and record `tree_sha256` in `.source`. Make `request-skills.sh` verify that hash and print a diff for review. Treat skill updates like dependency bumps, with human review and CODEOWNERS. Remove skills the factory doesn't need (`caveman-compress`, `skill-creator`, `pdf`, the `ultracave`/`megacave` variants). Skill scripts should never get unrestricted shell access.
 
-### SEC-06 — Log-mode email is the default; codes and PII leak into public issues (High, S)
+### SEC-06 - Log-mode email is the default; codes and PII leak into public issues (High, S)
 
 **Evidence**
 - `product/backend/internal/config/config.go:47-50`: `if emailMode == "" { emailMode = "log" }`. `internal/email/sender.go:20-21` accepts it with no environment check. `projects/sauna/.env.example:22` ships `EMAIL_MODE=log`.
@@ -219,7 +219,7 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 - `surface_failure` should not paste raw logs into public issues. Post only the failing command and SHA, keep the log tail in a local file or a private artifact, or at least redact codes and emails with a regex (`[A-Z0-9]{6}`, `[^ ]+@[^ ]+`).
 - Delete or redact the log tail in issue #101.
 
-### SEC-07 — Rate limits key on the proxy IP: global lockout, targeted lockout, unbounded memory (High, M)
+### SEC-07 - Rate limits key on the proxy IP: global lockout, targeted lockout, unbounded memory (High, M)
 
 **Evidence**
 - `internal/server/server.go:254-260`, `internal/user/http.go:33-39` and `internal/ical/http.go:109-115` all use `net.SplitHostPort(r.RemoteAddr)`. Every request arrives through Caddy (`projects/sauna/config/Caddyfile:27-28`, `reverse_proxy backend:8080`), so `RemoteAddr` is always the Caddy container. The "per-IP" limits are therefore global:
@@ -247,7 +247,7 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 - Prefer per-code attempt counters (invalidate a code after 5 failures) over per-email lockouts. Key the iCal limit on the token only, at a looser rate.
 - Evict expired windows (sweep on `Allow` or on a ticker), or use a bounded LRU.
 
-### SEC-08 — First requester becomes admin on an empty database (Medium, S)
+### SEC-08 - First requester becomes admin on an empty database (Medium, S)
 
 **Evidence**
 - `internal/auth/service.go:73-89`: `canLogin` returns `count == 0` when no users exist, so **any** email can request and verify a code.
@@ -257,7 +257,7 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 
 **Recommendation.** Bootstrap the admin from configuration only, for example `BOOTSTRAP_ADMIN_EMAIL` checked in `canLogin`, or a one-off CLI command. Never open login to arbitrary addresses.
 
-### SEC-09 — Any resident can list all residents' PII (Medium, S)
+### SEC-09 - Any resident can list all residents' PII (Medium, S)
 
 **Evidence**
 - `internal/server/server.go:52` wraps `GET /users` in `protect(...)` only. `internal/user/http.go:67-85` (`HandleListUsers`) has **no role check**. Compare `HandleCreateUser` at `:129-133`.
@@ -268,7 +268,7 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 
 **Recommendation.** Require `RoleSuper` for `GET /users`. If residents need a directory, add a separate projection with minimal fields (display name only) and an opt-in.
 
-### SEC-10 — Session handling (Medium, M)
+### SEC-10 - Session handling (Medium, M)
 
 **Evidence**
 - The token is stored in `localStorage` (`product/frontend/src/api/client.ts:1`, `15-34`), so any XSS (there is no CSP; see SEC-11) can read it.
@@ -280,7 +280,7 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 
 **Recommendation.** Issue the session as `Set-Cookie: session=…; HttpOnly; Secure; SameSite=Strict; Path=/api`. Keep the JSON APIs (SameSite=Strict plus `Content-Type: application/json` is enough CSRF defence here, or add an Origin check). Add `POST /auth/logout` emitting a `SessionRevoked` event, plus "log out everywhere". Revoke other sessions on email or role change. Consider a 24-hour idle and 30-day absolute lifetime with rotation on use.
 
-### SEC-11 — No security headers; plain HTTP; tunnel bypass (Medium, S)
+### SEC-11 - No security headers; plain HTTP; tunnel bypass (Medium, S)
 
 **Evidence**
 - `projects/sauna/config/Caddyfile` has no `header` directive (no CSP, HSTS, X-Content-Type-Options, Referrer-Policy or frame-ancestors).
@@ -302,7 +302,7 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 ```
 Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${PORT}:80"`), redirect `:80` to HTTPS for the public host, and in the tunnel override remove the published ports (`ports: !reset []`). Chakra/emotion inject styles, which is why `'unsafe-inline'` is in `style-src`.
 
-### SEC-12 — SigNoz and OTLP exposed; tokens likely in traces (Medium, S)
+### SEC-12 - SigNoz and OTLP exposed; tokens likely in traces (Medium, S)
 
 **Evidence**
 - `dev-ops/signoz/docker-compose.yml:136-137` publishes `"${SIGNOZ_UI_PORT:-3301}:8080"`, and `:184-186` publishes `"4317:4317"` and `"4318:4318"`, all on 0.0.0.0. Docker-published ports bypass `ufw` by default.
@@ -312,7 +312,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 
 **Recommendation.** Bind to loopback (`"127.0.0.1:3301:8080"`, `"127.0.0.1:4318:4318"`) and reach the UI over SSH, Tailscale or Cloudflare Access. Backends on the same host can use a shared Docker network instead of `host.docker.internal`. Redact the token with `otelhttp.WithSpanNameFormatter` plus a filter, or a collector `transform` processor that rewrites `url.path` matching `^/calendar/.*` to `/calendar/{token}`.
 
-### SEC-13 — Secret sprawl through a shared `.env` (Medium, S)
+### SEC-13 - Secret sprawl through a shared `.env` (Medium, S)
 
 **Evidence**
 - Both `backend` and `postgres` use `env_file: - .env` (`projects/sauna/docker-compose.yml:62-63` and `99-100`), so every variable in that file ends up in both containers.
@@ -321,7 +321,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 
 **Recommendation.** Pass each service only the variables it needs via `environment:` with explicit names, or use Compose `secrets:`. Remove `DEV_SERVER_*` from the deployment `.env` (it belongs in `dev-ops/.env` on the operator's machine), and give cloudflared only the tunnel token.
 
-### SEC-14 — Dev-server SSH wrapper: "read-only" reads secrets with no approval (Medium, M)
+### SEC-14 - Dev-server SSH wrapper: "read-only" reads secrets with no approval (Medium, M)
 
 **Evidence** (`dev-ops/scripts/dev-server-agent.sh`)
 - `:226-228`: `uname|df|free|ps|ls|cat|head|tail|grep) CLASSIFICATION="read-only"` with no path restriction. So `cat /opt/booking-system-qa/projects/sauna/.env`, `cat ~/.config/gh/hosts.yml` and `ps eww` (process environments) all run **without** the y/N prompt.
@@ -331,7 +331,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 
 **Recommendation.** Use a dedicated remote user with a `ForceCommand` or sudoers allowlist on the server, which is the real boundary. In the wrapper, refuse paths matching `\.env|\.ssh|\.config/gh|/proc/.*/environ|secrets`; classify `docker inspect/logs`, `ps e*` and `git --output` as impactful; set `ControlPersist=no` (or 30s) with a per-invocation `ControlPath` in a 0700 directory removed on exit.
 
-### SEC-15 — GDPR: append-only PII with no erasure path (Medium, L)
+### SEC-15 - GDPR: append-only PII with no erasure path (Medium, L)
 
 **Evidence**
 - `AGENTS.md:35`: "**No deletes:** not even super users may delete data". `product/backend/README.md:18`: "Events are append-only".
@@ -347,7 +347,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 - Retention jobs (expressed as "expired" projections, not event deletes): `login_codes` older than 1 day, revoked or expired `sessions`, delivered `notification_outbox` rows after 30–90 days, logs at 30 days.
 - Paperwork: privacy notice for residents, a record of processing activities, a DPA with the SMTP provider and with SigNoz if hosted elsewhere, and a rule that QA uses only synthetic data. Revise the "no deletes" rule in `AGENTS.md` to "no deletes except legally required erasure via crypto-shredding", so agents don't fight it.
 
-### SEC-16 — `setup.sh` defaults (Medium, S)
+### SEC-16 - `setup.sh` defaults (Medium, S)
 
 **Evidence**
 - `projects/sauna/setup.sh:36`: `curl -fsSL https://get.docker.com | sh` run as root (`:12`).
@@ -357,7 +357,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 
 **Recommendation.** If the `.env` was just created, generate a random password (`openssl rand -base64 24`), set `EMAIL_MODE=smtp`, and exit without starting until SMTP is filled in. Install Docker from the distro or Docker apt repo with GPG verification instead of `curl | sh`.
 
-### SEC-17 — No per-code attempt limits (Low, S)
+### SEC-17 - No per-code attempt limits (Low, S)
 
 **Evidence**
 - `POST /users/me/email/confirm` (`internal/user/http.go:212-242`, `internal/user/commands.go` `handleConfirmOwnEmail`, `auth.VerifyCodeHash` at about line 466) has **no** rate limit and no attempt counter during the 15-minute code lifetime (`internal/user/service.go:26`).
@@ -367,7 +367,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 
 **Recommendation.** Add attempts to the pending-change and login-code projections, invalidate after 5 failures, and rate-limit the confirm endpoint per user.
 
-### SEC-18 — Internal error strings returned to clients (Low, S)
+### SEC-18 - Internal error strings returned to clients (Low, S)
 
 **Evidence**
 - `internal/server/server.go:237-239` (`writeError(w, authStatus(err), err.Error())`, including the 500 default, for example `auth: send login code: dial tcp …`).
@@ -375,7 +375,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 
 **Recommendation.** For 5xx responses, return `{"error":"internal error","requestId":…}` and log the details server-side.
 
-### SEC-19 — Input handling details (Low, S)
+### SEC-19 - Input handling details (Low, S)
 
 **Evidence**
 - `decodeJSON` caps bodies at 1 MiB (`server.go:216-225`), but user and broadcast handlers use `json.NewDecoder(r.Body)` with no limit (`internal/user/http.go:124,186,226,265,301`). Exposure is bounded by `ReadTimeout: 5s`.
@@ -383,7 +383,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 
 **Recommendation.** Use `http.MaxBytesReader` in a shared decoder. Require `PUBLIC_BASE_URL` at startup and drop the header fallback.
 
-### SEC-20 — CI and image pinning (Low, S)
+### SEC-20 - CI and image pinning (Low, S)
 
 **Evidence**
 - `backend-ci.yml`, `security.yml` and `semgrep.yml` use tags: `actions/checkout@v4`, `actions/setup-go@v5`, `actions/dependency-review-action@v4`, `gitleaks/gitleaks-action@v2`. `frontend-ci.yml` and `sidecar-ci.yml` are SHA-pinned.
@@ -393,7 +393,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 
 **Recommendation.** Pin actions to commit SHAs and images to `@sha256:` digests, and let Dependabot (`github-actions`, `docker`, `gomod`, `npm`) bump them. Remove the Authelia service until it is designed.
 
-### SEC-21 — Outsiders can spoof factory control signals (Low, S)
+### SEC-21 - Outsiders can spoof factory control signals (Low, S)
 
 **Evidence**
 - `has_marker` and `has_pr_marker` treat **any** comment containing `<!-- factory:plan -->`, `<!-- factory:build -->` or the fix marker as authoritative (`tick.sh:455-476`). An outsider can comment the marker on an approved issue and the factory permanently skips it.
@@ -401,7 +401,7 @@ Import this into `(app)`. Bind the health-check port to loopback (`"127.0.0.1:${
 
 **Recommendation.** Count markers only from the bot identity (filter on `.comments[] | select(.author.login == "<bot>")`). Have `surface_failure` and `recover_issue` match only issues authored by the bot.
 
-### SEC-22 — The Let's Encrypt certificate advertises the QA host, and QA has no access gate (High, M)
+### SEC-22 - The Let's Encrypt certificate advertises the QA host, and QA has no access gate (High, M)
 
 **Evidence**
 - In direct mode, the mode the deploy actually uses (`deploy-environment.sh:352` runs only the base `docker-compose.yml`), Caddy obtains a publicly trusted Let's Encrypt certificate for `SITE_ADDRESS` (`Caddyfile:47-49`, `dev-ops/tls-letsencrypt.md:19-23`).
@@ -437,7 +437,7 @@ booking.example.com.  CAA 0 iodef "mailto:security@example.com"
    (Adjust `issuewild` and `validationmethods=dns-01` if you adopt the wildcard.)
 4. Keep QA on **synthetic data only** (SEC-15), and close SEC-08 and SEC-12 before the first certificate is issued.
 
-### SEC-23 — Certificate lifecycle is unmonitored (Medium, S)
+### SEC-23 - Certificate lifecycle is unmonitored (Medium, S)
 
 **Evidence**
 - **Contact address:** the default ACME contact is `admin@localhost` (`Caddyfile:14`, `docker-compose.yml:27`), and `.env.example:48-50` ships `ACME_EMAIL=` empty, so the default applies unless the operator sets it. ACME servers reject contact addresses on non-public domains, so with a real `SITE_ADDRESS`, account registration and therefore issuance will likely fail. Because `acme_ca` is set explicitly (`Caddyfile:15`), Caddy likely won't fall back to another CA. Neither point was tested.
@@ -464,7 +464,7 @@ fi
 - Add continuous monitoring that doesn't depend on deploys. Options: an external uptime and TLS-expiry check (which also proves reachability from the internet), the collector's `httpcheck` receiver if the pinned collector version reports certificate expiry, or a daily timer that writes days-to-expiry into the factory JSONL. Alert at 14 days or fewer (OBS-04).
 - Alert on Caddy `obtain`/`renew` errors in its logs. Docker logs aren't shipped today (OBS-07/OBS-09).
 
-### SEC-24 — TLS is optional by construction (Medium, S)
+### SEC-24 - TLS is optional by construction (Medium, S)
 
 **Evidence**
 - `Caddyfile:51-53` defines a `:80 { import app }` catch-all. It serves the SPA, `/api/*` and `/calendar/*` over plain HTTP for **any** `Host` header: the IP address, a wrong name, or `localhost`.
@@ -510,7 +510,7 @@ ports:
 
 Enable HSTS only after the TLS check from SEC-23 passes. Start with a short `max-age` and raise it to a year. In tunnel mode, set the site address to `:80` (any host, HTTP) **and** remove published ports, since there the origin must never be reachable except through cloudflared (SEC-11, SEC-27).
 
-### SEC-25 — `trusted_proxies private_ranges` in direct mode lets local traffic spoof client IP, scheme and host (Medium, S)
+### SEC-25 - `trusted_proxies private_ranges` in direct mode lets local traffic spoof client IP, scheme and host (Medium, S)
 
 **Evidence**
 - `Caddyfile:16-21`: `trusted_proxies static private_ranges`. The comment says it is meant for "the cloudflared connector or a local reverse proxy" and adds "Tighten to the exact proxy CIDR if the topology is known".
@@ -536,7 +536,7 @@ servers {
 - In the backend, require `PUBLIC_BASE_URL` (SEC-19) and take the client IP only from the single header Caddy sets.
 - Optionally set `"userland-proxy": false` in Docker's `daemon.json`, after checking the impact on local access.
 
-### SEC-26 — TLS private keys and the ACME account key are readable by the factory's agents (Medium, M)
+### SEC-26 - TLS private keys and the ACME account key are readable by the factory's agents (Medium, M)
 
 **Evidence**
 - Caddy keeps certificate private keys and the ACME account key in the named volume `booking-<env>-caddy-data` (`docker-compose.yml:31,125-131`; `tls-letsencrypt.md:27-29`).
@@ -551,7 +551,7 @@ servers {
 - Until then, treat the TLS key as exposed. Prefer short certificate lifetimes, keep CAA `accounturi` binding (SEC-22), and know the revocation procedure.
 - Back up `caddy-data`, encrypted, together with the database. Losing it forces re-issuance and can hit the duplicate-certificate rate limit (`tls-letsencrypt.md:84`).
 
-### SEC-27 — The certificate topology doesn't match the environment model (Low, M)
+### SEC-27 - The certificate topology doesn't match the environment model (Low, M)
 
 **Evidence**
 - `docker-compose.yml:21-22` publishes `80:80` and `443:443` fixed for every compose project.

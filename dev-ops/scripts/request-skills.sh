@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# request-skills.sh — install open-source and repository-local skills.
+# request-skills.sh - install open-source and repository-local skills.
 #
 # Reads dev-ops/skills.yaml, installs each missing skill into .opencode/skills/,
 # and (default mode) proposes the addition as a pull request.
@@ -88,7 +88,7 @@ while IFS=$'\037' read -r id repo path ref local_path; do
       added+=("$id")
     else
       rm -rf "$dest"
-      log "WARNING: '$id' has no SKILL.md at $local_path — skipped"
+      log "WARNING: '$id' has no SKILL.md at $local_path - skipped"
     fi
     continue
   fi
@@ -98,7 +98,7 @@ while IFS=$'\037' read -r id repo path ref local_path; do
     added+=("$id")
   else
     rm -rf "$dest"
-    log "WARNING: '$id' has no SKILL.md at $repo/$path — skipped"
+    log "WARNING: '$id' has no SKILL.md at $repo/$path - skipped"
   fi
 done < <(read_config)
 
@@ -121,7 +121,7 @@ git push --quiet -u origin "$branch"
   echo
   for id in "${added[@]}"; do
     src="$(cat "$SKILLS_DIR/$id/.source")"
-    echo "- **$id** — ${src//[$'\n']/, }"
+    echo "- **$id** - ${src//[$'\n']/, }"
   done
   echo
   echo "## Review checklist"

@@ -93,7 +93,7 @@ The tally: **5 of 22 skills are headless-safe and relevant as they stand. 6 need
 | AGT-15 | Low | S | Skill provenance isn't pinned or reproducible |
 | AGT-16 | Low | S | `opencode.jsonc` keys and the LSP setup are unverified; no config validation |
 
-### AGT-01 — No skill or guide teaches the project's own architecture, so every session reinvents the patterns (High, M)
+### AGT-01 - No skill or guide teaches the project's own architecture, so every session reinvents the patterns (High, M)
 
 **Evidence**
 - The only first-party skill is `dev-server-ssh` (`dev-ops/skills.yaml`), and it is for operators.
@@ -116,7 +116,7 @@ The tally: **5 of 22 skills are headless-safe and relevant as they stand. 6 need
 
 Also add short per-area `AGENTS.md` files (for example `product/backend/AGENTS.md`) with the package map and "golden path" links. Reference them from the root `AGENTS.md` so they load whichever way OpenCode resolves instruction files.
 
-### AGT-02 — Core skills assume an interactive user and break or improvise in headless `--auto` runs (High, S)
+### AGT-02 - Core skills assume an interactive user and break or improvise in headless `--auto` runs (High, S)
 
 **Evidence**
 - Sessions run as `opencode run --auto … --file <prompt>` (`tick.sh:707`). There is no human on the other end.
@@ -132,7 +132,7 @@ Also add short per-area `AGENTS.md` files (for example `product/backend/AGENTS.m
 - Make factory-specific versions of `tdd`, `code-review`, `pr` and `diagnosing-bugs` (vendored copies under `dev-ops/skills/factory-*`). Replace every "ask the user" with a deterministic rule. For example: *the seams are the public functions and HTTP handlers named in the plan comment; the fixed point is `origin/main`; the spec is the issue body and the factory plan comment.*
 - Add one line to the build and fix prompts: "No human is available. Where a skill says to ask the user, follow the factory default in this prompt. If no default exists, post the question as an issue comment, apply `needs-info`, and stop."
 
-### AGT-03 — The architecture rules are prose only, with no machine-checkable guardrails for agents to hit (High, M)
+### AGT-03 - The architecture rules are prose only, with no machine-checkable guardrails for agents to hit (High, M)
 
 **Evidence**
 - See the table above. `.semgrep.yml` has `rules: []` and leaves rule selection to the Semgrep platform, which per OPS-05 currently scans nothing.
@@ -148,7 +148,7 @@ Also add short per-area `AGENTS.md` files (for example `product/backend/AGENTS.m
 - **A migration test:** apply all migrations twice against an empty database, which proves idempotency.
 - **ESLint with `no-restricted-imports`:** pages must use `api/*`, not `fetch` directly.
 
-### AGT-04 — The model owns deterministic lifecycle steps that mid-tier models do least reliably (High, M)
+### AGT-04 - The model owns deterministic lifecycle steps that mid-tier models do least reliably (High, M)
 
 **Evidence:** `build_prompt` (`tick.sh:582-618`) asks one session to do all of the following:
 
@@ -176,7 +176,7 @@ All of this happens under a single 3,600-second timeout (`FACTORY_SESSION_TIMEOU
 
 This roughly halves the prompt, and the scaffolding cost is no longer paid in tokens. It also removes the need for `gh pr merge*` permission inside the agent, which FAC-03 and SEC-03 recommend anyway.
 
-### AGT-05 — The build prompt requires up to 16 skills, which contradict each other and the prompt (Medium, S)
+### AGT-05 - The build prompt requires up to 16 skills, which contradict each other and the prompt (Medium, S)
 
 **Evidence:** `tick.sh:555-576` says "Load and follow these OpenCode skills". The list includes `implement`, `tdd`, `code-review`, `diagnosing-bugs`, `domain-modeling`, `frontend-design`, `webapp-testing`, `pr`, `caveman`, six work-pattern skills, and `caveman-commit`, `caveman-review` and `caveman-compress`. The contradictions:
 
@@ -195,7 +195,7 @@ This roughly halves the prompt, and the scaffolding cost is no longer paid in to
 - **build:** `es-feature` / `ui-conventions` / `sidecar-rule` (whichever matches the area label), `factory-tdd`, `surgical-patch`, `verify-and-stop`, `factory-pr`
 - **fix:** `factory-diagnosing-bugs`, `surgical-patch`, `verify-and-stop`
 
-### AGT-06 — Three sources of truth for each role (agent file, tick prompt, command), and they disagree (Medium, M)
+### AGT-06 - Three sources of truth for each role (agent file, tick prompt, command), and they disagree (Medium, M)
 
 **Evidence:** the builder lifecycle exists in `builder.md` (216 lines), `build_prompt` in `tick.sh:549-627`, and `commands/deliver-issue.md`. Where they disagree:
 
@@ -211,7 +211,7 @@ This roughly halves the prompt, and the scaffolding cost is no longer paid in to
 - Delete `deliver-issue.md`, or make it pass the same parameters.
 - Add a test in `dev-ops/scripts/tests/` asserting that every marker and label named in `.opencode/agents/*.md` exists in `tick.sh` or `models.yaml`.
 
-### AGT-07 — Domain knowledge isn't in agent-readable form: no glossary, no ADRs (Medium, S)
+### AGT-07 - Domain knowledge isn't in agent-readable form: no glossary, no ADRs (Medium, S)
 
 **Evidence**
 - There is no `GLOSSARY.md`, `CONTEXT.md` or `docs/adr/` in the repo. The only ADR-related file is the skill's own template, `.opencode/skills/domain-modeling/ADR-FORMAT.md`.
@@ -222,7 +222,7 @@ This roughly halves the prompt, and the scaffolding cost is no longer paid in to
 
 **Recommendation:** seed `GLOSSARY.md` with about 20 terms taken from `projects/sauna/README.md` and the event names. Seed `docs/adr/` with 5–6 ADRs covering event sourcing on Postgres, the sidecar contract, passwordless email codes, the notification outbox, create-booking serialization, and the "no deletes" rule plus its GDPR consequence (SEC-15). Make the planner cite the relevant terms and ADRs in each plan comment, and add a reviewer check for "contradicts an ADR".
 
-### AGT-08 — Agents are told to use tools they can't run (slash commands, denied scripts) (Medium, S)
+### AGT-08 - Agents are told to use tools they can't run (slash commands, denied scripts) (Medium, S)
 
 **Evidence**
 - `plan_prompt` says "use the /create-github-issue command" (`tick.sh:542`). But that command needs a temp file written (step 4), `validate-issue-body.sh` run (step 5) and `gh issue create` (step 7). The planner has `edit: deny` and `bash: "*": deny`, with only `gh issue view/list/comment/edit`, `gh label list`, `gh pr list`, `git` reads and `ls` allowed (`planner.md:5-20`). So the planner can't follow the instruction.
@@ -233,7 +233,7 @@ This roughly halves the prompt, and the scaffolding cost is no longer paid in to
 
 **Recommendation:** provide one wrapper script, `dev-ops/scripts/create-issue.sh --title … --body-file …`, that validates and creates the issue, and allow only that script for the roles that need it. For the planner, it's simpler to put proposed follow-ups in a "Follow-ups" section of the plan comment and let the owner create them.
 
-### AGT-09 — `/lint-frontend` is broken and the check commands cover only the backend (Medium, S)
+### AGT-09 - `/lint-frontend` is broken and the check commands cover only the backend (Medium, S)
 
 **Evidence**
 - `.opencode/commands/lint-frontend.md:8,12` runs `npm run lint` and `npm run typecheck`. `product/frontend/package.json:6-11` defines only `dev`, `build`, `test` and `preview`, so the command always reports "missing script", and there's no ESLint at all (FE-15).
@@ -252,7 +252,7 @@ dev-ops/scripts/check.sh [backend|frontend|sidecar|e2e|all]   # exit non-zero on
 - Rewrite `/lint-frontend` and `/test-backend` as thin wrappers, and add `/test-frontend`, `/test-sidecar` and `/e2e`.
 - Reference `check.sh <area>` in the build prompt, picking the area from the issue's area label.
 
-### AGT-10 — The OpenCode Go model routing doesn't match role risk; the reviewer inherits the builder's model (Medium, M)
+### AGT-10 - The OpenCode Go model routing doesn't match role risk; the reviewer inherits the builder's model (Medium, M)
 
 **Evidence**
 - `models.yaml` maps tiers to `opencode-go/*` models, with backups mostly on `opencode/*-free`. `FACTORY_FREE_MODEL` defaults to `opencode-go/beam-free`, and `normalize_model` appends `#high` to it (`tick.sh:690-699`).
@@ -270,7 +270,7 @@ dev-ops/scripts/check.sh [backend|frontend|sidecar|e2e|all]   # exit non-zero on
 - Have `tick.sh` check every `models.yaml` ID at startup against `opencode models opencode-go` (and `opencode models opencode` for the free backups), and fail fast with a clear event.
 - Have the planner *propose* a tier, and let a deterministic rule raise it: any change to migrations, eventstore or auth gets at least `standard-build-task`.
 
-### AGT-11 — Permission profiles don't match the roles they serve (Medium, S)
+### AGT-11 - Permission profiles don't match the roles they serve (Medium, S)
 
 **Evidence**
 - `builder.md` and `fixer.md` list allowed `git`/`gh` patterns but have **no `"*"` default**. Unlisted commands (`go`, `npm`, `curl`, `docker`, `cat .env`…) fall to OpenCode's default, and `--auto` approves anything set to `ask`.
@@ -284,7 +284,7 @@ dev-ops/scripts/check.sh [backend|frontend|sidecar|e2e|all]   # exit non-zero on
 
 **Recommendation:** for builder and fixer, use `"*": deny` and then allow `check.sh`, `go`/`npm` within the worktree, read-only `git`/`gh`, and `git push origin HEAD`. Deny `webfetch` and `gh api*`, and remove merge entirely (AGT-04). For the planner, replace `gh issue edit*` with `gh issue edit * --add-label*` and deny `--add-label "owner approved"` explicitly. Pattern semantics differ between OpenCode versions, so test the deny rules on the box (see the note at the top of FAC-04).
 
-### AGT-12 — Caveman token-saving targets output tokens, but factory cost is in input context (Medium, S)
+### AGT-12 - Caveman token-saving targets output tokens, but factory cost is in input context (Medium, S)
 
 **Evidence**
 - `AGENTS.md` ("Concise reporting") and every agent file mandate the caveman voice "for status lines and inter-agent handoffs".
@@ -299,7 +299,7 @@ dev-ops/scripts/check.sh [backend|frontend|sidecar|e2e|all]   # exit non-zero on
 - Cut input instead: the shorter prompts from AGT-04 and AGT-06, the curated skills from AGT-05, CI logs pre-trimmed by `tick.sh` to the failing step's last 200 lines, and `check.sh` output bounded the way `test-backend.md` already does.
 - Log input and output tokens per session (FAC-13) so the saving is measured.
 
-### AGT-13 — There is no evaluation harness, so prompt, skill or model changes are never measured (Medium, M)
+### AGT-13 - There is no evaluation harness, so prompt, skill or model changes are never measured (Medium, M)
 
 **Evidence:** recent commits change models (`c35a381 chore(factory): update model definitions`), skills (#96, #98) and prompts (#94, #132). No benchmark or replay exists, and success is judged only by whether the PR merged.
 
@@ -311,13 +311,13 @@ dev-ops/scripts/check.sh [backend|frontend|sidecar|e2e|all]   # exit non-zero on
 - Score each run: hidden-test pass rate, `check.sh` pass, diff size against the original, architecture-check violations (AGT-03), tokens and wall time.
 - Keep a results table in the repo to inform `models.yaml`.
 
-### AGT-14 — The issue template has no architecture-impact section (Low, S)
+### AGT-14 - The issue template has no architecture-impact section (Low, S)
 
 **Evidence:** `dev-ops/issue-templates/agentic.md` has generic sections (Problem Statement, Motivation, … Constraints). Nothing asks which events or projections change, whether a migration or a sidecar contract change is needed, or what is out of scope.
 
 **Recommendation:** add an `## Architecture Impact` checklist covering: events added or changed (names), projections or read models affected, migration (y/n), sidecar contract change (y/n), UI routes affected, ADRs relevant. Add an `## Out of Scope` section too. Have the planner fill these in its plan and use them to pick skills (AGT-05) and the tier floor (AGT-10).
 
-### AGT-15 — Skill provenance isn't pinned or reproducible (Low, S)
+### AGT-15 - Skill provenance isn't pinned or reproducible (Low, S)
 
 **Evidence:**
 - Every vendored skill's `.source` says `ref: default`, and no `ref:` is set in `dev-ops/skills.yaml`.
@@ -326,7 +326,7 @@ dev-ops/scripts/check.sh [backend|frontend|sidecar|e2e|all]   # exit non-zero on
 
 **Recommendation:** pin `ref:` to a commit SHA per skill. Record `sha:` and a tree hash in `.source`. Have CI fail when installed content doesn't match the recorded hash. Review upstream diffs as normal PRs.
 
-### AGT-16 — `opencode.jsonc` keys and the LSP setup are unverified; no config validation (Low, S)
+### AGT-16 - `opencode.jsonc` keys and the LSP setup are unverified; no config validation (Low, S)
 
 **Evidence:**
 - `opencode.jsonc` sets `compaction.keep.tokens`, `compaction.buffer`, `experimental.todo` and `experimental.background_compaction`, plus the disputed `permissions` block (FAC-04 vs. SEC-04). I couldn't confirm the keys against the OpenCode version on the box, and unknown keys may be ignored silently.

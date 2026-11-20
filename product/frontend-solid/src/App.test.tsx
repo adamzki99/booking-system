@@ -17,7 +17,7 @@ describe("App routing", () => {
       </SessionProvider>
     ));
 
-    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Booking" })).toBeInTheDocument();
   });
 
   it("redirects signed-out users from a protected route to login", async () => {
@@ -32,6 +32,6 @@ describe("App routing", () => {
       </SessionProvider>
     ));
 
-    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Booking" })).toBeInTheDocument();
   });
 });

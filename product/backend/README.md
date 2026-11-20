@@ -15,7 +15,7 @@ The booking platform backend.
 
 ## Event store
 
-PostgreSQL. Events are append-only — state is never updated or deleted, only
+PostgreSQL. Events are append-only - state is never updated or deleted, only
 derived through projections.
 
 ### Booking conflict serialization

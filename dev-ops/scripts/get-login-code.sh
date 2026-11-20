@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# get-login-code.sh — retrieve the most recent 6-char login code for an email
+# get-login-code.sh - retrieve the most recent 6-char login code for an email
 # from a QA/dev environment's backend Compose logs.
 #
 # Usage:

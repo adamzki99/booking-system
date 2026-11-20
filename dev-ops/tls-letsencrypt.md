@@ -7,12 +7,12 @@ ACME account and certificate store in its own `caddy-data` volume.
 
 The stack involved:
 
-- `projects/sauna/config/Caddyfile` — site address, ACME options, shared app
+- `projects/sauna/config/Caddyfile` - site address, ACME options, shared app
   snippet.
-- `projects/sauna/docker-compose.yml` — publishes `80`/`443`, passes
+- `projects/sauna/docker-compose.yml` - publishes `80`/`443`, passes
   `SITE_ADDRESS`/`ACME_EMAIL`/`ACME_CA` to Caddy, and names the per-environment
   `caddy-data` volume.
-- `projects/sauna/.env.example` — the non-secret variables documented here.
+- `projects/sauna/.env.example` - the non-secret variables documented here.
 
 ## How it works
 
@@ -71,13 +71,13 @@ ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory
 ```
 
 Then `docker compose up -d` and check `https://<domain>/healthz`. Staging
-certs are untrusted by browsers/curl — use `curl -k` or inspect the issuer to
-confirm issuance — then switch `ACME_CA` back to the production default and
+certs are untrusted by browsers/curl - use `curl -k` or inspect the issuer to
+confirm issuance - then switch `ACME_CA` back to the production default and
 redeploy.
 
 ## Rate limits
 
-Let's Encrypt production rate limits include (approximate, subject to change —
+Let's Encrypt production rate limits include (approximate, subject to change  - 
 see https://letsencrypt.org/docs/rate-limits/):
 
 - **Certificates per registered domain:** ~50 per week.

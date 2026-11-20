@@ -53,7 +53,7 @@ There are also correctness gaps. Some PR states make an issue stall permanently.
 
 ---
 
-### FAC-01 — Fork PRs whose branch is named `factory/issue-N` become fix candidates, so attacker code runs on the QA host with the owner's token (Critical, S)
+### FAC-01 - Fork PRs whose branch is named `factory/issue-N` become fix candidates, so attacker code runs on the QA host with the owner's token (Critical, S)
 
 **Evidence**
 - `dev-ops/factory/discover_fix_candidates.py:14` fetches `number,headRefName,headRefOid,mergeable,reviewDecision,statusCheckRollup,isDraft,createdAt`. It does not fetch `isCrossRepository`, `headRepositoryOwner` or `author`.
@@ -77,7 +77,7 @@ Also have tick.sh re-check `isCrossRepository == false` right before it starts t
 
 ---
 
-### FAC-02 — Any GitHub user's issue or comment reaches privileged agents, and the planner can apply `owner approved` and rewrite issue bodies (Critical, M)
+### FAC-02 - Any GitHub user's issue or comment reaches privileged agents, and the planner can apply `owner approved` and rewrite issue bodies (Critical, M)
 
 **Evidence**
 - Planning discovery takes any open unlabeled issue, from any author: `gh issue list --state open --limit 200 --json number,labels,createdAt --jq '[.[] | select((.labels | length) == 0)] ...'` (`tick.sh:233-234`). On a public repo, non-collaborators **cannot** add labels, so every outsider issue is unlabeled by construction. The only gate is a `## Acceptance Criteria` heading with one checkbox (`check-acceptance-criteria.sh`), which an attacker can satisfy trivially.
@@ -100,7 +100,7 @@ Also have tick.sh re-check `isCrossRepository == false` right before it starts t
 
 ---
 
-### FAC-03 — The merge gate is the model's judgment alone: no branch protection, owner identity, `ask` auto-approved by `--auto`, PRs merged before CI starts (High, M)
+### FAC-03 - The merge gate is the model's judgment alone: no branch protection, owner identity, `ask` auto-approved by `--auto`, PRs merged before CI starts (High, M)
 
 **Evidence**
 - The only statement of the CI gate is prose: "never merge a pull request ... until all required CI checks and security analyses ... pass" (`AGENTS.md:41-44`). `main` has no branch protection or rulesets (context provided). All PRs are authored by the owner account (context provided).
@@ -123,7 +123,7 @@ Also have tick.sh re-check `isCrossRepository == false` right before it starts t
 
 ---
 
-### FAC-04 — `opencode.jsonc` uses a non-OpenCode `permissions` schema, builder and fixer have no default-deny, and the deny rules are trivially bypassed (High, S)
+### FAC-04 - `opencode.jsonc` uses a non-OpenCode `permissions` schema, builder and fixer have no default-deny, and the deny rules are trivially bypassed (High, S)
 
 > **The two reviews disagree on the schema.** The security review (SEC-04 in `06-security-privacy.md`) checked the OpenCode docs and concluded that `permissions` with action/resource/effect rules *is* the valid key in OpenCode V2, and that the singular `permission` is the deprecated V1 form. Neither claim was tested against the OpenCode version on the Ubuntu box. To settle it, check what `opencode --version` reports there, then try a denied command such as `rm -rf /tmp/x` in a session. Both reviews agree on the parts that matter: the deny patterns are easy to bypass, builder and fixer have no default-deny, and `--auto` approves `ask` prompts.
 
@@ -156,7 +156,7 @@ Add a CI step that validates `opencode.jsonc` and the agent front matter against
 
 ---
 
-### FAC-05 — The factory changes its own guardrails without review or CI, and runs two different code versions (High, M)
+### FAC-05 - The factory changes its own guardrails without review or CI, and runs two different code versions (High, M)
 
 **Evidence**
 - tick.sh runs from the primary checkout: `SCRIPT_DIR`, `discover_*.py`, `lib/factory.py` and `models.yaml` (`tick.sh:12-16`, `1007`, `1071`). Nothing ever pulls that checkout; tick.sh only fetches and resets the *worktree* (`tick.sh:921-931`).
@@ -177,7 +177,7 @@ Add a CI step that validates `opencode.jsonc` and the agent front matter against
 
 ---
 
-### FAC-06 — Some PR states stall an issue permanently, and nothing escalates (High, M)
+### FAC-06 - Some PR states stall an issue permanently, and nothing escalates (High, M)
 
 **Evidence**
 - Builds are always opened as drafts: "create in draft mode: gh pr create --draft ... Do not mark ready for review automatically" (`tick.sh:600-601`, `builder.md:117`).
@@ -199,7 +199,7 @@ Count earlier `factory:fix-pr` markers on the PR. After N attempts (say 3), appl
 
 ---
 
-### FAC-07 — Quota detection scans the whole session transcript, so the product's own "rate limit" code triggers reruns on free models, which auto-merge (High, S)
+### FAC-07 - Quota detection scans the whole session transcript, so the product's own "rate limit" code triggers reruns on free models, which auto-merge (High, S)
 
 **Evidence**
 - `start_session` captures the whole session's JSON output: `out="$(run_opencode ... 2>&1 | tee "$logfile")"` (`tick.sh:759`). On any non-zero exit, including timeout 124, it runs `is_usage_filled "$out"` (`tick.sh:777`).
@@ -217,7 +217,7 @@ Count earlier `factory:fix-pr` markers on the PR. After N attempts (say 3), appl
 
 ---
 
-### FAC-08 — Planning has head-of-line blocking: only the oldest unlabeled issue is ever considered (Medium, S)
+### FAC-08 - Planning has head-of-line blocking: only the oldest unlabeled issue is ever considered (Medium, S)
 
 **Evidence:** the discovery query returns a single issue: `sort_by(.createdAt) | .[0].number // empty` (`tick.sh:234`). If that issue already has a plan marker (`tick.sh:952-956`), or lacks acceptance criteria (`tick.sh:966-969`), or the checker errors (`tick.sh:970-973`), `plan_issue` is cleared and **no** planning happens that tick. The next tick picks the same issue again.
 
@@ -232,7 +232,7 @@ Consider auto-labeling issues that fail the gate with `needs-acceptance-criteria
 
 ---
 
-### FAC-09 — Idempotency markers fail open and can be spoofed; infra-failure flags are lost in subshells (Medium, S)
+### FAC-09 - Idempotency markers fail open and can be spoofed; infra-failure flags are lost in subshells (Medium, S)
 
 **Evidence**
 - When `gh` fails, `has_marker` and `has_pr_marker` print `false` and return 0 (`tick.sh:457-463`, `470-476`), which means "not done". The fail-open lets planning and fixing run again on an API hiccup. Builds are partly protected by the open-PR check, which fails closed (`tick.sh:1099-1103`).
@@ -249,7 +249,7 @@ Return status codes rather than echoing strings, and set `INFRA_FAILURE` in the 
 
 ---
 
-### FAC-10 — `models.yaml`: `plan-task` is never used, model IDs are unverified, no availability check, tier is chosen by the planner (Medium, S)
+### FAC-10 - `models.yaml`: `plan-task` is never used, model IDs are unverified, no availability check, tier is chosen by the planner (Medium, S)
 
 **Evidence**
 - `models.yaml:20-22` maps `plan-task → opencode-go/qwen3.7-plus`, and the README says "`plan-task` selects the planning model" (`README.md:203-204`). But planning calls `model_for_labels` with **no labels** (`tick.sh:1130`), so `factory.py:67-70` returns `default` (`opencode-go/deepseek-v4-pro`). The planner model setting does nothing.
@@ -266,9 +266,9 @@ Return status codes rather than echoing strings, and set `INFRA_FAILURE` in the 
 
 ---
 
-### FAC-11 — No independent review: the `reviewer` agent is never invoked, and self-review uses the same model (Medium, M)
+### FAC-11 - No independent review: the `reviewer` agent is never invoked, and self-review uses the same model (Medium, M)
 
-**Evidence:** `.opencode/agents/reviewer.md:3` (`mode: subagent`) defines a solid read-only reviewer with blocker/major/minor verdicts. Nothing in `tick.sh`, `builder.md`, `fixer.md` or `.opencode/commands/` references it; a grep for `reviewer` turns up only the file itself. The build prompt says only "`code-review` — review changes before landing when available" (`tick.sh:558`), which is a skill the *same* session loads, so the builder reviews its own diff with the same model. None of the 81 merged PRs has a review decision (context provided), and PR #150 has 0 reviews (from GitHub metadata).
+**Evidence:** `.opencode/agents/reviewer.md:3` (`mode: subagent`) defines a solid read-only reviewer with blocker/major/minor verdicts. Nothing in `tick.sh`, `builder.md`, `fixer.md` or `.opencode/commands/` references it; a grep for `reviewer` turns up only the file itself. The build prompt says only "`code-review` - review changes before landing when available" (`tick.sh:558`), which is a skill the *same* session loads, so the builder reviews its own diff with the same model. None of the 81 merged PRs has a review decision (context provided), and PR #150 has 0 reviews (from GitHub metadata).
 
 **Why it matters:** self-review by the author model catches far fewer defects than review by a different model. With no human review (FAC-03), this is the only check on correctness or security beyond CI.
 
@@ -276,7 +276,7 @@ Return status codes rather than echoing strings, and set `INFRA_FAILURE` in the 
 
 ---
 
-### FAC-12 — Agent definitions contradict the tick prompts (Medium, S)
+### FAC-12 - Agent definitions contradict the tick prompts (Medium, S)
 
 **Evidence**
 - **Marker name:** `planner.md:29,33` uses `<!-- factory-plan -->` ("If one exists, update it instead of posting a second"), while tick.sh uses `<!-- factory:plan -->` (`tick.sh:18`). Real plan comments use the tick.sh form (issues #112-#125, from GitHub metadata), so the planner's own duplicate check never matches.
@@ -292,7 +292,7 @@ Return status codes rather than echoing strings, and set `INFRA_FAILURE` in the 
 
 ---
 
-### FAC-13 — Observability: session-ID capture is a Python `SyntaxError`, there are no outcome/cost metrics and no alerting (Medium, S)
+### FAC-13 - Observability: session-ID capture is a Python `SyntaxError`, there are no outcome/cost metrics and no alerting (Medium, S)
 
 **Evidence**
 - `tick.sh:763` runs `python3 -c 'import sys,json\nfor line in sys.stdin:\n try: ...'`. Inside bash single quotes, `\n` is a literal backslash-n, so Python sees one line and fails with `SyntaxError: unexpected character after line continuation character`. I reproduced this with the same string; the error is hidden by `2>/dev/null`. So `session_id` is **always empty** in every event, even though commit `e27f44a` advertises "session id capture".
@@ -309,7 +309,7 @@ Return status codes rather than echoing strings, and set `INFRA_FAILURE` in the 
 
 ---
 
-### FAC-14 — Lock and lifecycle hazards (Medium, S)
+### FAC-14 - Lock and lifecycle hazards (Medium, S)
 
 **Evidence**
 - **Inherited lock FD:** `exec 9>".../factory-tick.lock"` (`tick.sh:219`) is inherited by `opencode` and everything it runs. A daemon left behind by an agent (`docker compose up -d` helpers, `npm run dev &`, a stray `gh pr checks --watch`) keeps the `flock` held, and every later tick exits 0 with `lock_skipped`.
@@ -327,7 +327,7 @@ Run the session with `setsid`, and in `on_signal` kill the process group. Use on
 
 ---
 
-### FAC-15 — No feedback loops: post-merge `main` CI, QA results and repeated failures are never fed back (Medium, M)
+### FAC-15 - No feedback loops: post-merge `main` CI, QA results and repeated failures are never fed back (Medium, M)
 
 **Evidence:** discovery only looks at unlabeled issues, approved issues and open `factory/issue-*` PRs (`tick.sh:233`, `discover_*.py`). Nothing reads:
 - push-triggered workflow failures on `main` (`backend-ci.yml:8-11` and `security.yml:5-7` run on push);
@@ -346,7 +346,7 @@ No lessons or memory file is maintained, and failed attempts leave no structured
 
 ---
 
-### FAC-16 — Sandbox is opt-in, falls back to the host silently, and binds `$HOME` writable on the same box as QA (Medium, M)
+### FAC-16 - Sandbox is opt-in, falls back to the host silently, and binds `$HOME` writable on the same box as QA (Medium, M)
 
 **Evidence:** `FACTORY_CONTAINER_MODE` defaults to `0` (`tick.sh:31`), and if `bwrap` is missing it silently falls back to the host (`tick.sh:696-698`). Even in bwrap mode, `--bind "$HOME" "$HOME"` (`tick.sh:694`) leaves `~/.config/gh/hosts.yml`, `~/.ssh` and the OpenCode auth writable and readable, and the network is shared. The README says this honestly (`README.md:120-125`). The box also hosts the QA environment and its `.env` secrets (context provided).
 
@@ -357,7 +357,7 @@ No lessons or memory file is maintained, and failed attempts leave no structured
 
 ---
 
-### FAC-17 — `tick.sh` should be decomposed (Medium, L)
+### FAC-17 - `tick.sh` should be decomposed (Medium, L)
 
 **Evidence**
 - 1,170 lines. About 210 of them, `approved_build_candidates` and `fix_pr_candidates` (`tick.sh:243-452`), are dead copies "retained for reference" of logic that now lives in `discover_*.py` and `factory.py`.
@@ -372,7 +372,7 @@ with a single `Session` dataclass carrying `ref_kind` (issue or pr), so the 10 d
 
 ---
 
-### FAC-18 — Factory code has no CI (Medium, S)
+### FAC-18 - Factory code has no CI (Medium, S)
 
 **Evidence**
 - `dev-ops/factory/validate.sh` runs `bash -n`, shellcheck, py_compile, `validate-models` and pytest, and `dev-ops/scripts/tests/` has shell tests too. No workflow runs any of them: none of the `.github/workflows/*` files mentions `factory`, `validate.sh` or `test-factory-lib`.
@@ -384,7 +384,7 @@ with a single `Session` dataclass carrying `ref_kind` (issue or pr), so the 10 d
 
 ---
 
-### FAC-19 — Throughput and prioritization (Low, M)
+### FAC-19 - Throughput and prioritization (Low, M)
 
 **Evidence**
 - A tick runs at most 1 fix, then 1 plan, then 1 build, in sequence (`tick.sh:1000-1163`), from an hourly cron (`README.md:158`).
@@ -401,7 +401,7 @@ with a single `Session` dataclass carrying `ref_kind` (issue or pr), so the 10 d
 
 ---
 
-### FAC-20 — Worktree handling (Low, S)
+### FAC-20 - Worktree handling (Low, S)
 
 **Evidence**
 - **Fallback to the primary checkout:** if `git worktree add` fails, the script logs "continuing in $REPO_ROOT" (`tick.sh:914-917`) and sessions run in the primary checkout. That breaks the README invariant "Never touch the primary checkout" (`README.md:37-38`).
@@ -417,7 +417,7 @@ with a single `Session` dataclass carrying `ref_kind` (issue or pr), so the 10 d
 
 ---
 
-### FAC-21 — Caveman and skills (Low, S)
+### FAC-21 - Caveman and skills (Low, S)
 
 **Evidence**
 - `AGENTS.md:63-66` tells agents to use `caveman`, `ultracave` and `megacave`, and `builder.md:209-210` mentions `/ultracave` and `/megacave`. Both of those skills are `disable-model-invocation: true` (`.opencode/skills/ultracave/SKILL.md`, `megacave/SKILL.md`), so the model cannot load them.
@@ -436,7 +436,7 @@ with a single `Session` dataclass carrying `ref_kind` (issue or pr), so the 10 d
 
 ---
 
-### FAC-22 — Acceptance-criteria checker copied 5 times, and the validator's rules are inconsistent with it (Low, S)
+### FAC-22 - Acceptance-criteria checker copied 5 times, and the validator's rules are inconsistent with it (Low, S)
 
 **Evidence**
 - `dev-ops/factory/ensure-acceptance-criteria.sh`, `dev-ops/factory/hooks/ensure-acceptance-criteria.sh`, `dev-ops/scripts/check-acceptance-criteria.sh`, `ensure-acceptance-criteria.sh` and `has-acceptance-criteria.sh` have the same md5 (`101a540b…`). Only `check-` is called (`tick.sh:963`).
