@@ -33,6 +33,7 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'product/frontend/**'
+              - 'product/frontend-solid/**'
               - '.github/workflows/frontend-ci.yml'
               - '.github/workflows/ci.yml'
             sidecar:
