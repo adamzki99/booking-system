@@ -62,7 +62,7 @@ describe("AppShell", () => {
     expect(within(nav).getByRole("link", { name: "Members" })).toHaveAttribute("href", "/users");
     expect(within(nav).getByRole("link", { name: "Account" })).toHaveAttribute("href", "/account");
 
-    // Search and notifications utilities.
+    // Global member search is available outside the Members page.
     expect(screen.getByPlaceholderText("Search members")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Notifications" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open menu" })).toBeInTheDocument();
@@ -71,6 +71,14 @@ describe("AppShell", () => {
     expect(screen.getAllByText("member@example.com").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Member").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Log out" }).length).toBeGreaterThan(0);
+  });
+
+  it("hides the global member search on the Members page to avoid duplicate search controls", async () => {
+    renderShell("/users");
+
+    expect(await screen.findAllByText("Sauna")).not.toHaveLength(0);
+    expect(screen.queryByPlaceholderText("Search members")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Search members" })).not.toBeInTheDocument();
   });
 
   it("marks the active route with aria-current=page", async () => {
@@ -96,12 +104,20 @@ describe("AppShell", () => {
     });
   });
 
-  it("navigates to the booking creation flow from the Create booking CTA", async () => {
+  it("navigates to the booking creation flow from the shell Create booking CTA on non-booking pages", async () => {
+    renderShell("/account");
+    const user = userEvent.setup();
+
+    await user.click((await screen.findAllByRole("button", { name: "Create booking" }))[0]);
+    expect(screen.getByTestId("location")).toHaveTextContent("/?create=1");
+  });
+
+  it("shows a notifications message when the notifications control is opened", async () => {
     renderShell();
     const user = userEvent.setup();
 
-    await user.click(screen.getAllByRole("button", { name: "Create booking" })[0]);
-    expect(screen.getByTestId("location")).toHaveTextContent("/?create=1");
+    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    expect(await screen.findByText(/no notifications yet/i)).toBeInTheDocument();
   });
 
   it("submits member search to the users route with a query", async () => {

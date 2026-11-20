@@ -24,6 +24,11 @@ USAGE_FILLED_REASON=""
 ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
 MAX_FIX_SESSIONS="${FACTORY_MAX_FIX_SESSIONS:-1}"
 FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
+FACTORY_LOGIN="${FACTORY_LOGIN:-}"
+FACTORY_GITHUB_APP_ID="${FACTORY_GITHUB_APP_ID:-}"
+FACTORY_GITHUB_APP_PRIVATE_KEY_FILE="${FACTORY_GITHUB_APP_PRIVATE_KEY_FILE:-}"
+FACTORY_GITHUB_APP_PRIVATE_KEY="${FACTORY_GITHUB_APP_PRIVATE_KEY:-}"
+FACTORY_GITHUB_INSTALLATION_ID="${FACTORY_GITHUB_INSTALLATION_ID:-}"
 
 # Observability and hardening knobs.
 FACTORY_LOG_FILE="${FACTORY_LOG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl}"
@@ -59,7 +64,9 @@ Environment (key):
   FACTORY_CLAIM_TTL, FACTORY_CLAIM_DIR, FACTORY_GH_RETRIES,
   FACTORY_SESSION_LOG_DIR, FACTORY_LOG_SESSION_OUTPUT (tail|metadata),
   FACTORY_PRESERVE_SESSION_LOGS (on-failure|always|never),
-  FACTORY_WORKTREE, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED.
+  FACTORY_WORKTREE, FACTORY_CONFIG_TAG, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED,
+  FACTORY_LOGIN, FACTORY_GITHUB_APP_ID, FACTORY_GITHUB_APP_PRIVATE_KEY_FILE,
+  FACTORY_GITHUB_APP_PRIVATE_KEY, FACTORY_GITHUB_INSTALLATION_ID.
 USAGE
 }
 
@@ -126,6 +133,44 @@ gh_retry() {
   gh_run_capture "gh_retry:$1" "$@"
 }
 
+mint_factory_github_token() {
+  # Mint a short-lived GitHub App installation token and export it as GH_TOKEN.
+  # No-op when app credentials are not configured (falls back to ambient gh auth).
+  # Never prints the token.
+  if [[ -z "${FACTORY_GITHUB_APP_ID:-}" ]]; then
+    return 0
+  fi
+  local key_file="${FACTORY_GITHUB_APP_PRIVATE_KEY_FILE:-}"
+  local tmp_key=""
+  if [[ -z "$key_file" && -n "${FACTORY_GITHUB_APP_PRIVATE_KEY:-}" ]]; then
+    tmp_key="$(mktemp)"
+    (umask 077; printf '%s' "$FACTORY_GITHUB_APP_PRIVATE_KEY" > "$tmp_key")
+    key_file="$tmp_key"
+  fi
+  [[ -n "$key_file" && -f "$key_file" ]] || die "FACTORY_GITHUB_APP_ID set but no readable private key (FACTORY_GITHUB_APP_PRIVATE_KEY_FILE/FACTORY_GITHUB_APP_PRIVATE_KEY)"
+  local repo_arg=""
+  if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
+    repo_arg="--repo $GITHUB_REPOSITORY"
+  fi
+  local token
+  token="$(python3 "$SCRIPT_DIR/lib/mint_github_app_token.py" \
+    --app-id "$FACTORY_GITHUB_APP_ID" \
+    --key-file "$key_file" \
+    ${FACTORY_GITHUB_INSTALLATION_ID:+--installation-id "$FACTORY_GITHUB_INSTALLATION_ID"} \
+    ${repo_arg} \
+    --repo-root "$REPO_ROOT" 2>/tmp/factory-mint-err)" || {
+      local err; err="$(cat /tmp/factory-mint-err 2>/dev/null || true)"
+      rm -f /tmp/factory-mint-err
+      [[ -n "$tmp_key" ]] && rm -f "$tmp_key"
+      die "failed to mint factory GitHub App token: $err"
+    }
+  rm -f /tmp/factory-mint-err
+  [[ -n "$tmp_key" ]] && rm -f "$tmp_key"
+  [[ -n "$token" ]] || die "minted empty factory token"
+  export GH_TOKEN="$token"
+  export GITHUB_TOKEN="$token"
+  log "factory GitHub App token minted (login filter: ${FACTORY_LOGIN:-unset})"
+}
 # Best-effort structured event emitter. Writes one JSON object to FACTORY_LOG_FILE.
 # Never raises; never touches stdout/stderr.
 emit_event() {
@@ -194,6 +239,10 @@ command -v gh >/dev/null || die "gh is required"
 command -v opencode >/dev/null || die "opencode is required"
 command -v python3 >/dev/null || die "python3 is required"
 python3 -c 'import yaml' 2>/dev/null || die "PyYAML is required (pip install pyyaml)"
+
+# Mint a least-privilege factory token (if configured) before any gh/git work.
+mint_factory_github_token
+export FACTORY_LOGIN
 
 TICK_ID="$(python3 -c 'import secrets;print(secrets.token_hex(16))' 2>/dev/null || echo 00000000000000000000000000000000)"
 TICK_START_MS="$(date +%s%3N)"
@@ -908,6 +957,26 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   return "$status"
 }
 
+# Guardrail drift gate (issue #164 / FAC-05): refuse to start any session when
+# the agent/config guardrail files in origin/main differ from the owner-moved
+# factory-config tag. Fails closed when the tag is missing or unfetchable.
+FACTORY_CONFIG_TAG="${FACTORY_CONFIG_TAG:-factory-config}"
+check_guardrail_drift() {
+  # Force-update the local tag so a tag the owner moved on the remote is
+  # honored. A missing or unfetchable tag is treated as drift (fail closed).
+  if ! git fetch --quiet origin \
+      "+refs/tags/${FACTORY_CONFIG_TAG}:refs/tags/${FACTORY_CONFIG_TAG}" 2>/dev/null; then
+    emit_event guardrail_drift reason="tag_fetch_failed" tag="$FACTORY_CONFIG_TAG"
+    die "guardrail config tag '$FACTORY_CONFIG_TAG' is missing or unfetchable; refusing to start sessions"
+  fi
+  if ! git diff --quiet "$FACTORY_CONFIG_TAG" origin/main -- \
+      .opencode/agents opencode.jsonc AGENTS.md; then
+    emit_event guardrail_drift reason="drift" tag="$FACTORY_CONFIG_TAG"
+    die "guardrail files in origin/main drifted from $FACTORY_CONFIG_TAG; refusing to start sessions"
+  fi
+  emit_event guardrail_ok tag="$FACTORY_CONFIG_TAG"
+}
+
 # Run all factory work in an isolated git worktree so the primary checkout
 # (and any in-progress user work) is never touched by build/fix sessions.
 FACTORY_WORKTREE="${FACTORY_WORKTREE:-${REPO_ROOT%/*}/booking-system-factory-worktree}"
@@ -941,6 +1010,10 @@ else
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
   fi
 fi
+
+# Fail before discovery or any session if guardrail files drifted from the
+# owner-moved configuration tag (issue #164).
+check_guardrail_drift
 
 plan_issue=""
 if oldest_unlabeled_issue >/dev/null; then

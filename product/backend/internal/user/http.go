@@ -43,9 +43,11 @@ func userHTTPStatus(err error) int {
 	case err == nil:
 		return http.StatusOK
 	case errors.Is(err, ErrInvalidEmail), errors.Is(err, ErrInvalidAddress), errors.Is(err, ErrInvalidRole),
-		errors.Is(err, ErrNoPendingEmailChange), errors.Is(err, ErrEmailChangeExpired), errors.Is(err, ErrInvalidChangeCode),
+		errors.Is(err, ErrEmailChangeExpired), errors.Is(err, ErrInvalidChangeCode),
 		errors.Is(err, ErrUnchangedEmail):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrNoPendingEmailChange):
+		return http.StatusNotFound
 	case errors.Is(err, ErrEmailChangeRateLimit):
 		return http.StatusTooManyRequests
 	case errors.Is(err, ErrForbidden), errors.Is(err, ErrPermissionDenied), errors.Is(err, ErrNotAuthorized), errors.Is(err, ErrAccessDenied):
@@ -238,6 +240,108 @@ func HandleConfirmEmailChange(svc *UserService) http.HandlerFunc {
 			return
 		}
 		writeUserJSON(w, http.StatusOK, userToMap(updated))
+	}
+}
+
+// HandleGetPendingEmailChange returns the current user's pending email change,
+// if any.
+func HandleGetPendingEmailChange(svc *UserService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeUserError(w, http.StatusServiceUnavailable, "user unavailable")
+			return
+		}
+		caller, ok := auth.FromContext(r.Context())
+		if !ok {
+			writeUserError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		u, err := svc.GetByEmail(r.Context(), caller)
+		if err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		pending, err := svc.GetPendingEmailChange(r.Context(), u.ID)
+		if err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		if pending == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeUserJSON(w, http.StatusOK, map[string]any{
+			"pendingEmail":  pending.NewEmail,
+			"pending_email": pending.NewEmail,
+			"expiresAt":     pending.ExpiresAt,
+			"expires_at":    pending.ExpiresAt,
+		})
+	}
+}
+
+// HandleCancelEmailChange cancels the current user's pending email change.
+func HandleCancelEmailChange(svc *UserService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeUserError(w, http.StatusServiceUnavailable, "user unavailable")
+			return
+		}
+		caller, ok := auth.FromContext(r.Context())
+		if !ok {
+			writeUserError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		u, err := svc.GetByEmail(r.Context(), caller)
+		if err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		if err := svc.CancelEmailChange(r.Context(), u.ID, caller); err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// HandleResendEmailChange sends a new verification code to the pending email
+// address without changing the requested target.
+func HandleResendEmailChange(svc *UserService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeUserError(w, http.StatusServiceUnavailable, "user unavailable")
+			return
+		}
+		caller, ok := auth.FromContext(r.Context())
+		if !ok {
+			writeUserError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		u, err := svc.GetByEmail(r.Context(), caller)
+		if err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		pending, err := svc.GetPendingEmailChange(r.Context(), u.ID)
+		if err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		if pending == nil {
+			writeUserError(w, http.StatusNotFound, "no pending email change")
+			return
+		}
+		resent, err := svc.RequestEmailChange(r.Context(), u.ID, pending.NewEmail, caller, clientIP(r))
+		if err != nil {
+			writeUserError(w, userHTTPStatus(err), err.Error())
+			return
+		}
+		writeUserJSON(w, http.StatusOK, map[string]any{
+			"pendingEmail":  resent.NewEmail,
+			"pending_email": resent.NewEmail,
+			"expiresAt":     resent.ExpiresAt,
+			"expires_at":    resent.ExpiresAt,
+		})
 	}
 }
 

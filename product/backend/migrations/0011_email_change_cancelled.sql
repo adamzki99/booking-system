@@ -1,0 +1,2 @@
+ALTER TABLE email_changes
+  ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;

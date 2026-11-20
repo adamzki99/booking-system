@@ -264,34 +264,24 @@ dev-ops/scripts/validate-issue-body.sh /path/to/issue-body.md
 
 ## Code quality
 
-### Semgrep AppSec Platform (Option 1)
+### Semgrep (tokenless OSS scan)
 
-Semgrep posts inline PR comments automatically, filtered by **remediation
-policies** (e.g. only high severity/confidence rules) to control noise.
-Findings are reported on the pull request; merging is gated by the `main`
-ruleset, which requires a pull request and the `ci-gate` status check.
+Semgrep runs the `p/default`, `p/golang` and `p/typescript` OSS rulesets in CI.
+It fails on findings introduced by a PR or push; pre-existing findings are
+baselined against the change's parent and tracked separately. New code stays
+fully gated without a Semgrep AppSec Platform account or token.
 
 - Workflow: `.github/workflows/semgrep.yml` - job name/context `semgrep/ci`,
-  runs `semgrep ci` in the `semgrep/semgrep` container on PRs to `main`,
-  `master`, and `release/**` (diff-aware), plus push-to-main baseline scans,
-  `workflow_dispatch`, and a daily full scan.
-- Ruleset config: `.semgrep.yml` (repo-specific overrides only) and
-  `.semgrepignore` (excludes build artifacts, vendored/generated code).
-- Rule selection, severity gating (Block / Comment / Monitor), and remediation
-  policies are managed in the Semgrep AppSec Platform for this repository.
-- Findings fail the check (and thus can block merge once `semgrep/ci` is
-  added to the required status checks of the `main` ruleset).
+  runs a tokenless OSS Semgrep scan in the `semgrep/semgrep` container on PRs
+  to `main`, `master`, and `release/**`, plus push baseline scans,
+  `workflow_dispatch`, and a daily full scan. Skips `dependabot[bot]`.
+  The exact command and baseline settings live in the workflow file.
+- Excludes: `.semgrepignore` (build artifacts, vendored/generated code).
+- Findings in changed files fail the check, and therefore `ci-gate`, the only
+  required status check for `main`.
 
 **Manual steps (owner):**
-- [x] Create a Semgrep AppSec Platform account + organization (free tier: ≤10 contributors)
-- [x] Install the `semgrep-app` GitHub App on this repo with read/write access to actions, pull requests, secrets, security events, and workflows
-- [ ] Add `SEMGREP_APP_TOKEN` as a repository secret
-- [ ] Configure remediation policies in the platform to control which rules leave PR comments
-- [ ] (Optional) Configure a custom PR/MR comment footer in **Settings > General > Global > Custom PR/MR comments footers** (max 400 characters; plaintext and markdown links supported) to point to internal docs or your team's channel. Example: "Questions about this issue? Check [our documentation](https://notion.so/appsecdocs) on fixing security issues here or post in #appsec on Slack."
-- [ ] Add `semgrep/ci` to the required status checks of the `main` ruleset.
-
-A Semgrep instance also runs on the development server, connected to this repo,
-performing checks on merges into `main` and release branches.
+- [ ] Confirm `ci-gate` stays a required status check in the `main` ruleset.
 
 ## OpenCode skills
 

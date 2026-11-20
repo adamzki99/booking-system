@@ -1,0 +1,124 @@
+# Dependabot configuration (issue #165 / I-008).
+# Weekly checks with minor and patch updates grouped per ecosystem and directory.
+
+version: 2
+updates:
+  # Go modules
+  - package-ecosystem: gomod
+    directory: /product/backend
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /projects/sauna/sidecar
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # npm
+  - package-ecosystem: npm
+    directory: /product/frontend
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # FE-18: stay on Chakra UI v2 through the redesign.
+      - dependency-name: "@chakra-ui/*"
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: npm
+    directory: /dev-ops/testing
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Dockerfiles
+  - package-ecosystem: docker
+    directory: /product/backend
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /product/frontend
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /projects/sauna/sidecar
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /dev-ops/testing
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Docker Compose files
+  - package-ecosystem: docker-compose
+    directory: /projects/sauna
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker-compose
+    directory: /dev-ops/signoz
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch

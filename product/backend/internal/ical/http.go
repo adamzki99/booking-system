@@ -131,7 +131,7 @@ type userResolver interface {
 }
 
 // HandleRegenerateToken regenerates a user's calendar token.
-func HandleRegenerateToken(svc *Service, users userResolver) http.HandlerFunc {
+func HandleRegenerateToken(svc *Service, users userResolver, publicBaseURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if svc == nil {
 			writeICalError(w, http.StatusServiceUnavailable, "ical unavailable")
@@ -158,7 +158,7 @@ func HandleRegenerateToken(svc *Service, users userResolver) http.HandlerFunc {
 			writeICalError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		base := baseURL(r)
+		base := baseURL(r, publicBaseURL)
 		writeICalJSON(w, http.StatusOK, map[string]string{
 			"url": base + "/calendar/" + token + ".ics",
 		})
@@ -166,11 +166,11 @@ func HandleRegenerateToken(svc *Service, users userResolver) http.HandlerFunc {
 }
 
 // Aliases.
-func HandleRegenerateCalendarToken(svc *Service, users userResolver) http.HandlerFunc {
-	return HandleRegenerateToken(svc, users)
+func HandleRegenerateCalendarToken(svc *Service, users userResolver, publicBaseURL string) http.HandlerFunc {
+	return HandleRegenerateToken(svc, users, publicBaseURL)
 }
-func HandleCreateCalendarToken(svc *Service, users userResolver) http.HandlerFunc {
-	return HandleRegenerateToken(svc, users)
+func HandleCreateCalendarToken(svc *Service, users userResolver, publicBaseURL string) http.HandlerFunc {
+	return HandleRegenerateToken(svc, users, publicBaseURL)
 }
 
 func writeICalJSON(w http.ResponseWriter, status int, v any) {
@@ -183,7 +183,10 @@ func writeICalError(w http.ResponseWriter, status int, msg string) {
 	writeICalJSON(w, status, map[string]string{"error": msg})
 }
 
-func baseURL(r *http.Request) string {
+func baseURL(r *http.Request, configured string) string {
+	if v := strings.TrimSpace(configured); v != "" {
+		return strings.TrimRight(v, "/")
+	}
 	if v := os.Getenv("PUBLIC_BASE_URL"); v != "" {
 		return strings.TrimRight(v, "/")
 	}

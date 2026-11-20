@@ -1,6 +1,0 @@
-/* Global overrides are provided by Chakra UI's CSSReset.
-   Keep this file minimal — deployment-specific global styles belong in
-   projects/<name>/, not here. */
-:root {
-  color-scheme: light dark;
-}

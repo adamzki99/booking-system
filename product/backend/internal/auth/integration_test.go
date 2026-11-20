@@ -41,7 +41,7 @@ func newTestApp(t *testing.T) *testApp {
 	users := user.Register(app)
 	sender := &fakeSender{}
 	service := auth.NewService(app.Commands, sender, ratelimit.NewLimiter(), users)
-	userService := user.NewService(app.Commands, users, sender, nil)
+	userService := user.NewService(app.Commands, users, nil, sender, nil)
 	service.BootstrapAdmin = func(ctx context.Context, email string) error {
 		return userService.BootstrapAdmin(ctx, email)
 	}
