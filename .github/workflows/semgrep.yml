@@ -19,8 +19,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Run Semgrep
-        run: semgrep ci
+        # Baseline against the change's parent so existing findings do not
+        # gate new work. Findings introduced by the PR or push still fail.
         env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+          SEMGREP_BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: semgrep scan --config p/default --config p/golang --config p/typescript --error --metrics=off
