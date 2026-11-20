@@ -25,6 +25,8 @@ Object.defineProperty(window, "scrollTo", {
   value: () => {},
 });
 
+// Keep tests isolated by cleaning up rendered components between runs.
 afterEach(() => {
   cleanup();
 });
+

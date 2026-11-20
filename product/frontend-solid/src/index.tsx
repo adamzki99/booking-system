@@ -1,7 +1,7 @@
 import { render } from "@solidjs/web";
 import App from "./App";
 import { SessionProvider } from "./auth/SessionContext";
-import "./styles/global.css";
+import "./index.css";
 
 const root = document.getElementById("root");
 
@@ -17,3 +17,4 @@ render(
   ),
   root,
 );
+
