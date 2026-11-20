@@ -5,8 +5,7 @@ import { afterEach } from "vitest";
 // Node honors TZ at call time, so pin parse/format expectations to UTC.
 process.env.TZ = "UTC";
 
-// jsdom does not implement `window.matchMedia`. Provide a minimal stub so tests
-// don't throw if browser APIs query it.
+// jsdom does not implement all browser APIs used by UI components.
 Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: (query: string) => ({
@@ -21,6 +20,13 @@ Object.defineProperty(window, "matchMedia", {
   }),
 });
 
+Object.defineProperty(window, "scrollTo", {
+  writable: true,
+  value: () => {},
+});
+
 // Keep tests isolated by cleaning up rendered components between runs.
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+});
 
