@@ -64,7 +64,7 @@ Environment (key):
   FACTORY_CLAIM_TTL, FACTORY_CLAIM_DIR, FACTORY_GH_RETRIES,
   FACTORY_SESSION_LOG_DIR, FACTORY_LOG_SESSION_OUTPUT (tail|metadata),
   FACTORY_PRESERVE_SESSION_LOGS (on-failure|always|never),
-  FACTORY_WORKTREE, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED,
+  FACTORY_WORKTREE, FACTORY_CONFIG_TAG, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED,
   FACTORY_LOGIN, FACTORY_GITHUB_APP_ID, FACTORY_GITHUB_APP_PRIVATE_KEY_FILE,
   FACTORY_GITHUB_APP_PRIVATE_KEY, FACTORY_GITHUB_INSTALLATION_ID.
 USAGE
@@ -957,6 +957,26 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   return "$status"
 }
 
+# Guardrail drift gate (issue #164 / FAC-05): refuse to start any session when
+# the agent/config guardrail files in origin/main differ from the owner-moved
+# factory-config tag. Fails closed when the tag is missing or unfetchable.
+FACTORY_CONFIG_TAG="${FACTORY_CONFIG_TAG:-factory-config}"
+check_guardrail_drift() {
+  # Force-update the local tag so a tag the owner moved on the remote is
+  # honored. A missing or unfetchable tag is treated as drift (fail closed).
+  if ! git fetch --quiet origin \
+      "+refs/tags/${FACTORY_CONFIG_TAG}:refs/tags/${FACTORY_CONFIG_TAG}" 2>/dev/null; then
+    emit_event guardrail_drift reason="tag_fetch_failed" tag="$FACTORY_CONFIG_TAG"
+    die "guardrail config tag '$FACTORY_CONFIG_TAG' is missing or unfetchable; refusing to start sessions"
+  fi
+  if ! git diff --quiet "$FACTORY_CONFIG_TAG" origin/main -- \
+      .opencode/agents opencode.jsonc AGENTS.md; then
+    emit_event guardrail_drift reason="drift" tag="$FACTORY_CONFIG_TAG"
+    die "guardrail files in origin/main drifted from $FACTORY_CONFIG_TAG; refusing to start sessions"
+  fi
+  emit_event guardrail_ok tag="$FACTORY_CONFIG_TAG"
+}
+
 # Run all factory work in an isolated git worktree so the primary checkout
 # (and any in-progress user work) is never touched by build/fix sessions.
 FACTORY_WORKTREE="${FACTORY_WORKTREE:-${REPO_ROOT%/*}/booking-system-factory-worktree}"
@@ -990,6 +1010,10 @@ else
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
   fi
 fi
+
+# Fail before discovery or any session if guardrail files drifted from the
+# owner-moved configuration tag (issue #164).
+check_guardrail_drift
 
 plan_issue=""
 if oldest_unlabeled_issue >/dev/null; then
