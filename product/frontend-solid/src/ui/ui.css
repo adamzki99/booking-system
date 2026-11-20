@@ -132,3 +132,66 @@
   background-color: #f0fff4;
   color: #22543d;
 }
+
+/* Card sections */
+.ui-card-header {
+  padding: 1rem 1.25rem;
+}
+.ui-card-body {
+  padding: 1rem 1.25rem;
+}
+
+/* Avatar */
+.ui-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: var(--color-avatar-bg);
+  color: var(--color-avatar-fg);
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+  user-select: none;
+}
+.ui-avatar--sm {
+  width: 32px;
+  height: 32px;
+  font-size: 0.75rem;
+}
+.ui-avatar--md {
+  width: 48px;
+  height: 48px;
+  font-size: 0.875rem;
+}
+
+/* Page header */
+.page-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+.page-header__title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+.page-header__subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+@media (min-width: 62em) {
+  .page-header__title {
+    font-size: 28px;
+  }
+  .page-header__subtitle {
+    font-size: 15px;
+  }
+}
+
