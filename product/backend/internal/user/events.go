@@ -16,6 +16,8 @@ const (
 	UserEmailChangedEventType = "user.email_changed"
 	// UserEmailChangeRequestedEventType records a pending, unverified email change.
 	UserEmailChangeRequestedEventType = "user.email_change_requested"
+	// UserEmailChangeCancelledEventType records cancellation of a pending email change.
+	UserEmailChangeCancelledEventType = "user.email_change_cancelled"
 	// UserAddressChangedEventType records an address change.
 	UserAddressChangedEventType = "user.address_changed"
 	// UserRoleChangedEventType records a role change.
@@ -64,6 +66,12 @@ type UserEmailChangeRequestedPayload struct {
 	CodeHash    string    `json:"code_hash"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	RequestedAt time.Time `json:"requested_at"`
+}
+
+// UserEmailChangeCancelledPayload is the payload for user.email_change_cancelled events.
+type UserEmailChangeCancelledPayload struct {
+	UserID      string    `json:"user_id"`
+	CancelledAt time.Time `json:"cancelled_at"`
 }
 
 // UserAddressChangedPayload is the payload for user.address_changed events.

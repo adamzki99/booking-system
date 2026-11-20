@@ -48,7 +48,7 @@ func newUserTestApp(t *testing.T) *userTestApp {
 		app:     app,
 		users:   projections.Users,
 		changes: projections.EmailChanges,
-		service: user.NewService(app.Commands, projections.Users, nil, nil),
+		service: user.NewService(app.Commands, projections.Users, projections.EmailChanges, nil, nil),
 	}
 }
 

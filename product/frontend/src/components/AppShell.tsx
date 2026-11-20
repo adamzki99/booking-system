@@ -15,6 +15,13 @@ import {
   InputGroup,
   InputLeftElement,
   Link,
+  Popover,
+  PopoverArrow,
+  PopoverBody,
+  PopoverCloseButton,
+  PopoverContent,
+  PopoverHeader,
+  PopoverTrigger,
   Text,
   useDisclosure,
 } from "@chakra-ui/react";
@@ -252,6 +259,7 @@ function MemberFooter({ user, onLogout }: { user: User | null; onLogout: () => v
 export function AppShell({ children }: AppShellProps) {
   const { user, logout } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [chrome, setChrome] = useState<ChromeInfo>({ header: "", footer: "", nextRedeploy: "" });
   const [search, setSearch] = useState("");
@@ -269,6 +277,12 @@ export function AppShell({ children }: AppShellProps) {
       cancelled = true;
     };
   }, []);
+
+  const onBookingsPage = location.pathname === "/";
+  const onMembersPage =
+    location.pathname === "/users" || location.pathname.startsWith("/users/");
+  const showShellCreate = !onBookingsPage;
+  const showGlobalSearch = !onMembersPage;
 
   function handleLogout() {
     logout();
@@ -307,10 +321,12 @@ export function AppShell({ children }: AppShellProps) {
           flexDirection="column"
         >
           <BrandLockup header={chrome.header} footer={chrome.footer} />
-          <Box mt={6}>
-            <CreateBookingButton onClick={handleCreateBooking} />
-          </Box>
-          <Box mt={6}>
+          {showShellCreate && (
+            <Box mt={6}>
+              <CreateBookingButton onClick={handleCreateBooking} />
+            </Box>
+          )}
+          <Box mt={showShellCreate ? 6 : 8}>
             <PagesNav />
           </Box>
           <MemberFooter user={user} onLogout={handleLogout} />
@@ -340,60 +356,92 @@ export function AppShell({ children }: AppShellProps) {
               <Box display={{ base: "block", lg: "none" }} minW={0}>
                 <BrandLockup header={chrome.header} footer={chrome.footer} compact />
               </Box>
-              <Box as="form" onSubmit={handleSearchSubmit} sx={DESKTOP_ONLY} w="420px" maxW="420px">
-                <InputGroup>
-                  <InputLeftElement pointerEvents="none">
-                    <SearchIcon />
-                  </InputLeftElement>
-                  <Input
-                    aria-label="Search members"
-                    placeholder="Search members"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    bg="bgSubtle"
-                    borderRadius="md"
-                    minH="44px"
-                  />
-                </InputGroup>
-              </Box>
+              {showGlobalSearch && (
+                <Box
+                  as="form"
+                  onSubmit={handleSearchSubmit}
+                  sx={DESKTOP_ONLY}
+                  w="420px"
+                  maxW="420px"
+                >
+                  <InputGroup>
+                    <InputLeftElement pointerEvents="none">
+                      <SearchIcon />
+                    </InputLeftElement>
+                    <Input
+                      aria-label="Search members"
+                      placeholder="Search members"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      bg="bgSubtle"
+                      borderRadius="md"
+                      minH="44px"
+                    />
+                  </InputGroup>
+                </Box>
+              )}
             </HStack>
             <HStack spacing={2}>
               <RedeployIndicator nextRedeploy={chrome.nextRedeploy} />
-              <IconButton
-                aria-label="Search members"
-                icon={<SearchIcon />}
-                variant="icon"
-                onClick={() => navigate(usersLink(search))}
-                display={{ base: "inline-flex", lg: "none" }}
-              />
-              <IconButton aria-label="Notifications" icon={<BellIcon />} variant="icon" />
+              {showGlobalSearch && (
+                <IconButton
+                  aria-label="Search members"
+                  icon={<SearchIcon />}
+                  variant="icon"
+                  onClick={() => navigate(usersLink(search))}
+                  display={{ base: "inline-flex", lg: "none" }}
+                />
+              )}
+              <Popover placement="bottom-end">
+                <PopoverTrigger>
+                  <IconButton aria-label="Notifications" icon={<BellIcon />} variant="icon" />
+                </PopoverTrigger>
+                <PopoverContent w="280px">
+                  <PopoverArrow />
+                  <PopoverCloseButton />
+                  <PopoverHeader fontWeight={600}>Notifications</PopoverHeader>
+                  <PopoverBody>
+                    <Text fontSize="sm" color="muted">
+                      No notifications yet.
+                    </Text>
+                  </PopoverBody>
+                </PopoverContent>
+              </Popover>
               <Avatar name={initials(user)} size="sm" sx={DESKTOP_ONLY} />
             </HStack>
           </Flex>
 
-          <Box as="main" flex="1" px={{ base: 4, lg: 8 }} py={{ base: 4, lg: 6 }} pb={{ base: "96px", lg: 6 }}>
+          <Box
+            as="main"
+            flex="1"
+            px={{ base: 4, lg: 8 }}
+            py={{ base: 4, lg: 6 }}
+            pb={{ base: showShellCreate ? "96px" : 6, lg: 6 }}
+          >
             {children}
           </Box>
         </Flex>
       </Flex>
 
       {/* Mobile bottom CTA dock */}
-      <Box
-        display={{ base: "flex", lg: "none" }}
-        position="fixed"
-        bottom={0}
-        left={0}
-        right={0}
-        bg="surface"
-        borderTop="1px solid"
-        borderColor="line"
-        px={4}
-        pt={3}
-        pb={4}
-        zIndex="docked"
-      >
-        <CreateBookingButton onClick={handleCreateBooking} />
-      </Box>
+      {showShellCreate && (
+        <Box
+          display={{ base: "flex", lg: "none" }}
+          position="fixed"
+          bottom={0}
+          left={0}
+          right={0}
+          bg="surface"
+          borderTop="1px solid"
+          borderColor="line"
+          px={4}
+          pt={3}
+          pb={4}
+          zIndex="docked"
+        >
+          <CreateBookingButton onClick={handleCreateBooking} />
+        </Box>
+      )}
 
       {/* Mobile slide-over menu */}
       <Drawer isOpen={isOpen} onClose={onClose} placement="left">
@@ -413,10 +461,12 @@ export function AppShell({ children }: AppShellProps) {
           />
           <Flex direction="column" h="100%" p="20px 16px">
             <BrandLockup header={chrome.header} footer={chrome.footer} />
-            <Box mt={6}>
-              <CreateBookingButton onClick={handleCreateBooking} />
-            </Box>
-            <Box mt={6}>
+            {showShellCreate && (
+              <Box mt={6}>
+                <CreateBookingButton onClick={handleCreateBooking} />
+              </Box>
+            )}
+            <Box mt={showShellCreate ? 6 : 8}>
               <PagesNav onNavigate={onClose} />
             </Box>
             <MemberFooter user={user} onLogout={handleLogout} />

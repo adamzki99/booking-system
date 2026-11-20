@@ -1,0 +1,10 @@
+# CODEOWNERS (issue #164 / FAC-05, SEC-03)
+# Factory, CI and agent-config changes require owner review.
+# Order matters: the last matching pattern wins.
+
+/.github/                          @adamzki99
+/.opencode/                        @adamzki99
+/opencode.jsonc                    @adamzki99
+/AGENTS.md                         @adamzki99
+/dev-ops/                          @adamzki99
+/projects/**/docker-compose*.yml   @adamzki99

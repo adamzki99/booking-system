@@ -5,7 +5,13 @@ import { render } from "../test-utils";
 import { useSession } from "../auth/SessionContext";
 import { currentUser } from "../api/auth";
 import type { User } from "../api/auth";
-import { confirmEmailChange, requestEmailChange } from "../api/users";
+import {
+  cancelEmailChange,
+  confirmEmailChange,
+  getPendingEmailChange,
+  requestEmailChange,
+  resendEmailChange,
+} from "../api/users";
 import { regenerateCalendarUrl } from "../api/calendar";
 import Account from "./Account";
 
@@ -14,6 +20,9 @@ vi.mock("../api/auth", () => ({ currentUser: vi.fn() }));
 vi.mock("../api/users", () => ({
   requestEmailChange: vi.fn(),
   confirmEmailChange: vi.fn(),
+  getPendingEmailChange: vi.fn(),
+  resendEmailChange: vi.fn(),
+  cancelEmailChange: vi.fn(),
 }));
 vi.mock("../api/calendar", () => ({ regenerateCalendarUrl: vi.fn() }));
 
@@ -21,6 +30,9 @@ const useSessionMock = vi.mocked(useSession);
 const currentUserMock = vi.mocked(currentUser);
 const requestEmailChangeMock = vi.mocked(requestEmailChange);
 const confirmEmailChangeMock = vi.mocked(confirmEmailChange);
+const getPendingEmailChangeMock = vi.mocked(getPendingEmailChange);
+const resendEmailChangeMock = vi.mocked(resendEmailChange);
+const cancelEmailChangeMock = vi.mocked(cancelEmailChange);
 const regenerateCalendarUrlMock = vi.mocked(regenerateCalendarUrl);
 
 const user: User = {
@@ -50,8 +62,17 @@ describe("Account page email change", () => {
     currentUserMock.mockReset();
     requestEmailChangeMock.mockReset();
     confirmEmailChangeMock.mockReset();
+    getPendingEmailChangeMock.mockReset();
+    resendEmailChangeMock.mockReset();
+    cancelEmailChangeMock.mockReset();
     regenerateCalendarUrlMock.mockReset();
     regenerateCalendarUrlMock.mockResolvedValue("https://cal.example/feed.ics");
+    getPendingEmailChangeMock.mockResolvedValue(null);
+    resendEmailChangeMock.mockResolvedValue({
+      pendingEmail: "moved@example.com",
+      expiresAt: "2026-11-17T20:00:00Z",
+    });
+    cancelEmailChangeMock.mockResolvedValue(undefined);
     stubSession();
     currentUserMock.mockResolvedValue(user);
     requestEmailChangeMock.mockResolvedValue({
@@ -115,8 +136,8 @@ describe("Account page email change", () => {
     // The page moves to the code step.
     await screen.findByLabelText("Verification code");
     expect(
-      screen.getByText(/verification code was sent to moved@example.com/i),
-    ).toBeInTheDocument();
+      screen.getAllByText(/verification code was sent to moved@example.com/i).length,
+    ).toBeGreaterThan(0);
 
     await usr.type(screen.getByLabelText("Verification code"), "ABC123");
     await usr.click(screen.getByRole("button", { name: "Confirm email change" }));
@@ -137,6 +158,30 @@ describe("Account page email change", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows pending email change persistently and supports resend and cancel", async () => {
+    getPendingEmailChangeMock.mockResolvedValue({
+      pendingEmail: "pending@example.com",
+      expiresAt: "2026-11-17T20:00:00Z",
+    });
+
+    render(<Account />);
+
+    expect(await screen.findByTestId("pending-email-change")).toBeInTheDocument();
+    expect(screen.getByText(/email change pending/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/pending@example.com/i).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Verification code")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Resend code" }));
+    await waitFor(() => expect(resendEmailChangeMock).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel email change" }));
+    await waitFor(() => expect(cancelEmailChangeMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByTestId("pending-email-change")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("New email")).toBeInTheDocument();
+  });
+
   it("surfaces backend errors without leaving the account unchanged", async () => {
     requestEmailChangeMock.mockRejectedValue(
       Object.assign(new Error("user: duplicate email"), { name: "ApiError" }),
@@ -149,8 +194,8 @@ describe("Account page email change", () => {
       .click(screen.getByRole("button", { name: "Send verification code" }));
 
     await screen.findByRole("alert");
-    expect(screen.getByRole("alert").textContent).toContain(
-      "user: duplicate email",
-    );
+    // A friendly message is shown instead of the raw internal prefix.
+    expect(screen.getByRole("alert").textContent).toMatch(/already in use/i);
+    expect(screen.getByRole("alert").textContent).not.toContain("user:");
   });
 });

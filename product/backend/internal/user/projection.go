@@ -27,10 +27,11 @@ type EmailChange struct {
 	ExpiresAt   time.Time
 	RequestedAt time.Time
 	ConfirmedAt *time.Time
+	CancelledAt *time.Time
 }
 
-// Pending reports whether the change has not been confirmed yet.
-func (c EmailChange) Pending() bool { return c.ConfirmedAt == nil }
+// Pending reports whether the change has not been confirmed or cancelled yet.
+func (c EmailChange) Pending() bool { return c.ConfirmedAt == nil && c.CancelledAt == nil }
 
 // EmailChangesProjection maintains the pending email-change read model.
 type EmailChangesProjection struct {
@@ -62,7 +63,8 @@ func (p *EmailChangesProjection) Apply(ctx context.Context, event eventstore.Eve
 			     code_hash = EXCLUDED.code_hash,
 			     expires_at = EXCLUDED.expires_at,
 			     requested_at = EXCLUDED.requested_at,
-			     confirmed_at = NULL`,
+			     confirmed_at = NULL,
+			     cancelled_at = NULL`,
 			payload.UserID, payload.OldEmail, payload.NewEmail,
 			payload.CodeHash, payload.ExpiresAt, payload.RequestedAt,
 		)
@@ -75,11 +77,23 @@ func (p *EmailChangesProjection) Apply(ctx context.Context, event eventstore.Eve
 			return fmt.Errorf("user email_changes projection: decode event %d: %w", event.ID, err)
 		}
 		_, err := p.pool.Exec(ctx,
-			`UPDATE email_changes SET confirmed_at = $2 WHERE user_id = $1 AND confirmed_at IS NULL`,
+			`UPDATE email_changes SET confirmed_at = $2 WHERE user_id = $1 AND confirmed_at IS NULL AND cancelled_at IS NULL`,
 			payload.UserID, payload.ChangedAt,
 		)
 		if err != nil {
 			return fmt.Errorf("user email_changes projection: apply confirm event %d: %w", event.ID, err)
+		}
+	case UserEmailChangeCancelledEventType:
+		var payload UserEmailChangeCancelledPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return fmt.Errorf("user email_changes projection: decode event %d: %w", event.ID, err)
+		}
+		_, err := p.pool.Exec(ctx,
+			`UPDATE email_changes SET cancelled_at = $2 WHERE user_id = $1 AND confirmed_at IS NULL AND cancelled_at IS NULL`,
+			payload.UserID, payload.CancelledAt,
+		)
+		if err != nil {
+			return fmt.Errorf("user email_changes projection: apply cancel event %d: %w", event.ID, err)
 		}
 	}
 	return nil
@@ -93,17 +107,18 @@ func (p *EmailChangesProjection) Reset(ctx context.Context) error {
 	return nil
 }
 
-// Pending returns the unconfirmed email change for a user,
+// Pending returns the unconfirmed and uncancelled email change for a user,
 // or ErrNoPendingEmailChange when none exists.
 func (p *EmailChangesProjection) Pending(ctx context.Context, userID string) (EmailChange, error) {
 	var (
 		c           EmailChange
 		confirmedAt *time.Time
+		cancelledAt *time.Time
 	)
 	err := p.pool.QueryRow(ctx,
-		`SELECT user_id, old_email, new_email, code_hash, expires_at, requested_at, confirmed_at
+		`SELECT user_id, old_email, new_email, code_hash, expires_at, requested_at, confirmed_at, cancelled_at
 		 FROM email_changes WHERE user_id = $1`, userID,
-	).Scan(&c.UserID, &c.OldEmail, &c.NewEmail, &c.CodeHash, &c.ExpiresAt, &c.RequestedAt, &confirmedAt)
+	).Scan(&c.UserID, &c.OldEmail, &c.NewEmail, &c.CodeHash, &c.ExpiresAt, &c.RequestedAt, &confirmedAt, &cancelledAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return EmailChange{}, ErrNoPendingEmailChange
@@ -111,6 +126,7 @@ func (p *EmailChangesProjection) Pending(ctx context.Context, userID string) (Em
 		return EmailChange{}, fmt.Errorf("user email_changes projection: pending: %w", err)
 	}
 	c.ConfirmedAt = confirmedAt
+	c.CancelledAt = cancelledAt
 	if !c.Pending() {
 		return EmailChange{}, ErrNoPendingEmailChange
 	}
