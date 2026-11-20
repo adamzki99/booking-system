@@ -1,0 +1,30 @@
+:root {
+  /* Palette (from product/frontend/src/theme.ts) */
+  --color-accent: #9a2f22;
+  --color-accent-hover: #7a241a;
+  --color-accent-tint: #f6e6e0;
+  --color-ink: #2b1d1a;
+  --color-muted: #5e4b45;
+  --color-placeholder: #7a6a63;
+  --color-line: #e9ddd5;
+  --color-bg-canvas: #faf6f1;
+  --color-bg-subtle: #fbf8f4;
+  --color-bg-hover: #f5eee8;
+  --color-surface: #ffffff;
+  --color-avatar-bg: #efe3d6;
+  --color-avatar-fg: #5b4331;
+
+  /* Fonts */
+  --font-heading: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Radii */
+  --radius-base: 0.375rem;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-card: 16px;
+
+  /* Focus ring */
+  --focus-ring-shadow: 0 0 0 2px var(--color-accent-tint);
+}
