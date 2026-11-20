@@ -214,3 +214,5 @@ Apply work-pattern skills where relevant: `investigate-first`, `lean-build`,
 `caveman-commit` for one-line conventional commit messages where appropriate
 and `caveman-review` when summarizing review notes. Apply `caveman-compress`
 only to memory files (e.g. AGENTS.md, CLAUDE.md) with a backup.
+
+<!-- codeowner-review-probe -->
