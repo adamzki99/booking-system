@@ -1,11 +1,11 @@
 import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@solidjs/testing-library";
+import { afterEach } from "vitest";
 
 // Node honors TZ at call time, so pin parse/format expectations to UTC.
 process.env.TZ = "UTC";
 
-// Chakra UI's ColorModeProvider calls `window.matchMedia` in the React app,
-// but jsdom does not implement it. Provide a minimal stub so tests don't throw
-// if browser APIs are queried.
+// jsdom does not implement all browser APIs used by UI components.
 Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: (query: string) => ({
@@ -18,4 +18,13 @@ Object.defineProperty(window, "matchMedia", {
     removeEventListener: () => {},
     dispatchEvent: () => false,
   }),
+});
+
+Object.defineProperty(window, "scrollTo", {
+  writable: true,
+  value: () => {},
+});
+
+afterEach(() => {
+  cleanup();
 });

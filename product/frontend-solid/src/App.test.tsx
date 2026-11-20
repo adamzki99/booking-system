@@ -1,13 +1,37 @@
 import { render, screen } from "@solidjs/testing-library";
+import { createRouter, memoryHistory } from "@solidjs/router";
 import { describe, expect, it } from "vitest";
-import App from "./App";
+import { appRoutes } from "./App";
+import { SessionProvider } from "./auth/SessionContext";
 
-describe("App", () => {
-  it("renders the smoke component", () => {
-    render(() => <App />);
+describe("App routing", () => {
+  it("renders the login route", async () => {
+    const Router = createRouter({
+      routes: appRoutes,
+      history: memoryHistory("/login"),
+    });
 
-    expect(screen.getByRole("heading", { name: "Booking Solid" })).toBeInTheDocument();
-    expect(screen.getByText("Smoke component is running.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Count: 0" })).toBeInTheDocument();
+    render(() => (
+      <SessionProvider>
+        <Router>{(props) => <>{props.children}</>}</Router>
+      </SessionProvider>
+    ));
+
+    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+  });
+
+  it("redirects signed-out users from a protected route to login", async () => {
+    const Router = createRouter({
+      routes: appRoutes,
+      history: memoryHistory("/"),
+    });
+
+    render(() => (
+      <SessionProvider>
+        <Router>{(props) => <>{props.children}</>}</Router>
+      </SessionProvider>
+    ));
+
+    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
   });
 });
