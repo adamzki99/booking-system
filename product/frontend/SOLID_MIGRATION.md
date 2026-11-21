@@ -131,14 +131,14 @@ No separate lint or typecheck script is defined; type checking runs as part of `
 
 ### Account page (`/account`)
 
-- [ ] Shows page header "Account" with subtitle "Update your email address and manage your calendar feed."
-- [ ] Loads the current user on mount (falling back to the session user if the request fails) and displays the current email.
-- [ ] Email change request form allows entering a new email and submitting "Send verification code"; on success it enters a pending-confirmation state.
-- [ ] Pending confirmation state explains that a verification code was sent to the pending email and that the address changes only after confirmation (old address no longer signs in), then allows entering and confirming the code.
-- [ ] Confirming the email change updates the displayed email, clears pending/code state, and refreshes the session so it matches the new identity.
-- [ ] Calendar section "Regenerate" action fetches and displays a regenerated iCal URL.
-- [ ] When an iCal URL is present, "Copy" copies it to the clipboard.
-- [ ] Failures in account actions are shown in an error alert.
+- [x] Shows page header "Account" with subtitle "Update your email address and manage your calendar feed."
+- [x] Loads the current user on mount (falling back to the session user if the request fails) and displays the current email.
+- [x] Email change request form allows entering a new email and submitting "Send verification code"; on success it enters a pending-confirmation state.
+- [x] Pending confirmation state explains that a verification code was sent to the pending email and that the address changes only after confirmation (old address no longer signs in), then allows entering and confirming the code.
+- [x] Confirming the email change updates the displayed email, clears pending/code state, and refreshes the session so it matches the new identity.
+- [x] Calendar section "Regenerate" action fetches and displays a regenerated iCal URL.
+- [x] When an iCal URL is present, "Copy" copies it to the clipboard.
+- [x] Failures in account actions are shown in an error alert.
 
 ### Users page (`/users`)
 
