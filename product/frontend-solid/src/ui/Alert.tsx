@@ -14,9 +14,9 @@ export default function Alert(props: AlertProps) {
     const extra = (props as { class?: string }).class ?? "";
     return [base, st, extra].filter(Boolean).join(" ");
   };
-  const role = () => (props as { role?: JSX.HTMLAttributes<HTMLDivElement>["role"] }).role ?? "alert";
+  const roleAttr = () => ((props.role as string | undefined) ?? "alert") as any;
   return (
-    <div {...props} role={role()} class={cls()}>
+    <div {...props} role={roleAttr()} class={cls()}>
       {(props as { children?: JSX.Element }).children}
     </div>
   );

@@ -117,17 +117,17 @@ No separate lint or typecheck script is defined; type checking runs as part of `
 
 ### Calendar page (`/`)
 
-- [ ] Shows "Bookings" heading and the current date formatted for the page.
-- [ ] Loads bookings on mount (sorted by start time) and best-effort loads users for member labels.
-- [ ] Quick book: lets the user choose a source booking to repeat (defaulting to the first available booking), disables controls and shows placeholder messaging when there are no bookings.
-- [ ] Quick book: offers repeat targets for 1-4 weeks with day labels, shows a summary of the new booking when a source and target week are selected, and creates the repeated booking on "Quick book" then refreshes the list.
-- [ ] Create booking form provides start/end datetime-local inputs, enables submission only when both are set, creates a booking on submit, clears inputs, and refreshes bookings.
-- [ ] When the page is opened with `?create=1`, focus moves to the booking start input.
-- [ ] Upcoming bookings shows an error alert on load/create/cancel/quick-book failures.
-- [ ] Upcoming bookings shows "No bookings yet." when there are no bookings and no error.
-- [ ] Upcoming bookings lists bookings (first 5 by default) with member avatar/label (member address or "Member"), formatted day label, and formatted time range.
-- [ ] "View all bookings" / "Show fewer bookings" toggles visibility when more than 5 bookings exist.
-- [ ] Cancel action is shown only for bookings the current user may cancel (own booking, or super/admin for any booking) and removing a booking refreshes the list.
+- [x] Shows "Bookings" heading and the current date formatted for the page.
+- [x] Loads bookings on mount (sorted by start time) and best-effort loads users for member labels.
+- [x] Quick book: lets the user choose a source booking to repeat (defaulting to the first available booking), disables controls and shows placeholder messaging when there are no bookings.
+- [x] Quick book: offers repeat targets for 1-4 weeks with day labels, shows a summary of the new booking when a source and target week are selected, and creates the repeated booking on "Quick book" then refreshes the list.
+- [x] Create booking form provides start/end datetime-local inputs, enables submission only when both are set, creates a booking on submit, clears inputs, and refreshes bookings.
+- [x] When the page is opened with `?create=1`, focus moves to the booking start input.
+- [x] Upcoming bookings shows an error alert on load/create/cancel/quick-book failures.
+- [x] Upcoming bookings shows "No bookings yet." when there are no bookings and no error.
+- [x] Upcoming bookings lists bookings (first 5 by default) with member avatar/label (member address or "Member"), formatted day label, and formatted time range.
+- [x] "View all bookings" / "Show fewer bookings" toggles visibility when more than 5 bookings exist.
+- [x] Cancel action is shown only for bookings the current user may cancel (own booking, or super/admin for any booking) and removing a booking refreshes the list.
 
 ### Account page (`/account`)
 
