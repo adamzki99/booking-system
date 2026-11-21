@@ -142,15 +142,15 @@ No separate lint or typecheck script is defined; type checking runs as part of `
 
 ### Users page (`/users`)
 
-- [ ] Shows page header "User directory" with subtitle "Search, review and manage the members of your booking system."
-- [ ] Loads and displays the user directory on mount; API failures are shown in an error alert.
-- [ ] "Search members" input is driven by the `q` URL query parameter (trimmed, updated with replace navigation) and filters visible member rows by email, address, or role (case-insensitive).
-- [ ] Member directory table shows each visible member's avatar/initials, email, role badge, address, and active status.
-- [ ] Management controls are shown only to super/admin users; basic users see the directory without management forms.
-- [ ] Super/admin users can add a user (email and address), after which the form clears and the directory refreshes.
-- [ ] Super/admin users can change a basic user's address by selecting from the full user list (not narrowed by search filtering), after which the form clears and the directory refreshes.
-- [ ] Super/admin users can block a time period by submitting start/end values.
-- [ ] Super/admin users can broadcast a message (subject and body), after which the form clears.
-- [ ] Admin users additionally see "Change role (admin)" and can change another user's role (basic/super/admin), excluding themselves from the selector; the directory refreshes after success.
-- [ ] Eligible directory rows show a "Remove" action for super/admin users according to role rules (super: basic users; admin: basic or super users), and removal refreshes the directory.
-- [ ] Management form selects continue to use the complete users list so options remain available while a search filter is applied to table rows.
+- [x] Shows page header "User directory" with subtitle "Search, review and manage the members of your booking system."
+- [x] Loads and displays the user directory on mount; API failures are shown in an error alert.
+- [x] "Search members" input is driven by the `q` URL query parameter (trimmed, updated with replace navigation) and filters visible member rows by email, address, or role (case-insensitive).
+- [x] Member directory table shows each visible member's avatar/initials, email, role badge, address, and active status.
+- [x] Management controls are shown only to super/admin users; basic users see the directory without management forms.
+- [x] Super/admin users can add a user (email and address), after which the form clears and the directory refreshes.
+- [x] Super/admin users can change a basic user's address by selecting from the full user list (not narrowed by search filtering), after which the form clears and the directory refreshes.
+- [x] Super/admin users can block a time period by submitting start/end values.
+- [x] Super/admin users can broadcast a message (subject and body), after which the form clears.
+- [x] Admin users additionally see "Change role (admin)" and can change another user's role (basic/super/admin), excluding themselves from the selector; the directory refreshes after success.
+- [x] Eligible directory rows show a "Remove" action for super/admin users according to role rules (super: basic users; admin: basic or super users), and removal refreshes the directory.
+- [x] Management form selects continue to use the complete users list so options remain available while a search filter is applied to table rows.
