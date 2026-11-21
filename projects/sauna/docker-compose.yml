@@ -1,4 +1,4 @@
-# Sauna Booking System — deployment compose file.
+# Sauna Booking System - deployment compose file.
 #
 # Combines the generic booking product (../../product) with the sauna-specific
 # sidecar and configuration. SigNoz (APM) runs as a persistent dev-ops service

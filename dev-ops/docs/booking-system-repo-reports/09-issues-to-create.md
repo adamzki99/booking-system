@@ -172,11 +172,11 @@ None of these issues has been created. This document only proposes them.
 | I-126 | Add retention for login codes, sessions, outbox, logs and telemetry | Later | Factory |  | SEC-15, OBS-11 |
 | I-127 | Write the privacy documentation and keep QA on synthetic data | Later | Owner |  | SEC-15 |
 
-## Epic A — Immediate containment
+## Epic A - Immediate containment
 
 Three owner actions that close exposures that are open today: outsiders can steer the factory, personal data sits in a public issue, and SigNoz listens on all interfaces. They buy time for the permanent fixes in Epics B and C.
 
-### I-001 — Pause the factory and limit public interactions until the trust filters ship
+### I-001 - Pause the factory and limit public interactions until the trust filters ship
 
 **Covers:** FAC-01, FAC-02, SEC-01, SEC-02 · **Labels:** `dev-ops`, `trivial-task` · **Priority:** Now · **Executor:** Owner · **Depends on:** –
 
@@ -196,7 +196,7 @@ Three owner actions that close exposures that are open today: outsiders can stee
 - [ ] `gh pr list --state open --json isCrossRepository --jq 'map(select(.isCrossRepository)) | length'` returns `0`.
 - [ ] A comment on this issue records the re-enable time, which is after I-016 and I-018 were closed.
 
-### I-002 — Scrub personal data from issue #101 and stop posting raw deploy logs to issues
+### I-002 - Scrub personal data from issue #101 and stop posting raw deploy logs to issues
 
 **Covers:** OPS-02, SEC-06 · **Labels:** `dev-ops`, `bug`, `light-build-task` · **Priority:** Now · **Executor:** Owner + Owner-reviewed PR · **Depends on:** –
 
@@ -216,7 +216,7 @@ Three owner actions that close exposures that are open today: outsiders can stee
 - [ ] The issue body template in `deploy-environment.sh` has no `Log tail:` section (`grep -n "Log tail" dev-ops/scripts/deploy-environment.sh` returns nothing).
 - [ ] After a forced QA deploy failure, a log file exists under `~/.local/state/booking-deploy/` and the issue comment holds only SHA, command, time and service status.
 
-### I-003 — Bind the SigNoz UI and OTLP ports to loopback and claim the SigNoz admin account
+### I-003 - Bind the SigNoz UI and OTLP ports to loopback and claim the SigNoz admin account
 
 **Covers:** SEC-12, OPS-13, OBS-03 · **Labels:** `dev-ops`, `bug`, `trivial-task` · **Priority:** Now · **Executor:** Owner · **Depends on:** –
 
@@ -238,15 +238,15 @@ Three owner actions that close exposures that are open today: outsiders can stee
 - [ ] `docker compose -f dev-ops/signoz/docker-compose.yml config` shows no volume whose source is `/`.
 - [ ] A QA backend request after the change shows up as a SigNoz trace within 5 minutes.
 
-## Epic B — GitHub governance and CI gates
+## Epic B - GitHub governance and CI gates
 
 GitHub enforces none of the rules the agents are told to follow. This epic moves the gates from prose into rulesets, CODEOWNERS and CI, so a bad merge is blocked by the platform rather than by a model's reading of `AGENTS.md`.
 
-### I-004 — Add an always-running `ci-gate` job as the single required check
+### I-004 - Add an always-running `ci-gate` job as the single required check
 
 **Covers:** ST-04, OPS-09 · **Labels:** `dev-ops`, `enhancement`, `standard-build-task` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
-**Problem.** `backend-ci.yml:4-11`, `frontend-ci.yml:4-13` and `sidecar-ci.yml:4-13` trigger only on matching paths (last 300 runs: Backend 60, Frontend 10, Sidecar 3, versus Security 142). If one of them is marked required, a PR that doesn't touch its paths waits on "Expected — Waiting" forever, and the factory's fixer would loop on PRs it cannot unblock. Without one always-present check, the ruleset in I-005 has nothing it can safely require.
+**Problem.** `backend-ci.yml:4-11`, `frontend-ci.yml:4-13` and `sidecar-ci.yml:4-13` trigger only on matching paths (last 300 runs: Backend 60, Frontend 10, Sidecar 3, versus Security 142). If one of them is marked required, a PR that doesn't touch its paths waits on "Expected - Waiting" forever, and the factory's fixer would loop on PRs it cannot unblock. Without one always-present check, the ruleset in I-005 has nothing it can safely require.
 
 **Proposed change.**
 - Add `.github/workflows/ci.yml`, triggered on every `pull_request` and on push to `main`. A `changes` job uses `dorny/paths-filter` (pinned to a SHA) to decide which suites run.
@@ -269,7 +269,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] A PR that changes only `dev-ops/**` still reports a `ci-gate` result.
 - [ ] When a needed job is cancelled, `ci-gate` concludes `failure`.
 
-### I-005 — Protect `main` with a ruleset and correct the README's branch-protection claim
+### I-005 - Protect `main` with a ruleset and correct the README's branch-protection claim
 
 **Covers:** ST-01, FAC-03, OPS-05 · **Labels:** `dev-ops`, `documentation`, `trivial-task` · **Priority:** Now · **Executor:** Owner · **Depends on:** I-004
 
@@ -288,7 +288,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] On a PR whose `ci-gate` is red or pending, `gh pr merge` without `--auto` fails.
 - [ ] `grep -rn "branch protection\|required status check" dev-ops/README.md .github/workflows/README.md` returns only statements that match the configured ruleset.
 
-### I-006 — Run the factory as a GitHub App or bot account with a least-privilege token
+### I-006 - Run the factory as a GitHub App or bot account with a least-privilege token
 
 **Covers:** ST-02, SEC-03, FAC-03 · **Labels:** `dev-ops`, `enhancement`, `standard-build-task` · **Priority:** Next · **Executor:** Owner · **Depends on:** –
 
@@ -307,7 +307,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] The factory user's `~/.config/gh/hosts.yml` holds no `adamzki99` credential, and the old token no longer appears in the owner's GitHub token settings.
 - [ ] The owner receives a GitHub notification for the next factory PR.
 
-### I-007 — Add CODEOWNERS so factory, CI and agent-config changes need owner review
+### I-007 - Add CODEOWNERS so factory, CI and agent-config changes need owner review
 
 **Covers:** ST-07, FAC-05 · **Labels:** `dev-ops`, `enhancement`, `light-build-task` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** I-005
 
@@ -333,7 +333,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] A `tick.sh` test where the worktree's `opencode.jsonc` differs from `factory-config` emits `guardrail_drift`, exits non-zero and starts no OpenCode session.
 - [ ] The `factory-config` tag exists, and `dev-ops/factory/README.md` documents how the owner moves it.
 
-### I-008 — Add Dependabot for Go modules, npm, GitHub Actions and Docker
+### I-008 - Add Dependabot for Go modules, npm, GitHub Actions and Docker
 
 **Covers:** ST-07, OPS-21, SEC-20, FE-18 · **Labels:** `dev-ops`, `enhancement`, `light-build-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-004
 
@@ -355,7 +355,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] A Dependabot PR runs `ci-gate`, and the ruleset blocks merging it while `ci-gate` is red.
 - [ ] No Dependabot PR proposes a new major version of `@chakra-ui/react`.
 
-### I-009 — Pin GitHub Actions to commit SHAs and container images to digests
+### I-009 - Pin GitHub Actions to commit SHAs and container images to digests
 
 **Covers:** SEC-20, OPS-21, OBS-12 · **Labels:** `dev-ops`, `enhancement`, `light-build-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-008
 
@@ -375,7 +375,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] The SigNoz init step fails when the expected tarball checksum is altered, and succeeds with the correct one.
 - [ ] `ci-gate` and the next QA deploy succeed with the pinned versions.
 
-### I-010 — Make Semgrep scan for real and dependency review blocking
+### I-010 - Make Semgrep scan for real and dependency review blocking
 
 **Covers:** OPS-05, ST-08 · **Labels:** `dev-ops`, `bug`, `light-build-task` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -394,7 +394,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] `grep -n continue-on-error .github/workflows/security.yml` returns nothing.
 - [ ] `grep -rn "Semgrep instance also runs" dev-ops .github` returns nothing.
 
-### I-011 — Add CI concurrency groups and remove duplicate runs
+### I-011 - Add CI concurrency groups and remove duplicate runs
 
 **Covers:** OPS-09 · **Labels:** `dev-ops`, `enhancement`, `trivial-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-004
 
@@ -416,7 +416,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] Two quick merges to `main` both get completed, uncancelled runs.
 - [ ] `grep -L "concurrency:" .github/workflows/*.yml` returns nothing.
 
-### I-012 — Add SECURITY.md and enable private vulnerability reporting
+### I-012 - Add SECURITY.md and enable private vulnerability reporting
 
 **Covers:** ST-07 · **Labels:** `documentation`, `dev-ops`, `trivial-task` · **Priority:** Next · **Executor:** Owner · **Depends on:** –
 
@@ -436,7 +436,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] `gh api repos/adamzki99/booking-system/private-vulnerability-reporting` returns `{"enabled": true}`.
 - [ ] Viewed from a non-collaborator account, the Security tab offers "Report a vulnerability".
 
-### I-013 — Auto-delete merged branches, remove stale branches and refuse empty PRs
+### I-013 - Auto-delete merged branches, remove stale branches and refuse empty PRs
 
 **Covers:** ST-06 · **Labels:** `dev-ops`, `enhancement`, `light-build-task` · **Priority:** Now · **Executor:** Owner + Owner-reviewed PR · **Depends on:** –
 
@@ -453,7 +453,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] A pytest case in `dev-ops/scripts/tests/test-factory-lib.py` shows a PR with `changedFiles: 0` is classified as empty and never as merge-ready.
 - [ ] After the next merged factory PR, its head branch no longer exists on the remote.
 
-### I-014 — Add a monthly canary that proves the CI gates fail when they should
+### I-014 - Add a monthly canary that proves the CI gates fail when they should
 
 **Covers:** ST-08 · **Labels:** `dev-ops`, `enhancement`, `standard-build-task` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** I-004, I-010
 
@@ -472,7 +472,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] After every run, no `canary/*` branch and no open canary PR remains.
 - [ ] `gh pr list --state merged --search "head:canary/"` returns nothing.
 
-### I-015 — Run Go tests with `-race` and prove the Postgres integration tests run in CI
+### I-015 - Run Go tests with `-race` and prove the Postgres integration tests run in CI
 
 **Covers:** BE-14, ST-08 · **Labels:** `backend`, `dev-ops`, `enhancement`, `light-build-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -490,11 +490,11 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 - [ ] The job summary lists a non-zero pass count for each of the seven integration packages above.
 - [ ] A test PR with an unsynchronized map write across goroutines in a test fails with `WARNING: DATA RACE`.
 
-## Epic C — Factory trust boundary and sandboxing
+## Epic C - Factory trust boundary and sandboxing
 
 The factory takes input from anyone, runs agents with the owner's token and no sandbox, and lets the model decide what merges. This epic sets what the factory trusts, what agents may do, and what the host lets them reach.
 
-### I-016 — Restrict factory discovery to owner-authored issues and comments and same-repository PRs
+### I-016 - Restrict factory discovery to owner-authored issues and comments and same-repository PRs
 
 **Covers:** FAC-01, FAC-02, SEC-01, SEC-02 · **Labels:** `dev-ops`, `bug`, `standard-build-task` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -514,7 +514,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] With a stubbed `gh`, a PR whose `isCrossRepository` turns `true` before session start is skipped.
 - [ ] `grep -n -- "--comments" dev-ops/factory/tick.sh .opencode/agents/*.md` returns no instruction addressed to an agent.
 
-### I-017 — Trust factory markers and deploy-failure issues only when authored by the bot identity
+### I-017 - Trust factory markers and deploy-failure issues only when authored by the bot identity
 
 **Covers:** FAC-09, SEC-21 · **Labels:** `dev-ops`, `bug`, `light-build-task` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** I-006 (interim: the owner login)
 
@@ -533,7 +533,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] `dev-ops/scripts/tests/test-deploy-environment.sh` shows `recover_issue` leaves an open "QA deployment failed" issue authored by another login untouched.
 - [ ] Every marker query in `tick.sh` filters on comment author (`grep -n 'comments\[\]' dev-ops/factory/tick.sh`).
 
-### I-018 — Remove the planner's label-edit power and verify who applied `owner approved`
+### I-018 - Remove the planner's label-edit power and verify who applied `owner approved`
 
 **Covers:** FAC-02, SEC-01, ST-02, AGT-11 · **Labels:** `dev-ops`, `bug`, `light-build-task` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -552,7 +552,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] A pytest case with timeline fixtures shows an issue whose `owner approved` event actor is the factory login, or any non-owner login, is not a build candidate, and one labeled by the owner is.
 - [ ] After a real planning session, the session log has no `gh issue edit` call and the issue's labels match `plan-labels.txt`.
 
-### I-019 — Move the merge decision from the agent into the orchestrator
+### I-019 - Move the merge decision from the agent into the orchestrator
 
 **Covers:** FAC-03, FAC-07, AGT-04, AGT-10 · **Labels:** `dev-ops`, `enhancement`, `heavy-build-task` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** I-004, I-005
 
@@ -573,7 +573,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] For the next 10 factory PRs, each PR's `mergedAt` is later than its `ci-gate` check's `completedAt`.
 - [ ] A PR whose `ci-gate` fails is still open after the tick ends.
 
-### I-020 — Default-deny OpenCode permission profiles for every agent and settle the config schema
+### I-020 - Default-deny OpenCode permission profiles for every agent and settle the config schema
 
 **Covers:** FAC-04, SEC-04, AGT-11, AGT-16 · **Labels:** `dev-ops`, `enhancement`, `standard-build-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -594,7 +594,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] The CI schema check fails on a test PR that adds an unknown key to `opencode.jsonc`.
 - [ ] As the factory user, `command -v gopls typescript-language-server` prints both paths.
 
-### I-021 — Run agent sessions in a disposable sandbox by default
+### I-021 - Run agent sessions in a disposable sandbox by default
 
 **Covers:** FAC-16, SEC-03, SEC-26 · **Labels:** `dev-ops`, `enhancement`, `heavy-build-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-022
 
@@ -615,7 +615,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] The GitHub token seen inside the session is an App installation token, which expires within one hour.
 - [ ] `openssl s_client` against QA shows a certificate issued after the sandbox rollout date.
 
-### I-022 — Use separate Unix users for the factory and the deploy, and remove the factory's Docker access
+### I-022 - Use separate Unix users for the factory and the deploy, and remove the factory's Docker access
 
 **Covers:** OPS-16, SEC-03, SEC-26 · **Labels:** `dev-ops`, `enhancement`, `standard-build-task` · **Priority:** Next · **Executor:** Owner · **Depends on:** –
 
@@ -636,7 +636,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] `crontab -l -u factory` contains the tick entry, and the previous user's crontab does not.
 - [ ] `systemctl --user list-timers` as `booking-deploy` shows the deploy timer, and its next run deploys QA successfully.
 
-### I-023 — Pin vendored skills to commit SHAs and verify their integrity
+### I-023 - Pin vendored skills to commit SHAs and verify their integrity
 
 **Covers:** SEC-05, AGT-15, FAC-21 · **Labels:** `dev-ops`, `enhancement`, `light-build-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -654,7 +654,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] The CI check fails on a test PR that changes one line of a vendored `SKILL.md` without updating its hash.
 - [ ] `ls .opencode/skills` lists none of the five removed skills, and `grep -rn "ultracave\|megacave\|caveman-compress" AGENTS.md .opencode/agents` returns nothing.
 
-### I-024 — Harden the dev-server SSH wrapper
+### I-024 - Harden the dev-server SSH wrapper
 
 **Covers:** SEC-14, OPS-15, OPS-16 · **Labels:** `dev-ops`, `bug`, `standard-build-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -673,7 +673,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] `grep -n ControlPersist dev-ops/scripts/dev-server-agent.sh` shows no value above 30 s, and a test shows no control socket remains after the wrapper exits.
 - [ ] With the forced-command key, a command outside the `qa-ops-shell` allowlist is refused by the server.
 
-### I-025 — Give each container only the environment variables it needs
+### I-025 - Give each container only the environment variables it needs
 
 **Covers:** SEC-13, OPS-15 · **Labels:** `dev-ops`, `bug`, `light-build-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -694,7 +694,7 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] `setup.sh` on a fresh checkout writes a `.env` whose `POSTGRES_PASSWORD` is 48 hex characters.
 - [ ] On QA, `docker inspect booking-qa-postgres-1 --format '{{.Config.Env}}'` contains no `SMTP_PASSWORD` or `DEV_SERVER_` entry.
 
-### I-026 — Redact secrets and personal data from session output and telemetry
+### I-026 - Redact secrets and personal data from session output and telemetry
 
 **Covers:** OBS-11, SEC-12 · **Labels:** `dev-ops`, `backend`, `bug`, `standard-build-task` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -714,11 +714,11 @@ The factory takes input from anyone, runs agents with the owner's token and no s
 - [ ] After deploy, a SigNoz search over 24 h for a known test feed token returns no spans or logs.
 - [ ] Both collectors start with the new processors, and their startup logs show no configuration error.
 
-## Epic D — Factory orchestration robustness
+## Epic D - Factory orchestration robustness
 
 The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silently stall work, rerun sessions on weaker models or lose state, and its own code is never tested in CI. These issues fix the defects, add CI and feedback loops for the factory, and prepare a later move to a tested Python orchestrator.
 
-### I-027 — Fix session-ID capture and record the agent on every session event
+### I-027 - Fix session-ID capture and record the agent on every session event
 
 **Covers:** FAC-13, OBS-05 · **Labels:** `dev-ops`, `light-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -737,7 +737,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] `dev-ops/factory/validate.sh` passes.
 - [ ] After one tick on the host, every `session_start`, `session_ok` and `session_failed` line in the JSONL log has a non-empty `session_id` and `agent`.
 
-### I-028 — Limit quota detection to provider errors and stop fallback models from merging
+### I-028 - Limit quota detection to provider errors and stop fallback models from merging
 
 **Covers:** FAC-07 · **Labels:** `dev-ops`, `standard-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** I-019
 
@@ -756,7 +756,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] With default settings, a simulated build quota error emits a skip event and no `backup_ok` or `free_retry` event.
 - [ ] A PR opened by a fallback model carries `factory:fallback-model` and stays unmerged by the factory.
 
-### I-029 — Detect and escalate stalled factory PRs
+### I-029 - Detect and escalate stalled factory PRs
 
 **Covers:** FAC-06 · **Labels:** `dev-ops`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -775,7 +775,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] `gh label list` includes `factory-blocked`, and a blocked PR has the label plus a summary comment.
 - [ ] Removing the label makes the PR a candidate again (fixture test).
 
-### I-030 — Remove head-of-line blocking in planning and revisit throughput and prioritisation
+### I-030 - Remove head-of-line blocking in planning and revisit throughput and prioritisation
 
 **Covers:** FAC-08, FAC-19 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -795,7 +795,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] A test shows a newer `priority/high` approved issue selected before an older one.
 - [ ] A fake-clock test shows no fallback session starts with under 20 minutes left, and an event is emitted.
 
-### I-031 — Make idempotency checks fail closed and propagate infrastructure failures out of subshells
+### I-031 - Make idempotency checks fail closed and propagate infrastructure failures out of subshells
 
 **Covers:** FAC-09 · **Labels:** `dev-ops`, `light-build-task`, `bug` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-017
 
@@ -813,7 +813,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] A marker comment from a login other than `$FACTORY_LOGIN` is not counted; one from the factory login is.
 - [ ] `dev-ops/factory/validate.sh` and the new tests pass.
 
-### I-032 — Fix lock and process-lifecycle hazards in `tick.sh`
+### I-032 - Fix lock and process-lifecycle hazards in `tick.sh`
 
 **Covers:** FAC-14 · **Labels:** `dev-ops`, `light-build-task`, `bug` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -832,7 +832,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] Running `nightly-cleanup.sh` while the lock is held leaves `$FACTORY_WORKTREE` in place.
 - [ ] `grep -rn "FACTORY_LOG_DIR" dev-ops/factory` returns nothing.
 
-### I-033 — Run the factory from a single code version
+### I-033 - Run the factory from a single code version
 
 **Covers:** FAC-05 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -850,7 +850,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] Every JSONL event from a tick carries `factory_sha`, equal to the commit the agent files were loaded from.
 - [ ] `dev-ops/factory/README.md` documents how the owner updates the tag.
 
-### I-034 — Fix factory worktree handling
+### I-034 - Fix factory worktree handling
 
 **Covers:** FAC-20 · **Labels:** `dev-ops`, `light-build-task`, `bug` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -868,7 +868,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] `product/frontend/node_modules` in the worktree survives a tick.
 - [ ] `nightly-cleanup.sh` removes a per-issue worktree under `$FACTORY_WORKTREES` whose PR is merged.
 
-### I-035 — Add a CI workflow for the factory and deploy scripts
+### I-035 - Add a CI workflow for the factory and deploy scripts
 
 **Covers:** FAC-18, OPS-08, AGT-16, OBS-13 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-004
 
@@ -888,7 +888,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] The collector fixture yields a record whose timestamp equals the fixture's.
 - [ ] Compose config, Caddy validation and the three image builds pass on `main`.
 
-### I-036 — Decompose `tick.sh` into a tested orchestrator and delete dead code
+### I-036 - Decompose `tick.sh` into a tested orchestrator and delete dead code
 
 **Covers:** FAC-17 · **Labels:** `dev-ops`, `heavy-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** I-035
 
@@ -907,7 +907,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] A golden-file test shows the event names and attribute keys for a recorded tick match the pre-rewrite set.
 - [ ] `factory-ci` (I-035) is green on the PR.
 
-### I-037 — Deduplicate the acceptance-criteria checker and align it with the issue validator
+### I-037 - Deduplicate the acceptance-criteria checker and align it with the issue validator
 
 **Covers:** FAC-22 · **Labels:** `dev-ops`, `light-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -924,7 +924,7 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] A body with `* [x]` items in the AC section is accepted by both.
 - [ ] `bash dev-ops/scripts/tests/test-check-acceptance-criteria.sh` passes.
 
-### I-038 — Feed post-merge CI, QA deploy and e2e results back into the factory
+### I-038 - Feed post-merge CI, QA deploy and e2e results back into the factory
 
 **Covers:** FAC-15 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-124, I-066
 
@@ -942,11 +942,11 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 - [ ] After a forced session failure, `LESSONS.md` gains one entry with issue number, failure class and an excerpt of at most 20 lines.
 - [ ] The build prompt or `builder.md` references `LESSONS.md` (grep).
 
-## Epic E — Agent tooling and model routing
+## Epic E - Agent tooling and model routing
 
 The agents run headless on OpenCode Go models with contradictory role definitions, a long list of generic skills, and no project-specific guidance or machine-checked architecture rules. These issues give each role one definition and a curated skill set, add project skills, checks and an independent reviewer, and route models by role and risk.
 
-### I-039 — Make each agent role defined in one place, and align markers and labels
+### I-039 - Make each agent role defined in one place, and align markers and labels
 
 **Covers:** AGT-06, FAC-12 · **Labels:** `dev-ops`, `standard-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -965,7 +965,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] `build_prompt` contains either the "Do not mark ready" rule or `gh pr ready`, not both.
 - [ ] `plan_prompt`, `build_prompt` and `fix_prompt` are each 30 lines or less.
 
-### I-040 — Curate per-role skill sets and remove irrelevant skills and caveman from factory sessions
+### I-040 - Curate per-role skill sets and remove irrelevant skills and caveman from factory sessions
 
 **Covers:** AGT-05, AGT-12, FAC-21 · **Labels:** `dev-ops`, `light-build-task`, `enhancement` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -984,7 +984,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] A test asserts each role prompt names at most 5 skills, all present under `.opencode/skills/` or `dev-ops/skills/`.
 - [ ] A test with a 5,000-line failing-job log shows the fix prompt contains at most 200 lines of it.
 
-### I-041 — Add a "no human available" rule and headless variants of the interactive skills
+### I-041 - Add a "no human available" rule and headless variants of the interactive skills
 
 **Covers:** AGT-02 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-040
 
@@ -1002,7 +1002,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] A test asserts `build_prompt` and `fix_prompt` contain the "No human is available" sentence.
 - [ ] `gh label list` includes `needs-info`.
 
-### I-042 — Write first-party backend architecture skills
+### I-042 - Write first-party backend architecture skills
 
 **Covers:** AGT-01 · **Labels:** `backend`, `standard-build-task`, `documentation` · **Priority:** Next · **Executor:** Factory · **Depends on:** I-044
 
@@ -1022,7 +1022,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] `db-migration` contains `IF NOT EXISTS` and the no-`UPDATE`/`DELETE`-on-`events` rule (grep).
 - [ ] The build prompt for a `backend`-labeled issue names `es-feature` (test).
 
-### I-043 — Write first-party UI and e2e skills and per-area AGENTS.md files
+### I-043 - Write first-party UI and e2e skills and per-area AGENTS.md files
 
 **Covers:** AGT-01 · **Labels:** `frontend`, `standard-build-task`, `documentation` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -1041,7 +1041,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] The four area `AGENTS.md` files exist and the root `AGENTS.md` links each one (grep).
 - [ ] No tick prompt names `frontend-design` or `webapp-testing` (grep).
 
-### I-044 — Seed GLOSSARY.md and architecture decision records
+### I-044 - Seed GLOSSARY.md and architecture decision records
 
 **Covers:** AGT-07 · **Labels:** `documentation`, `light-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner + Factory · **Depends on:** –
 
@@ -1059,7 +1059,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] The PR is approved by the owner.
 - [ ] `planner.md` instructs the planner to cite glossary terms and ADRs (grep), and the next plan comment links at least one.
 
-### I-045 — Encode the architecture rules as tests and in-repo Semgrep rules
+### I-045 - Encode the architecture rules as tests and in-repo Semgrep rules
 
 **Covers:** AGT-03, BE-20 · **Labels:** `backend`, `heavy-build-task`, `enhancement` · **Priority:** Next · **Executor:** Factory · **Depends on:** I-010
 
@@ -1079,7 +1079,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] The migrations-twice test runs and passes in Backend CI.
 - [ ] Each rule's failure message contains its `AGENTS.md` sentence (grep).
 
-### I-046 — Add a shared `check.sh` used by agents and CI, and fix `/lint-frontend`
+### I-046 - Add a shared `check.sh` used by agents and CI, and fix `/lint-frontend`
 
 **Covers:** AGT-09, FE-15 · **Labels:** `dev-ops`, `frontend`, `light-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -1098,7 +1098,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] `backend-ci.yml`, `frontend-ci.yml` and `sidecar-ci.yml` invoke `dev-ops/scripts/check.sh` (grep).
 - [ ] `.opencode/commands/` contains `test-frontend.md`, `test-sidecar.md` and `e2e.md`, each calling `check.sh`.
 
-### I-047 — Give agents a validated way to propose and create follow-up issues
+### I-047 - Give agents a validated way to propose and create follow-up issues
 
 **Covers:** AGT-08 · **Labels:** `dev-ops`, `light-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -1117,11 +1117,11 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] `builder.md` and `fixer.md` allow `dev-ops/scripts/create-issue.sh*` and deny `gh issue create*` (grep).
 - [ ] `planner.md` defines the "Follow-ups" section (grep).
 
-### I-048 — Add an independent reviewer on a different model family that posts a GitHub review
+### I-048 - Add an independent reviewer on a different model family that posts a GitHub review
 
 **Covers:** ST-03, FAC-11, AGT-10 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-006, I-019
 
-**Problem.** `.opencode/agents/reviewer.md` defines a read-only reviewer with blocker/major/minor verdicts, but nothing in `tick.sh`, `builder.md`, `fixer.md` or the commands invokes it. The build prompt only says "`code-review` — review changes before landing when available" (`tick.sh:558`), so the builder reviews its own diff with the same model. No agent sets `model:`, so the reviewer and the sub-agents `code-review` spawns inherit the session model (AGT-10). `reviewDecision` is empty on all 81 merged PRs, and #150 has 0 reviews.
+**Problem.** `.opencode/agents/reviewer.md` defines a read-only reviewer with blocker/major/minor verdicts, but nothing in `tick.sh`, `builder.md`, `fixer.md` or the commands invokes it. The build prompt only says "`code-review` - review changes before landing when available" (`tick.sh:558`), so the builder reviews its own diff with the same model. No agent sets `model:`, so the reviewer and the sub-agents `code-review` spawns inherit the session model (AGT-10). `reviewDecision` is empty on all 81 merged PRs, and #150 has 0 reviews.
 
 **Proposed change.**
 - Add a review stage: for a factory PR with green checks and no `factory:review:<sha>` marker, run `--agent reviewer` with a model pinned via `models.yaml` (`review-task`) from a different family than the builder's. Add a `family:` field per model so tick.sh can enforce this.
@@ -1137,7 +1137,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] A new push to the PR triggers a new review (marker keyed by SHA).
 - [ ] A PR touching `dev-ops/factory/**` gets `needs-owner-review` and remains unmerged by the factory.
 
-### I-049 — Route models by role and risk and validate model IDs at startup
+### I-049 - Route models by role and risk and validate model IDs at startup
 
 **Covers:** FAC-10, AGT-10 · **Labels:** `dev-ops`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -1158,7 +1158,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] A test shows a plan proposing `trivial-task` for a change listing a migration resolves to at least `standard-build-task`.
 - [ ] New factory PR bodies contain `Model:` and `Tier:` lines.
 
-### I-050 — Move deterministic lifecycle steps out of the LLM session
+### I-050 - Move deterministic lifecycle steps out of the LLM session
 
 **Covers:** AGT-04 · **Labels:** `dev-ops`, `heavy-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** I-019, I-036
 
@@ -1176,7 +1176,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] A test where `PR_BODY.md` is missing marks the session failed and opens no PR.
 - [ ] `wc -l .opencode/agents/builder.md` is 100 or less.
 
-### I-051 — Add an Architecture Impact section to the issue template
+### I-051 - Add an Architecture Impact section to the issue template
 
 **Covers:** AGT-14 · **Labels:** `documentation`, `trivial-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -1193,7 +1193,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] A test shows `validate-issue-body.sh` rejects a body without `## Architecture Impact` and accepts one with both sections.
 - [ ] `planner.md` instructs the planner to fill the Architecture Impact items (grep).
 
-### I-052 — Build a replay benchmark for prompt, skill and model changes
+### I-052 - Build a replay benchmark for prompt, skill and model changes
 
 **Covers:** AGT-13, ST-09 · **Labels:** `dev-ops`, `heavy-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** I-055
 
@@ -1211,7 +1211,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] One run adds a results row with all six scores for each benchmark issue.
 - [ ] The weekly report shows the four delivery metrics for the past 7 days.
 
-### I-053 — Install language servers on the factory host and document the resolved OpenCode config
+### I-053 - Install language servers on the factory host and document the resolved OpenCode config
 
 **Covers:** AGT-16 · **Labels:** `dev-ops`, `trivial-task`, `documentation` · **Priority:** Later · **Executor:** Owner · **Depends on:** –
 
@@ -1229,11 +1229,11 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - [ ] The README contains the resolved OpenCode config, the OpenCode version and the date it was captured.
 - [ ] Every `opencode.jsonc` key missing from the resolved config is listed in the README and either removed or explained.
 
-## Epic F — Observability and project insights
+## Epic F - Observability and project insights
 
 SigNoz runs and the backend exports basic traces, but factory telemetry may never reach it, nothing alerts, and SigNoz content (users, dashboards, alerts, retention) exists only in a Docker volume. These issues get factory events flowing, add the cost, outcome and flow data a project manager needs, put SigNoz configuration in git, and fill the backend APM gaps.
 
-### I-054 — Ship factory events through the existing SigNoz collector
+### I-054 - Ship factory events through the existing SigNoz collector
 
 **Covers:** OBS-02, OBS-13 · **Labels:** `dev-ops`, `light-build-task`, `enhancement` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -1252,7 +1252,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] On the host, a `tick_start` event appears in SigNoz Logs with `service.name=factory-tick` within 2 minutes of the tick.
 - [ ] Events written while the collector was stopped appear in SigNoz after it restarts, with no duplicates.
 
-### I-055 — Capture tokens, cost, skills, tools and outcomes in factory session telemetry
+### I-055 - Capture tokens, cost, skills, tools and outcomes in factory session telemetry
 
 **Covers:** OBS-01, FAC-13, ST-09 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-027, I-054
 
@@ -1271,7 +1271,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] Shipped `session_failed` events contain no `output_tail` field by default.
 - [ ] A SigNoz query of `sum(cost)` grouped by `model` and `tier_label` over 7 days returns rows.
 
-### I-056 — Emit delivery-flow and queue events (lead time, rework, queue depth)
+### I-056 - Emit delivery-flow and queue events (lead time, rework, queue depth)
 
 **Covers:** OBS-01, ST-09 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-054
 
@@ -1290,7 +1290,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] For a factory PR, `tick.jsonl` contains one `ci_result` event per required check.
 - [ ] A weekly `delivery_summary` event appears in SigNoz with lead time p50/p90 and rework rate.
 
-### I-057 — Provision SigNoz dashboards, alerts, retention and admin from git
+### I-057 - Provision SigNoz dashboards, alerts, retention and admin from git
 
 **Covers:** OBS-03 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-003
 
@@ -1310,7 +1310,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] The notification channel named in `.env` exists after provisioning.
 - [ ] The `signoz-provision` container exits 0 on each `docker compose up`.
 
-### I-058 — Add a minimal alert set that reaches the owner
+### I-058 - Add a minimal alert set that reaches the owner
 
 **Covers:** OBS-04, FAC-13, OPS-13, OPS-01 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** I-054
 
@@ -1332,7 +1332,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] Temporarily lowering the disk threshold below current usage fires the host disk alert.
 - [ ] No alert rule uses a GitHub issue as its channel.
 
-### I-059 — Emit deploy events and tag the backend with version and environment
+### I-059 - Emit deploy events and tag the backend with version and environment
 
 **Covers:** OBS-06 · **Labels:** `dev-ops`, `backend`, `light-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-054
 
@@ -1353,7 +1353,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] In SigNoz, QA backend spans show `service.version` equal to the deployed SHA and `deployment.environment=qa`, not `default`.
 - [ ] `deploy_ok` and `deploy_failed` events from the QA host are queryable in SigNoz.
 
-### I-060 — Complete backend APM: route names, DB, sidecar and SMTP spans, log bridge, runtime metrics
+### I-060 - Complete backend APM: route names, DB, sidecar and SMTP spans, log bridge, runtime metrics
 
 **Covers:** OBS-07, BE-17 · **Labels:** `backend`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -1374,7 +1374,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] A test asserts an `slog` record written inside a span includes `trace_id`.
 - [ ] In QA, SigNoz shows backend logs linked to traces and goroutine and heap metrics for the backend service.
 
-### I-061 — Add event-sourcing and product metrics
+### I-061 - Add event-sourcing and product metrics
 
 **Covers:** OBS-08, BE-17 · **Labels:** `backend`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Factory · **Depends on:** I-087
 
@@ -1397,7 +1397,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] A rejected double booking increments `bookings.rejected{reason="double_booking"}` in a test.
 - [ ] In QA, SigNoz shows `projection.lag` per projection.
 
-### I-062 — Collect container, Postgres and Caddy metrics
+### I-062 - Collect container, Postgres and Caddy metrics
 
 **Covers:** OBS-09 · **Labels:** `dev-ops`, `light-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -1417,7 +1417,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] `opencode` process memory is visible during a factory session.
 - [ ] An `INSERT` attempted as the monitoring role fails with a permission error.
 
-### I-063 — Model factory ticks as traces with resource attributes
+### I-063 - Model factory ticks as traces with resource attributes
 
 **Covers:** OBS-10 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** I-055
 
@@ -1435,7 +1435,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] Span metrics give p95 session duration grouped by `model` and `kind`.
 - [ ] A test that makes the event log unwritable shows a non-zero `telemetry_errors` in `tick_end` and a message on stderr.
 
-### I-064 — Harden SigNoz reproducibility on a fresh host
+### I-064 - Harden SigNoz reproducibility on a fresh host
 
 **Covers:** OBS-12, OPS-13 · **Labels:** `dev-ops`, `light-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -1456,7 +1456,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] Every `image:` in `dev-ops/signoz/docker-compose.yml` contains `@sha256:`.
 - [ ] The collector has no `/:/hostfs` mount, and filesystem and memory host metrics still arrive in SigNoz.
 
-### I-065 — Add sidecar tracing and optional frontend RUM
+### I-065 - Add sidecar tracing and optional frontend RUM
 
 **Covers:** OBS-14 · **Labels:** `backend`, `frontend`, `standard-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-060
 
@@ -1473,11 +1473,11 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 - [ ] With RUM disabled (the default), the built frontend makes no request to an OTLP or vitals path (Playwright network check).
 - [ ] If RUM is enabled, its ingest path is rate-limited in the Caddyfile and `caddy validate` passes.
 
-## Epic G — QA environment, deploy and operations
+## Epic G - QA environment, deploy and operations
 
 QA is the only place merged factory work runs as a whole system, but failed deploys go unnoticed, nothing gates what is deployed, there is no rollback and no backup of the event store. These issues make failures visible, protect the data, deploy only tested images, and make QA closer to production.
 
-### I-066 — Make every deploy failure reach the owner
+### I-066 - Make every deploy failure reach the owner
 
 **Covers:** OPS-01, OPS-20 · **Labels:** `dev-ops`, `light-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** I-058
 
@@ -1496,7 +1496,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] With `gh` logged out on the host, a forced deploy failure still produces a notification within 5 minutes that names the SHA and failing step.
 - [ ] Disabling the timer causes the heartbeat check to alert once its 13-hour period passes.
 
-### I-067 — Back up Postgres and `caddy-data` nightly, encrypted and off-box, with a restore test
+### I-067 - Back up Postgres and `caddy-data` nightly, encrypted and off-box, with a restore test
 
 **Covers:** OPS-03, SEC-26 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Now · **Executor:** Owner · **Depends on:** –
 
@@ -1516,7 +1516,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] Local dumps older than 14 days are removed.
 - [ ] `dev-ops/disaster-recovery.md` exists and covers each item listed above.
 
-### I-068 — Deploy only CI-green, tagged images with rollback
+### I-068 - Deploy only CI-green, tagged images with rollback
 
 **Covers:** OPS-04, OPS-18 · **Labels:** `dev-ops`, `heavy-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-004, I-070
 
@@ -1535,7 +1535,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] A CI build failure on `main` produces no deploy, and running containers are unchanged.
 - [ ] `systemctl --user cat booking-qa-deploy.service` shows an `ExecStart` path outside the deploy checkout.
 
-### I-069 — Record deploy state with GitHub Deployments instead of commits to `main`
+### I-069 - Record deploy state with GitHub Deployments instead of commits to `main`
 
 **Covers:** OPS-07, ST-05 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-005
 
@@ -1561,7 +1561,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] No commits by `booking-deploy` appear on `main` after the change is merged.
 - [ ] `git push` from the deploy checkout using the box's credential fails with a permission error.
 
-### I-070 — Make `/healthz` check the database, sidecar and running version
+### I-070 - Make `/healthz` check the database, sidecar and running version
 
 **Covers:** OPS-11, BE-16 · **Labels:** `backend`, `dev-ops`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -1580,7 +1580,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] `docker compose ps` on QA shows the backend and sidecar as `healthy`.
 - [ ] A `test-deploy-environment.sh` case where `/version` returns a different SHA marks the deploy failed.
 
-### I-071 — Add a migration version table and run migrations transactionally
+### I-071 - Add a migration version table and run migrations transactionally
 
 **Covers:** BE-10, OPS-10 · **Labels:** `backend`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -1599,7 +1599,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] A test against a database with 0001–0010 already applied but no version table baselines them without re-executing.
 - [ ] The upgrade-path test runs in backend CI.
 
-### I-072 — Fit the shared host: stagger schedules, reclaim disk, set a resource budget
+### I-072 - Fit the shared host: stagger schedules, reclaim disk, set a resource budget
 
 **Covers:** OPS-12 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner · **Depends on:** –
 
@@ -1619,7 +1619,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] After a deploy, `docker images -f dangling=true -q` returns nothing.
 - [ ] `journalctl -k` shows no OOM kills during the 7 days after the change.
 
-### I-073 — Make QA production-like
+### I-073 - Make QA production-like
 
 **Covers:** OPS-17 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-086, I-123 (mail sink)
 
@@ -1638,7 +1638,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] With the mail sink stopped briefly, a booking confirmation is retried and arrives after it restarts (`notifications.retried` increases).
 - [ ] `docker compose -f projects/sauna/docker-compose.yml config` publishes no fixed `80` or `443`; the edge override does.
 
-### I-074 — Refuse log-mode email outside local development
+### I-074 - Refuse log-mode email outside local development
 
 **Covers:** SEC-06 · **Labels:** `backend`, `light-build-task`, `bug` · **Priority:** Now · **Executor:** Factory · **Depends on:** I-123 (mail sink)
 
@@ -1661,7 +1661,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] `grep -n "EMAIL_MODE=log" projects/sauna/.env.example` returns nothing.
 - [ ] The QA deploy passes its health check with the mail-sink configuration.
 
-### I-075 — Seed QA with synthetic data and a configured admin bootstrap
+### I-075 - Seed QA with synthetic data and a configured admin bootstrap
 
 **Covers:** OPS-19, SEC-08 · **Labels:** `backend`, `dev-ops`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -1682,7 +1682,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] A CI check fails if the seed file contains an address outside `@example.test`.
 - [ ] QA's configuration does not set `DEV_MODE=true`.
 
-### I-076 — Add an on-demand deploy trigger and deploy after each merge
+### I-076 - Add an on-demand deploy trigger and deploy after each merge
 
 **Covers:** OPS-20 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** I-068
 
@@ -1699,7 +1699,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] A test of the poller shows it skips a SHA whose checks are not green and deploys at most one SHA per run.
 - [ ] Deploy events (I-059) over one week show a median of 2 or fewer merges per deploy on the continuously updated environment.
 
-### I-077 — Define a promotion path from QA to production
+### I-077 - Define a promotion path from QA to production
 
 **Covers:** OPS-18 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner · **Depends on:** I-068
 
@@ -1718,7 +1718,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] `git tag -l 'release/*'` and `gh release list` each show the first promotion.
 - [ ] The promotion workflow refuses a digest with no passing Playwright run.
 
-### I-078 — Make `setup.sh` safe by default and fix stale documentation
+### I-078 - Make `setup.sh` safe by default and fix stale documentation
 
 **Covers:** OPS-22, SEC-16, OPS-05 · **Labels:** `dev-ops`, `documentation`, `light-build-task`, `bug` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -1736,7 +1736,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] A `test-deploy-environment.sh` case with a missing checkout alerts and does not invoke `setup.sh`.
 - [ ] `grep -rnE "lasrvr|Docker Desktop|conversation resolution|Semgrep instance also runs" dev-ops/README.md .github/workflows/README.md projects/sauna/setup.sh` returns nothing.
 
-### I-079 — Scan container images for vulnerabilities in CI
+### I-079 - Scan container images for vulnerabilities in CI
 
 **Covers:** OPS-21 · **Labels:** `dev-ops`, `light-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner-reviewed PR · **Depends on:** I-080
 
@@ -1755,7 +1755,7 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] `grep -n "@latest" .github/workflows/*.yml` returns nothing.
 - [ ] The deploy build command includes `--pull`, or I-068's pull-by-SHA is in place.
 
-### I-080 — Validate compose and Caddy config, build every image and smoke-test the stack in CI
+### I-080 - Validate compose and Caddy config, build every image and smoke-test the stack in CI
 
 **Covers:** OPS-08 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-004
 
@@ -1774,11 +1774,11 @@ QA is the only place merged factory work runs as a whole system, but failed depl
 - [ ] On `main`, the `stack` job passes the `/healthz` and SPA-root checks through Caddy.
 - [ ] Both jobs are part of the required aggregate check from I-004.
 
-## Epic H — TLS and edge
+## Epic H - TLS and edge
 
 The Let's Encrypt integration itself is correct, but nothing forces clients onto TLS, nothing notices when renewal fails, and issuing a certificate advertises a QA host that has no access gate. These issues gate QA, make public HTTP redirect-only with security headers, fix proxy trust and client-IP handling, and record the exposure mode per environment.
 
-### I-081 — Put QA behind an access gate and remove the Authelia stub
+### I-081 - Put QA behind an access gate and remove the Authelia stub
 
 **Covers:** SEC-22, OPS-17, SEC-20 · **Labels:** `dev-ops`, `standard-build-task`, `bug` · **Priority:** Now · **Executor:** Owner · **Depends on:** –
 
@@ -1799,7 +1799,7 @@ The Let's Encrypt integration itself is correct, but nothing forces clients onto
 - [ ] `dev-ops/README.md` names the chosen gate, how testers get access, and whether `/calendar/*` is exempt.
 - [ ] Testers can reach QA through the gate and log in.
 
-### I-082 — Restructure Caddy: loopback health listener, redirect-only port 80, security headers and HSTS
+### I-082 - Restructure Caddy: loopback health listener, redirect-only port 80, security headers and HSTS
 
 **Covers:** SEC-24, SEC-11, OPS-14, FE-11 · **Labels:** `dev-ops`, `standard-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** I-084
 
@@ -1827,7 +1827,7 @@ The Let's Encrypt integration itself is correct, but nothing forces clients onto
 - [ ] `curl -sI https://<site>/` shows CSP, `X-Content-Type-Options`, `Referrer-Policy` and `Strict-Transport-Security`, and no `Server` header.
 - [ ] Loading the SPA and logging in produces no CSP violations in the browser console.
 
-### I-083 — Fix client-IP handling: narrow trusted_proxies, pass the real IP, rekey and bound the rate limiter
+### I-083 - Fix client-IP handling: narrow trusted_proxies, pass the real IP, rekey and bound the rate limiter
 
 **Covers:** SEC-25, SEC-07, BE-05 · **Labels:** `backend`, `dev-ops`, `standard-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -1848,7 +1848,7 @@ The Let's Encrypt integration itself is correct, but nothing forces clients onto
 - [ ] A Go test: 5 bad verifies invalidate that code, and the same email can still request a new one.
 - [ ] On the host, a request with a forged `X-Forwarded-For: 1.2.3.4` through a published port is not logged or rate-limited as `1.2.3.4`.
 
-### I-084 — Monitor the certificate lifecycle and remove the `admin@localhost` ACME contact
+### I-084 - Monitor the certificate lifecycle and remove the `admin@localhost` ACME contact
 
 **Covers:** SEC-23 · **Labels:** `dev-ops`, `light-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -1867,7 +1867,7 @@ The Let's Encrypt integration itself is correct, but nothing forces clients onto
 - [ ] `cert_expiry` events appear in SigNoz daily, and an alert rule fires when `days_left` is 14 or fewer.
 - [ ] `grep -rn "expiry/abuse notices" projects/sauna/.env.example dev-ops/tls-letsencrypt.md` returns nothing.
 
-### I-085 — Add CAA records and consider a DNS-01 wildcard certificate
+### I-085 - Add CAA records and consider a DNS-01 wildcard certificate
 
 **Covers:** SEC-22 · **Labels:** `dev-ops`, `light-build-task`, `enhancement` · **Priority:** Later · **Executor:** Owner · **Depends on:** I-081
 
@@ -1889,7 +1889,7 @@ The Let's Encrypt integration itself is correct, but nothing forces clients onto
 - [ ] `dev-ops/tls-letsencrypt.md` records the wildcard decision and the ACME account ID.
 - [ ] If the wildcard is adopted, a CT search shows new certificates only for `*.booking.<domain>`, and the DNS token is scoped to that one zone.
 
-### I-086 — Record the exposure mode per environment and stop the deploy dropping the tunnel
+### I-086 - Record the exposure mode per environment and stop the deploy dropping the tunnel
 
 **Covers:** SEC-27, SEC-11, OPS-17 · **Labels:** `dev-ops`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -1908,11 +1908,11 @@ The Let's Encrypt integration itself is correct, but nothing forces clients onto
 - [ ] In tunnel mode, `docker compose … config` shows no published ports for `caddy`, and `curl http://<host-ip>/` from another machine is refused.
 - [ ] `dev-ops/tls-letsencrypt.md` records the multi-environment edge decision.
 
-## Epic I — Backend: event-sourcing integrity
+## Epic I - Backend: event-sourcing integrity
 
 The event log is the system of record, but the event, the projection update, the checkpoint and the email enqueue are four separate writes. These issues make sure no event is skipped, a committed command is never reported as failed, and side effects can be replayed from the log.
 
-### I-087 — Stop the projection runner from skipping events
+### I-087 - Stop the projection runner from skipping events
 
 **Covers:** BE-01 · **Labels:** `backend`, `heavy-build-task`, `bug` · **Priority:** Now · **Executor:** Factory · **Depends on:** –
 
@@ -1931,7 +1931,7 @@ The event log is the system of record, but the event, the projection update, the
 - [ ] Starting the server with a poison event in the log does not exit the process. The projection is logged as degraded, with the event ID.
 - [ ] The PR is reviewed and approved by the owner before merge, because the event store is the system of record. The factory does not self-merge it.
 
-### I-088 — Fix the create-booking advisory lock
+### I-088 - Fix the create-booking advisory lock
 
 **Covers:** BE-02 · **Labels:** `backend`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -1951,7 +1951,7 @@ The event log is the system of record, but the event, the projection update, the
 - [ ] `grep -rn "pg_advisory_lock(" product/backend/internal` returns no matches. Only `pg_advisory_xact_lock` remains.
 - [ ] `projects/sauna/.env.example` sets `pool_max_conns` in `DATABASE_URL`.
 
-### I-089 — Add idempotency keys to commands
+### I-089 - Add idempotency keys to commands
 
 **Covers:** BE-03 · **Labels:** `backend`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -1969,7 +1969,7 @@ The event log is the system of record, but the event, the projection update, the
 - [ ] The same holds for `POST /broadcast`: one event and one set of outbox rows.
 - [ ] A migration adds the unique index, and a test shows a duplicate insert is rejected.
 
-### I-090 — Write outbox rows in the same transaction as the event
+### I-090 - Write outbox rows in the same transaction as the event
 
 **Covers:** BE-04 · **Labels:** `backend`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -1987,7 +1987,7 @@ The event log is the system of record, but the event, the projection update, the
 - [ ] A test cancels a booking whose `bookings` row is missing and still finds a cancellation outbox row for the owner.
 - [ ] `grep -n "Enqueue" product/backend/internal/booking/notify.go product/backend/internal/broadcast/notifier.go` shows no post-commit enqueue calls.
 
-### I-091 — Make email delivery retries robust
+### I-091 - Make email delivery retries robust
 
 **Covers:** BE-06 · **Labels:** `backend`, `light-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** I-090
 
@@ -2007,7 +2007,7 @@ The event log is the system of record, but the event, the projection update, the
 - [ ] A test shows a row cannot be re-claimed while its send is still in progress.
 - [ ] The requeue path moves a `failed` row back to pending, and a test covers it.
 
-### I-092 — Add per-aggregate versioning, optimistic concurrency and event schema versions
+### I-092 - Add per-aggregate versioning, optimistic concurrency and event schema versions
 
 **Covers:** BE-07 · **Labels:** `backend`, `heavy-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-087
 
@@ -2026,7 +2026,7 @@ The event log is the system of record, but the event, the projection update, the
 - [ ] A test inserting a duplicate `(aggregate_type, aggregate_id, stream_version)` fails with `ErrConcurrencyConflict`.
 - [ ] `internal/user/projection.go` no longer reads both `Role` and `NewRole`. A test shows the upcaster handles an old payload.
 
-### I-093 — Add an operator-triggered projection rebuild
+### I-093 - Add an operator-triggered projection rebuild
 
 **Covers:** BE-20 · **Labels:** `backend`, `light-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-087
 
@@ -2045,7 +2045,7 @@ The event log is the system of record, but the event, the projection update, the
 - [ ] A test running `UPDATE events SET ...` and `DELETE FROM events` fails with the trigger's error.
 - [ ] `product/backend/README.md` documents the rebuild command.
 
-### I-094 — Remove backend performance bottlenecks
+### I-094 - Remove backend performance bottlenecks
 
 **Covers:** BE-18 · **Labels:** `backend`, `standard-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-087
 
@@ -2063,11 +2063,11 @@ The event log is the system of record, but the event, the projection update, the
 - [ ] A rebuild test over more than 1000 events passes using the paged loader.
 - [ ] A feed test with a booking older than 30 days shows it excluded, and one 6 months ahead included.
 
-## Epic J — Backend: auth, API and domain
+## Epic J - Backend: auth, API and domain
 
 These issues fix session handling and authentication storage, close gaps in the HTTP layer and configuration, and fix contract and domain defects that users can see, such as UTC email times and a capacity setting that has no effect.
 
-### I-095 — Move sessions server-side: HttpOnly cookie, logout, revocation, rotation
+### I-095 - Move sessions server-side: HttpOnly cookie, logout, revocation, rotation
 
 **Covers:** SEC-10, BE-11, FE-14 · **Labels:** `backend`, `frontend`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Factory · **Depends on:** – (relates to open issue #125, which shortens the session lifetime to 24 h)
 
@@ -2087,7 +2087,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] A POST with a foreign `Origin` header is rejected with 403.
 - [ ] After an email change, a test shows the user's other sessions get 401.
 
-### I-096 — Move login codes and sessions out of the event log, and key auth by user ID
+### I-096 - Move login codes and sessions out of the event log, and key auth by user ID
 
 **Covers:** BE-11, SEC-15 · **Labels:** `backend`, `heavy-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-095
 
@@ -2105,7 +2105,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] Retention tests show expired codes, expired sessions and old delivered outbox rows are removed.
 - [ ] The ADR file exists under the repo's docs and covers credentials, identity key and erasure.
 
-### I-097 — Limit attempts per login and email-change code
+### I-097 - Limit attempts per login and email-change code
 
 **Covers:** SEC-17 · **Labels:** `backend`, `light-build-task`, `enhancement` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2122,7 +2122,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] A test shows confirm requests over the per-user limit get 429 without a bcrypt comparison.
 - [ ] Requesting a new code after invalidation works, and a test covers it.
 
-### I-098 — Restrict `GET /users` by role and minimise the personal data it returns
+### I-098 - Restrict `GET /users` by role and minimise the personal data it returns
 
 **Covers:** SEC-09 · **Labels:** `backend`, `frontend`, `light-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2140,7 +2140,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] A frontend test: a basic user navigating to `/users` is redirected or shown an access-denied state, and no `/users` request is sent.
 - [ ] If a directory endpoint is added, a test asserts its response contains no `email` or `address` keys.
 
-### I-099 — Make the HTTP layer consistent: body limits, generic 5xx, one error format
+### I-099 - Make the HTTP layer consistent: body limits, generic 5xx, one error format
 
 **Covers:** BE-12, SEC-18, SEC-19 · **Labels:** `backend`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2159,7 +2159,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] `grep -rn "json.NewDecoder(r.Body)" product/backend/internal` returns nothing outside `httpx`.
 - [ ] A test asserts booking responses contain no snake_case keys, and that the frontend tests still pass.
 
-### I-100 — Validate configuration at startup and require `PUBLIC_BASE_URL`
+### I-100 - Validate configuration at startup and require `PUBLIC_BASE_URL`
 
 **Covers:** BE-16, SEC-19 · **Labels:** `backend`, `light-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2178,7 +2178,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] `grep -rn 'Getenv("PUBLIC_BASE_URL")' product/backend/internal` returns nothing.
 - [ ] A test asserts `slog` output of the config does not contain the SMTP password.
 
-### I-101 — Fix the backend–sidecar contract
+### I-101 - Fix the backend–sidecar contract
 
 **Covers:** BE-09 · **Labels:** `backend`, `standard-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2197,7 +2197,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] The sidecar exits non-zero with `BOOKING_TIMEZONE=Not/AZone`.
 - [ ] A sidecar test receives `user.id` and `userBookings` in the request.
 
-### I-102 — Send booking emails in Europe/Stockholm time
+### I-102 - Send booking emails in Europe/Stockholm time
 
 **Covers:** BE-08 · **Labels:** `backend`, `light-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2214,7 +2214,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] Starting with `DISPLAY_TIMEZONE=Not/AZone` exits non-zero.
 - [ ] `projects/sauna/.env.example` contains `DISPLAY_TIMEZONE=Europe/Stockholm`.
 
-### I-103 — Close domain gaps for removed users, blocked periods and the last admin
+### I-103 - Close domain gaps for removed users, blocked periods and the last admin
 
 **Covers:** BE-19 · **Labels:** `backend`, `standard-build-task`, `bug` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -2233,7 +2233,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] Demoting the only admin returns an error, and a test covers it.
 - [ ] `grep -n "STATUS:CANCELLED" product/backend/internal/ical` returns nothing.
 
-### I-104 — Remove the `sample` scaffolding package
+### I-104 - Remove the `sample` scaffolding package
 
 **Covers:** BE-15 · **Labels:** `backend`, `light-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -2251,7 +2251,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] `grep -rn "functions/echo" projects/sauna/sidecar` returns nothing.
 - [ ] `product/backend/README.md` contains a section on adding a projection.
 
-### I-105 — Consolidate drift in backend code
+### I-105 - Consolidate drift in backend code
 
 **Covers:** BE-13 · **Labels:** `backend`, `standard-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-042
 
@@ -2270,7 +2270,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] `grep -rn "func NewID" product/backend/internal` returns nothing.
 - [ ] `go vet ./...`, `go test ./...` and the lint configuration from I-042 pass.
 
-### I-106 — Share one Postgres test harness and test the key failure modes
+### I-106 - Share one Postgres test harness and test the key failure modes
 
 **Covers:** BE-14 · **Labels:** `backend`, `standard-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-015
 
@@ -2288,11 +2288,11 @@ These issues fix session handling and authentication storage, close gaps in the 
 - [ ] Each failure mode listed above has a named test, listed in the PR description.
 - [ ] `surface_test.go` no longer greps source files.
 
-## Epic K — Frontend
+## Epic K - Frontend
 
 The React SPA covers the happy flow, but it is still a prototype: it signs people out on transient errors, runs destructive actions in one tap, breaks in dark mode and is hard to use on a phone. These issues fix the defects first, then set up the shared structure the redesign (#120–#123) needs before the factory builds it.
 
-### I-107 — Make session restore resilient and handle 401 responses globally
+### I-107 - Make session restore resilient and handle 401 responses globally
 
 **Covers:** FE-01, FE-16 · **Labels:** `frontend`, `bug`, `light-build-task` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2311,7 +2311,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test asserts `RequireSession` renders a spinner (role `status` or the Chakra Spinner label) while `loading` is true.
 - [ ] `npm test` and `npm run build` pass in `frontend-ci.yml`.
 
-### I-108 — Confirm destructive actions and show progress and success feedback
+### I-108 - Confirm destructive actions and show progress and success feedback
 
 **Covers:** FE-02 · **Labels:** `frontend`, `bug`, `standard-build-task` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2329,7 +2329,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test clicks "Create booking" twice quickly and asserts `createBooking` is called once.
 - [ ] Tests assert a success toast appears after create, cancel, remove, block, broadcast and copy.
 
-### I-109 — Fix admin selects that send an empty user ID
+### I-109 - Fix admin selects that send an empty user ID
 
 **Covers:** FE-03 · **Labels:** `frontend`, `bug`, `accessibility`, `light-build-task` · **Priority:** Now · **Executor:** Factory · **Depends on:** –
 
@@ -2346,7 +2346,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test with an inactive user asserts no `Remove` button is rendered in that row.
 - [ ] A test asserts the table has a column header named "Actions" and that status renders as "Active"/"Inactive", not `true`/`false`.
 
-### I-110 — Fix dark mode and colour contrast
+### I-110 - Fix dark mode and colour contrast
 
 **Covers:** FE-04, FE-10 · **Labels:** `frontend`, `bug`, `accessibility`, `light-build-task` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2363,7 +2363,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A unit test computes the contrast ratio of the input border token against `#FFFFFF` and asserts it is at least 3:1.
 - [ ] A unit test asserts the focus ring colour token against `#FFFFFF` is at least 3:1.
 
-### I-111 — Re-plan redesign issues #120–#123 before they are built
+### I-111 - Re-plan redesign issues #120–#123 before they are built
 
 **Covers:** FE-05 · **Labels:** `frontend`, `documentation`, `trivial-task` · **Priority:** Now · **Executor:** Owner · **Depends on:** –
 
@@ -2383,7 +2383,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] Each owner decision listed above is recorded as a comment on the affected issue.
 - [ ] Every issue that renames a heading, label or nav item has an acceptance criterion to update `dev-ops/testing` specs.
 
-### I-112 — Make booking phone-friendly
+### I-112 - Make booking phone-friendly
 
 **Covers:** FE-07 · **Labels:** `frontend`, `enhancement`, `standard-build-task` · **Priority:** Next · **Executor:** Factory · **Depends on:** I-111
 
@@ -2402,7 +2402,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test with a mocked blocked period asserts it renders as unavailable.
 - [ ] A Playwright run at 390×844 (I-124) shows no horizontal scroll on `/` and `/users` (`document.documentElement.scrollWidth <= 390`).
 
-### I-113 — Show times in Europe/Stockholm, friendly error messages and i18n-ready strings
+### I-113 - Show times in Europe/Stockholm, friendly error messages and i18n-ready strings
 
 **Covers:** FE-08 · **Labels:** `frontend`, `bug`, `standard-build-task` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2421,7 +2421,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test asserts `describeError` turns `booking: slot already booked` (409) into text without the `booking:` prefix.
 - [ ] The owner's language decision is recorded on this issue.
 
-### I-114 — Introduce a data-fetching layer with loading, error and cancellation states
+### I-114 - Introduce a data-fetching layer with loading, error and cancellation states
 
 **Covers:** FE-09 · **Labels:** `frontend`, `enhancement`, `standard-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -2440,7 +2440,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test asserts `Account` makes no `currentUser()` call when a session user exists.
 - [ ] `grep -rn "useEffect" product/frontend/src/pages` shows no data-fetching effects.
 
-### I-115 — Fix accessibility issues
+### I-115 - Fix accessibility issues
 
 **Covers:** FE-10 · **Labels:** `frontend`, `accessibility`, `bug`, `light-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -2459,7 +2459,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] No `Button` or `IconButton` in `product/frontend/src/pages` or `src/components` uses `size="xs"` or `size="sm"` (checked by grep in review).
 - [ ] A test asserts an invalid email in Login sets `aria-invalid="true"` on the input.
 
-### I-116 — Add asset caching, compression and asset retention across deploys
+### I-116 - Add asset caching, compression and asset retention across deploys
 
 **Covers:** FE-11 · **Labels:** `frontend`, `dev-ops`, `bug`, `light-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-082
 
@@ -2484,7 +2484,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] `curl -s -o /dev/null -w '%{http_code}' /assets/does-not-exist.js` returns 404.
 - [ ] After two consecutive deploys, an asset URL from the first deploy still returns 200.
 
-### I-117 — Improve the login flow: go back, resend, deep links, autofill
+### I-117 - Improve the login flow: go back, resend, deep links, autofill
 
 **Covers:** FE-12 · **Labels:** `frontend`, `enhancement`, `light-build-task` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
@@ -2503,7 +2503,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test asserts the code input in both Login and Account has `autocomplete="one-time-code"` and `maxlength="6"`.
 - [ ] A test asserts a signed-in user visiting `/login` is redirected to `/`.
 
-### I-118 — Show the iCal URL without regenerating it
+### I-118 - Show the iCal URL without regenerating it
 
 **Covers:** FE-13 · **Labels:** `frontend`, `backend`, `bug`, `light-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -2521,7 +2521,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test asserts the "Add to calendar" link starts with `webcal://`.
 - [ ] A test asserts the `POST` call happens only after the Regenerate confirm dialog is accepted.
 
-### I-119 — Frontend tooling: ESLint, coverage, accessibility checks, time-zone test matrix
+### I-119 - Frontend tooling: ESLint, coverage, accessibility checks, time-zone test matrix
 
 **Covers:** FE-15 · **Labels:** `frontend`, `enhancement`, `light-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-046
 
@@ -2541,7 +2541,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] `theme.test.ts` has no assertions that compare against literal hex strings.
 - [ ] Tests exist for `App` routing redirects, Account Copy, and Users add-user, block and broadcast forms.
 
-### I-120 — Add a shared route layout, session guard and error boundary
+### I-120 - Add a shared route layout, session guard and error boundary
 
 **Covers:** FE-16 · **Labels:** `frontend`, `enhancement`, `light-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-107
 
@@ -2566,7 +2566,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test renders a child that throws and asserts a "Reload" button is shown instead of an empty document.
 - [ ] Existing `RequireSession` and `AppShell` tests pass unchanged or are updated in the same PR.
 
-### I-121 — Remove dead pages and aliases, and fix the theming README
+### I-121 - Remove dead pages and aliases, and fix the theming README
 
 **Covers:** FE-17 · **Labels:** `frontend`, `documentation`, `light-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -2586,7 +2586,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] `product/frontend/README.md` no longer refers to a `projects/<name>/` theme override.
 - [ ] `product/frontend/AGENTS.md` exists, and `npm test` and `npm run build` pass.
 
-### I-122 — Upgrade Vite and Vitest, fix overrides and decide on the Chakra version
+### I-122 - Upgrade Vite and Vitest, fix overrides and decide on the Chakra version
 
 **Covers:** FE-18 · **Labels:** `frontend`, `enhancement`, `standard-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-008
 
@@ -2605,11 +2605,11 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] `.github/dependabot.yml` has `npm` entries for `/product/frontend` and `/dev-ops/testing`.
 - [ ] The README states that the Chakra version stays on v2 until the redesign ships.
 
-## Epic L — End-to-end testing
+## Epic L - End-to-end testing
 
 The only browser test cannot pass and nothing runs it, so the SPA, Caddy routing and compose wiring have no automated checks. These issues fix the spec, add a mail sink so email steps can be tested, and run the main user journeys in CI and after every QA deploy.
 
-### I-123 — Fix the login e2e spec and add a mail sink
+### I-123 - Fix the login e2e spec and add a mail sink
 
 **Covers:** FE-06, OPS-06 · **Labels:** `dev-ops`, `bug`, `standard-build-task` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
@@ -2628,7 +2628,7 @@ The only browser test cannot pass and nothing runs it, so the SPA, Caddy routing
 - [ ] After a login on QA, the code email is visible through Mailpit's API.
 - [ ] `dev-ops/scripts/tests/test-get-login-code.sh` (or its replacement) passes.
 
-### I-124 — Cover the core journeys in e2e and run them in CI and after each QA deploy
+### I-124 - Cover the core journeys in e2e and run them in CI and after each QA deploy
 
 **Covers:** FE-06, OPS-06, OPS-08 · **Labels:** `dev-ops`, `enhancement`, `heavy-build-task` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-123
 
@@ -2647,11 +2647,11 @@ The only browser test cannot pass and nothing runs it, so the SPA, Caddy routing
 - [ ] `npx playwright test --list` shows the Chromium, Mobile Safari and Pixel 7 projects.
 - [ ] A QA deploy log shows a Playwright run, and a forced spec failure marks the deploy as failed.
 
-## Epic M — Privacy and GDPR
+## Epic M - Privacy and GDPR
 
 The event log stores residents' email and address in plaintext forever, and login codes, sessions, outbox rows and telemetry are never purged. These issues add an erasure path that keeps the event log immutable, add retention, and write the paperwork.
 
-### I-125 — Crypto-shred personal data in events
+### I-125 - Crypto-shred personal data in events
 
 **Covers:** SEC-15 · **Labels:** `backend`, `enhancement`, `heavy-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-096, I-092
 
@@ -2671,7 +2671,7 @@ The event log stores residents' email and address in plaintext forever, and logi
 - [ ] A Go test asserts login still works for a non-erased user through the `email_hash` lookup.
 - [ ] `grep -n "aggregate_id\|AggregateID" product/backend/internal/auth/commands.go` shows no email used as an aggregate id.
 
-### I-126 — Add retention for login codes, sessions, outbox, logs and telemetry
+### I-126 - Add retention for login codes, sessions, outbox, logs and telemetry
 
 **Covers:** SEC-15, OBS-11 · **Labels:** `backend`, `dev-ops`, `enhancement`, `standard-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
@@ -2691,7 +2691,7 @@ The event log stores residents' email and address in plaintext forever, and logi
 - [ ] A test request to `/calendar/<token>.ics` produces a span whose URL attributes do not contain the token.
 - [ ] SigNoz shows logs and traces retention set to a finite value.
 
-### I-127 — Write the privacy documentation and keep QA on synthetic data
+### I-127 - Write the privacy documentation and keep QA on synthetic data
 
 **Covers:** SEC-15 · **Labels:** `dev-ops`, `documentation`, `trivial-task` · **Priority:** Later · **Executor:** Owner · **Depends on:** I-075
 

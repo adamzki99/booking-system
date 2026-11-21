@@ -12,13 +12,13 @@ description: >
 
 > **Data leaves the machine.** Compression sends the file's full text to the model provider that `scripts/compress.py` is configured for: the `claude` CLI, the Anthropic API, or an OpenAI-compatible endpoint. Files whose names look like secrets (`.env`, `credentials`, `secrets`, `.netrc`, …) are refused before they are read, and a file whose text holds a credential (a private key block, or a cloud, Git host or model API token) is refused before anything is sent. Don't compress a file the provider shouldn't see.
 
-Compress natural language files (CLAUDE.md, todos, preferences) into caveman-speak to reduce input tokens. Compressed version overwrites original. Human-readable backup saved as `<filename>.original.md`, but NOT beside the source file — it lives in an out-of-tree data dir (`$XDG_DATA_HOME/caveman-compress/backups/<parent-dir-name>/`, or `%LOCALAPPDATA%\caveman-compress\backups\<parent-dir-name>\` on Windows) so skill auto-loaders don't re-ingest it as a live file.
+Compress natural language files (CLAUDE.md, todos, preferences) into caveman-speak to reduce input tokens. Compressed version overwrites original. Human-readable backup saved as `<filename>.original.md`, but NOT beside the source file - it lives in an out-of-tree data dir (`$XDG_DATA_HOME/caveman-compress/backups/<parent-dir-name>/`, or `%LOCALAPPDATA%\caveman-compress\backups\<parent-dir-name>\` on Windows) so skill auto-loaders don't re-ingest it as a live file.
 
 ## Trigger
 
 `/caveman-compress <filepath>` or when user asks to compress a memory file.
 
-**Requires an explicit filepath.** If the user pastes raw text instead of naming a file, do NOT improvise an inline compression — ask them for the filepath to compress, or offer to save the pasted text to a file first. Writing your own reasoning/commentary about the request into the compressed output (e.g. "User passed text directly, not a filepath...") is the exact failure this guards against — never let that leak into a saved file.
+**Requires an explicit filepath.** If the user pastes raw text instead of naming a file, do NOT improvise an inline compression - ask them for the filepath to compress, or offer to save the pasted text to a file first. Writing your own reasoning/commentary about the request into the compressed output (e.g. "User passed text directly, not a filepath...") is the exact failure this guards against - never let that leak into a saved file.
 
 ## Process
 
@@ -69,7 +69,7 @@ python3 -m scripts <absolute_filepath>
 ### Compress
 - Use short synonyms: "big" not "extensive", "fix" not "implement a solution for", "use" not "utilize"
 - Fragments OK: "Run tests before commit" not "You should always run tests before committing"
-- Drop "you should", "make sure to", "remember to" — just state the action
+- Drop "you should", "make sure to", "remember to" - just state the action
 - Merge redundant bullets that say the same thing differently
 - Keep one example where multiple examples show the same pattern
 
@@ -110,5 +110,5 @@ Compressed:
 - NEVER modify: .py, .js, .ts, .json, .yaml, .yml, .toml, .env, .lock, .css, .html, .xml, .sql, .sh
 - If file has mixed content (prose + code), compress ONLY the prose sections
 - If unsure whether something is code or prose, leave it unchanged
-- Original file is backed up as FILE.original.md before overwriting — in the out-of-tree backup data dir (see Purpose), not beside the source file
+- Original file is backed up as FILE.original.md before overwriting - in the out-of-tree backup data dir (see Purpose), not beside the source file
 - Never compress FILE.original.md (skip it)

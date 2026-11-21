@@ -1,4 +1,4 @@
-# Sauna booking — optional Cloudflare Tunnel override.
+# Sauna booking - optional Cloudflare Tunnel override.
 #
 # Adds a cloudflared connector that carries public HTTPS traffic from Cloudflare
 # to Caddy over the Compose network. Cloudflare terminates TLS; the origin serves

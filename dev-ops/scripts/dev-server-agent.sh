@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# dev-server-agent.sh — controlled, audited SSH access to the dev server.
+# dev-server-agent.sh - controlled, audited SSH access to the dev server.
 #
 # Usage:
 #   dev-ops/scripts/dev-server-agent.sh --self-check

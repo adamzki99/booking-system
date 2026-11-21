@@ -34,7 +34,7 @@ Linux, or `%LOCALAPPDATA%\caveman-compress\backups\<parent-dir-name>-<hash>\` on
 Windows. `<hash>` keys the file's full parent path, so `~/.claude/CLAUDE.md` and
 `some-repo/.claude/CLAUDE.md` keep separate backups.
 
-To edit and re-compress, restore first — the skill refuses to run while a backup
+To edit and re-compress, restore first - the skill refuses to run while a backup
 exists, so that it never captures already-compressed text as the new "original":
 
 ```bash

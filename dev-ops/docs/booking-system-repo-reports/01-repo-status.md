@@ -48,7 +48,7 @@ The main structural weakness is that **all quality gates are conventions, not en
 | ST-08 | Low | S | Suspiciously clean CI history may mean weak gates |
 | ST-09 | Low | M | Delivery metrics are not tracked |
 
-### ST-01 — `main` has no branch protection, rulesets or required checks
+### ST-01 - `main` has no branch protection, rulesets or required checks
 
 **Evidence:** `GET /repos/adamzki99/booking-system/branches/main/protection` returns 404 and `GET /rulesets` returns `[]`. `AGENTS.md` says: *"never merge a pull request … until all required CI checks and security analyses (Backend CI, Security, Semgrep) pass"*. That rule exists only as prose for the agents to follow.
 
@@ -63,7 +63,7 @@ gh api -X POST repos/adamzki99/booking-system/rulesets --input ruleset.json
 #   required_status_checks [{context:"ci-gate"}], non_fast_forward, deletion
 ```
 
-### ST-02 — The factory acts as the owner: there is no separation between the human and the bot
+### ST-02 - The factory acts as the owner: there is no separation between the human and the bot
 
 **Evidence:** All 70 issues and every PR are authored by `adamzki99`. The `owner approved` label on #120/#125 and the planner's labels on the same issues are both applied by `adamzki99` (issue timelines). `dev-ops/factory/README.md` says *"Only the repository owner applies `owner approved`"*, but GitHub cannot tell owner and factory apart.
 
@@ -74,7 +74,7 @@ gh api -X POST repos/adamzki99/booking-system/rulesets --input ruleset.json
 - have the build selector require that the `owner approved` labeled-event actor is the owner login, read from the issue timeline;
 - set the ruleset bypass list so that only the owner can bypass.
 
-### ST-03 — No independent review before merge
+### ST-03 - No independent review before merge
 
 **Evidence:** `reviewDecision` is empty on all 81 PRs. Time-to-merge is minutes. `.opencode/agents/reviewer.md` exists, but none of its output shows up as a GitHub review.
 
@@ -82,13 +82,13 @@ gh api -X POST repos/adamzki99/booking-system/rulesets --input ruleset.json
 
 **Recommendation:** Have the reviewer agent run as a separate session with a different model family from the builder, and post a real GitHub review (`gh pr review --approve/--request-changes`). Make one approving review required in the ruleset, with the factory App as reviewer. For heavy-build-task and security-sensitive areas (`auth`, `eventstore`, `dev-ops/factory`), require owner review instead. See `02-software-factory.md` for more.
 
-### ST-04 — Path-filtered CI cannot simply become required checks
+### ST-04 - Path-filtered CI cannot simply become required checks
 
 **Evidence:** `backend-ci.yml`, `frontend-ci.yml`, `sidecar-ci.yml` and `semgrep.yml` use `paths:` filters (run counts: Backend 60, Frontend 10, Sidecar 3, versus Security 142). If a path-filtered workflow is marked required, GitHub waits forever on PRs that don't touch those paths.
 
 **Recommendation:** Add a single always-running `ci-gate` job, using `dorny/paths-filter` or a final job with `needs:` and `if: always()`. It decides which suites to run and fails if any suite that ran failed. Make only `ci-gate` required.
 
-### ST-05 — QA deploy bookkeeping commits straight to `main`
+### ST-05 - QA deploy bookkeeping commits straight to `main`
 
 **Evidence:** 5 commits by `booking-deploy` ("chore(dev-ops): record qa deploy <sha>") update `dev-ops/environments.yaml` `last_deploy*`. Issues #86 and #89 were about this path failing silently.
 
@@ -96,25 +96,25 @@ gh api -X POST repos/adamzki99/booking-system/rulesets --input ruleset.json
 
 **Recommendation:** Record deploy state with GitHub **Deployments/Environments** (`gh api repos/.../deployments`), a git tag (`qa-current`), or a local state file exposed through a `/version` endpoint. Then remove push rights from the QA box. Details are in `03-devops-qa-cicd.md`.
 
-### ST-06 — Stale branches and duplicate/empty PRs
+### ST-06 - Stale branches and duplicate/empty PRs
 
 **Evidence:** Remote branches `factory/issue-115`, `factory/issue-132-hardening`, `factory/issue-132-hardening-pr`, `factory/relevant-skills` and `fix/factory-backticks-and-worktree` remain after merge or close. PR #45 (`factory/issue-8`) merged with +0/−0 and 0 files, a duplicate of #44. Issue #132 was delivered as seven PRs (#137–#145) within about 10 minutes.
 
 **Recommendation:** Enable *Automatically delete head branches*. Make the factory refuse to open a PR when there is no diff from the merge base. Prefer one PR per issue, or require a parent and sub-issue structure when work is split.
 
-### ST-07 — No Dependabot/Renovate, CODEOWNERS or SECURITY.md
+### ST-07 - No Dependabot/Renovate, CODEOWNERS or SECURITY.md
 
 **Evidence:** None of `.github/dependabot.yml`, `renovate.json`, `CODEOWNERS` or `SECURITY.md` exists. The only dependency signal is GitHub's "Graph Update" runs. Go 1.26, Node and the Docker base images will drift.
 
 **Recommendation:** Add `dependabot.yml` covering `gomod` (backend and sidecar), `npm` (frontend and `dev-ops/testing`), `github-actions` and `docker`, grouped weekly. Dependabot PRs are good factory fodder: let the fixer handle any that go red. Add `CODEOWNERS` so `dev-ops/factory/**`, `.github/**` and `opencode.jsonc` always require owner review, and a short `SECURITY.md` because the repo is public.
 
-### ST-08 — Suspiciously clean CI history may mean weak gates
+### ST-08 - Suspiciously clean CI history may mean weak gates
 
 **Evidence:** Backend CI shows 0 failures in 60 runs and Semgrep 0 in 82. That is possible if the agents run tests locally before pushing, which the builder prompt asks them to do. It could also mean the integration tests are skipped in CI or Semgrep doesn't fail on findings.
 
 **Recommendation:** Check that the Postgres-backed integration tests actually run in CI (look for `t.Skip` on a missing DSN), and that Semgrep runs with `--error`. Run a deliberately broken PR once a month as a canary to prove the gates bite. See `04-backend.md` and `03-devops-qa-cicd.md`.
 
-### ST-09 — Delivery metrics are not tracked
+### ST-09 - Delivery metrics are not tracked
 
 **Evidence:** The factory emits JSONL events to SigNoz, but no metric covers outcomes such as lead time, rework rate (fix sessions per PR), escaped defects (bug issues opened after merge), or model cost per issue.
 

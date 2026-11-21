@@ -1,6 +1,6 @@
 # Persistent SigNoz (APM) stack for dev-ops observability.
 #
-# Independent project — restarting/redeploying booking environments (which use
+# Independent project - restarting/redeploying booking environments (which use
 # COMPOSE_PROJECT_NAME=booking-*) must not affect this stack.
 #
 # Bring up:   docker compose -f dev-ops/signoz/docker-compose.yml up -d

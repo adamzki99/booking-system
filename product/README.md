@@ -1,4 +1,4 @@
-# Product — Booking Platform
+# Product - Booking Platform
 
 The generic booking product. Contains everything reusable across deployments;
 deployment-specific configuration and logic live in `../projects/<name>/`.

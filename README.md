@@ -9,7 +9,7 @@ Each top-level directory is a "group" within the organization:
 
 | Directory   | Contents |
 |-------------|----------|
-| `product/`  | The generic booking product — backend, frontend, and everything reusable across deployments. |
+| `product/`  | The generic booking product - backend, frontend, and everything reusable across deployments. |
 | `projects/` | One subdirectory per deployment (documentation and configuration). A `product/` folder plus one `projects/<name>/` folder makes a working application. |
 | `dev-ops/`  | CI/CD, the software factory, environments, and code-quality tooling. |
 
@@ -24,9 +24,9 @@ Each top-level directory is a "group" within the organization:
 
 ## Architecture
 
-- **CQRS + Event Sourcing** — the system only records events; state is produced
+- **CQRS + Event Sourcing** - the system only records events; state is produced
   by projections. Commands record events, queries read projections.
-- **Product + sidecar** — deployment-specific (e.g. sauna) logic lives in a
+- **Product + sidecar** - deployment-specific (e.g. sauna) logic lives in a
   stateless sidecar container, called by the backend over REST.
 
 See [`product/README.md`](product/README.md) and the deployment READMEs under

@@ -1,4 +1,4 @@
-# SigNoz (APM) — persistent dev-ops service
+# SigNoz (APM) - persistent dev-ops service
 
 SigNoz collects traces and metrics exported by booking backends (OpenTelemetry
 OTLP/HTTP). It runs as a **separate, persistent** Docker Compose project
@@ -51,10 +51,10 @@ Leave `OTEL_EXPORTER_OTLP_ENDPOINT` empty to disable export.
 Named volumes keep data across container restarts, stack restarts, and host
 reboots:
 
-- `signoz-clickhouse-data` — telemetry store
-- `signoz-sqlite` — SigNoz metadata (users, dashboards, alerts)
-- `signoz-zookeeper-data` — ClickHouse coordination
-- `signoz-user-scripts` — ClickHouse UDF binaries (e.g. `histogramQuantile`)
+- `signoz-clickhouse-data` - telemetry store
+- `signoz-sqlite` - SigNoz metadata (users, dashboards, alerts)
+- `signoz-zookeeper-data` - ClickHouse coordination
+- `signoz-user-scripts` - ClickHouse UDF binaries (e.g. `histogramQuantile`)
 
 ## Independence from booking environments
 
