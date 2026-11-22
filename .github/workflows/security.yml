@@ -9,13 +9,13 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   dependency-review:
     name: Dependency review
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     # Requires Dependency Graph to be enabled in repository settings.
@@ -26,6 +26,9 @@ jobs:
 
   govulncheck:
     name: Go vulnerability scan
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -47,6 +50,9 @@ jobs:
 
   secret-scan:
     name: Secret scan
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
