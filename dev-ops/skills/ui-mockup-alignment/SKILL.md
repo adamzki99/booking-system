@@ -1,6 +1,6 @@
 ---
 name: ui-mockup-alignment
-description: Follow supplied UI mockups and design references for layout, styling, coloring, spacing, typography, and component states while keeping the repository's fixed frontend stack (Solid 2, TypeScript, Vite, @solidjs/router). Use when implementing or changing frontend UI in this repo, especially when mockups are provided.
+description: Follow supplied UI mockups and design references for layout, styling, coloring, spacing, typography, and component states while keeping the repository's fixed frontend stack (Solid 2, TypeScript, Vite, @solidjs/router, Solid UI). Use when implementing or changing frontend UI in this repo, especially when mockups are provided.
 ---
 
 # UI Mockup Alignment
@@ -13,8 +13,9 @@ Use this skill when building or changing UI in this repository and mockups or de
 - **TypeScript**
 - **Vite**
 - **@solidjs/router**
+- **Solid UI** (https://www.solid-ui.com/)
 
-Do not introduce a different UI framework, styling system, router, bundler, or language stack for generic frontend work. Implement mockup intent with the existing stack.
+Do not introduce a different UI framework, styling system, router, bundler, or language stack for generic frontend work. Implement mockup intent with the existing stack and Solid UI component patterns.
 
 ## Source of truth for visual work
 

@@ -112,7 +112,7 @@ interface CalendarData {
 /**
  * Calendar page: view bookings, create a booking, quick-repeat, and cancel own
  * bookings. Async data loads under Loading/Errored. Mutations use action with
- * yield + refresh. No optimistic updates were found in React behavior
+ * yield + refresh. No optimistic updates were found in current page behavior
  * (documented "not found").
  */
 export default function Calendar() {

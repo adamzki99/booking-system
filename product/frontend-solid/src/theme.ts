@@ -1,8 +1,8 @@
 /**
  * Base theme tokens for the generic booking frontend (Solid).
  *
- * These values preserve the warm design language from the React/Chakra theme in
- * generic, deployment-agnostic terms. CSS custom properties in
+ * These values preserve the warm design language in generic,
+ * deployment-agnostic terms. CSS custom properties in
  * `styles/tokens.css` expose the same palette for runtime styling; this module
  * provides a typed source of truth for components and tests.
  */

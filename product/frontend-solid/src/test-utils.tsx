@@ -5,8 +5,8 @@ import type { JSX } from "@solidjs/web";
  * Provider-aware render helper (Solid).
  *
  * Currently renders the UI as-is; add providers here as the app grows
- * (for example router, session, or theme context). Mirrors the role of the
- * React frontend's test-utils helper.
+ * (for example router, session, or theme context). Mirrors the role of a
+ * provider-aware test-utils helper.
  */
 function customRender(
   ui: () => JSX.Element,
