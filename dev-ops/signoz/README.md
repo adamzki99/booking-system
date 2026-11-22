@@ -1,9 +1,9 @@
 # SigNoz (APM) - persistent dev-ops service
 
-SigNoz collects traces and metrics exported by booking backends (OpenTelemetry
-OTLP/HTTP). It runs as a **separate, persistent** Docker Compose project
-(`name: signoz`) so restarting or redeploying any `booking-*` environment does
-**not** take SigNoz down.
+SigNoz collects traces, metrics, and logs exported by booking backends and
+factory ticks (OpenTelemetry OTLP/HTTP and filelog). It runs as a **separate,
+persistent** Docker Compose project (`name: signoz`) so restarting or
+redeploying any `booking-*` environment does **not** take SigNoz down.
 
 ## Bring up
 
@@ -45,6 +45,26 @@ OTEL_SERVICE_NAME=booking-backend
 
 If the collector runs on another machine, set `OTEL_EXPORTER_OTLP_ENDPOINT=http://<signoz-host>:4318`.
 Leave `OTEL_EXPORTER_OTLP_ENDPOINT` empty to disable export.
+
+## Log collection
+
+The SigNoz collector also ships logs to ClickHouse/SigNoz Logs:
+
+- **Factory tick events:** `filelog/factory` tails `/var/log/factory/tick.jsonl`
+  inside the collector and exports records with `service.name=factory-tick`. Mount
+  the host directory containing `tick.jsonl` with `FACTORY_LOG_DIR` (defaults to
+  `${XDG_STATE_HOME:-$HOME/.local/state}/factory`):
+
+  ```sh
+  FACTORY_LOG_DIR=/path/to/factory/state docker compose -f dev-ops/signoz/docker-compose.yml up -d
+  ```
+
+  The directory must match `FACTORY_LOG_FILE` used by `dev-ops/factory/tick.sh`.
+
+- **Docker container stdout/stderr:** `filelog/docker` tails
+  `/var/lib/docker/containers/*/*-json.log` (mounted read-only from the host).
+  This captures application logs from booking services and other containers on the
+  same Docker host.
 
 ## Persistence
 

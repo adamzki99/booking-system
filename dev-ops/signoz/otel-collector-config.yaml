@@ -19,6 +19,24 @@ receivers:
       network: {}
       processes: {}
     root_path: /hostfs
+  filelog/factory:
+    include:
+      - /var/log/factory/tick.jsonl
+    start_at: end
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.ts
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.000Z07:00"
+  filelog/docker:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    start_at: end
+    include_file_path: true
+    operators:
+      - type: container
+        id_source: filepath
   prometheus:
     config:
       global:
@@ -40,6 +58,11 @@ processors:
     send_batch_size: 10000
     send_batch_max_size: 11000
     timeout: 10s
+  resource/factory:
+    attributes:
+      - key: service.name
+        value: factory-tick
+        action: upsert
   resourcedetection:
     detectors: [env, system]
     timeout: 2s
@@ -106,5 +129,13 @@ service:
       exporters: [signozclickhousemetrics]
     logs:
       receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [clickhouselogsexporter]
+    logs/factory:
+      receivers: [filelog/factory]
+      processors: [memory_limiter, resource/factory, batch]
+      exporters: [clickhouselogsexporter]
+    logs/docker:
+      receivers: [filelog/docker]
       processors: [memory_limiter, batch]
       exporters: [clickhouselogsexporter]
