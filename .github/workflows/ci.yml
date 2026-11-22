@@ -77,6 +77,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate results
-        run: |
-          echo '${{ toJson(needs) }}'
-          [[ "${{ contains(needs.*.result, ''failure'') || contains(needs.*.result, ''cancelled'') }}" == "false" ]]
+        run: '[[ "${{ contains(needs.*.result, ''failure'') || contains(needs.*.result, ''cancelled'') }}" == "false" ]]'
