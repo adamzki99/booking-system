@@ -99,6 +99,7 @@ export default function Account() {
 
 function AccountView(props: { seed: AccountData }) {
   const session = useSession();
+  // oxlint-disable-next-line solid/reactivity -- initial prop read; seed is stable after load
   const seed = props.seed;
 
   const [me, setMe] = createSignal<User | null>(seed.me);
