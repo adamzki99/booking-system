@@ -295,6 +295,22 @@ fi
 
 [[ -d "$DEPLOY_DIR/.git" ]] || die "deploy checkout missing: $DEPLOY_DIR"
 
+# A deploy checkout must be a mirror of origin/$BRANCH. If a previous run was
+# interrupted mid-rebase/merge/cherry-pick, abort it before any status checks
+# so the checkout can recover automatically instead of failing every run.
+if [[ -d "$DEPLOY_DIR/.git/rebase-merge" || -d "$DEPLOY_DIR/.git/rebase-apply" ]]; then
+  log "aborting interrupted rebase in deploy checkout"
+  git -C "$DEPLOY_DIR" rebase --abort >/dev/null 2>&1 || true
+fi
+if [[ -f "$DEPLOY_DIR/.git/MERGE_HEAD" ]]; then
+  log "aborting interrupted merge in deploy checkout"
+  git -C "$DEPLOY_DIR" merge --abort >/dev/null 2>&1 || true
+fi
+if [[ -f "$DEPLOY_DIR/.git/CHERRY_PICK_HEAD" ]]; then
+  log "aborting interrupted cherry-pick in deploy checkout"
+  git -C "$DEPLOY_DIR" cherry-pick --abort >/dev/null 2>&1 || true
+fi
+
 # Ensure an interrupted run cannot leave a stale metadata edit behind.
 cleanup_deploy_metadata() {
   git -C "$DEPLOY_DIR" reset -q HEAD -- dev-ops/environments.yaml >/dev/null 2>&1 || true
@@ -333,12 +349,9 @@ fi
 log "fetching $BRANCH"
 git -C "$DEPLOY_DIR" fetch --prune origin "$BRANCH"
 
-if git -C "$DEPLOY_DIR" show-ref --verify --quiet "refs/heads/$BRANCH"; then
-  git -C "$DEPLOY_DIR" checkout "$BRANCH"
-else
-  git -C "$DEPLOY_DIR" checkout -b "$BRANCH" "origin/$BRANCH"
-fi
-git -C "$DEPLOY_DIR" rebase "origin/$BRANCH"
+# Deploy checkouts mirror origin exactly; local commits are not preserved.
+# checkout -B avoids rebase conflicts and recovers from diverged local state.
+git -C "$DEPLOY_DIR" checkout -B "$BRANCH" "origin/$BRANCH"
 
 DEPLOYED_SHA="$(git -C "$DEPLOY_DIR" rev-parse "origin/$BRANCH")"
 log "deploying $DEPLOYED_SHA"
