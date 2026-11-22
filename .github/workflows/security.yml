@@ -14,7 +14,7 @@ jobs:
   dependency-review:
     name: Dependency review
     concurrency:
-      group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}
+      group: ${{ github.workflow }}-dependency-review-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -27,7 +27,7 @@ jobs:
   govulncheck:
     name: Go vulnerability scan
     concurrency:
-      group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}
+      group: ${{ github.workflow }}-govulncheck-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     defaults:
@@ -51,7 +51,7 @@ jobs:
   secret-scan:
     name: Secret scan
     concurrency:
-      group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}
+      group: ${{ github.workflow }}-secret-scan-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
