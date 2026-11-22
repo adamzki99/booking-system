@@ -1,4 +1,4 @@
-import { createSignal, onCleanup } from "solid-js";
+import { For, createSignal, onCleanup } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { useSession } from "../auth/SessionContext";
@@ -88,16 +88,18 @@ function PagesNav(props: { onNavigate?: () => void }) {
 
   return (
     <nav aria-label="Pages" class="app-shell-nav">
-      {NAV_ITEMS.map((item) => (
-        <a
-          href={item.to}
-          class={`app-shell-nav-link ${active(item.to) ? "active" : ""}`}
-          aria-current={active(item.to) ? "page" : undefined}
-          onClick={() => props.onNavigate?.()}
-        >
-          {item.label}
-        </a>
-      ))}
+      <For each={NAV_ITEMS}>
+        {(item) => (
+          <a
+            href={item.to}
+            class={["app-shell-nav-link", { active: active(item.to) }]}
+            aria-current={active(item.to) ? "page" : undefined}
+            onClick={() => props.onNavigate?.()}
+          >
+            {item.label}
+          </a>
+        )}
+      </For>
     </nav>
   );
 }
