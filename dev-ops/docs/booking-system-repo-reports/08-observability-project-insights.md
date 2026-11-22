@@ -317,7 +317,7 @@ That gives a "Host & containers" dashboard that answers "who is eating the RAM d
 
 ### OBS-14 - The sidecar and frontend are invisible (Low, M)
 
-**Evidence:** no OpenTelemetry code under `projects/sauna/sidecar/` or `product/frontend/src/` (grep).
+**Evidence:** no OpenTelemetry code under `projects/sauna/sidecar/` or `product/frontend-solid/src/` (grep).
 
 **Recommendation:**
 - **Sidecar:** wrap its handler with `otelhttp` and initialise the same telemetry package. Once OBS-07 adds `otelhttp.NewTransport` to the backend client, traces flow end to end, and you'll see rule-evaluation latency and failures. That matters because the sidecar fails open (BE-09).

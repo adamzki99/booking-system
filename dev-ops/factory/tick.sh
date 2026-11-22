@@ -608,7 +608,7 @@ Load and follow these OpenCode skills (use the skill tool) as they apply:
 - \`diagnosing-bugs\` - use for hard bugs or performance regressions.
 - \`domain-modeling\` - use when changing domain terminology, CQRS/event-sourced
   models, or project glossary/ADR-worthy decisions.
-- \`frontend-design\` / \`webapp-testing\` - use for \`product/frontend/\` UI
+- \`frontend-design\` / \`webapp-testing\` - use for \`product/frontend-solid/\` UI
   work and Playwright/browser verification when relevant.
 - \`pr\` - when opening the pull request, write the PR body in that format
   (Summary, Evidence, Merge Danger). Include \`Closes #$1\` in the body.

@@ -150,7 +150,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
   - When the health check fails (`:376-383`), the script records failure and exits. The broken containers stay up, and nothing restores the previous build.
 - **Downtime on every deploy:**
   - Compose recreates the backend while the deploy is running.
-  - The frontend container runs `rm -rf /srv/*` and then copies into the shared volume (`product/frontend/Dockerfile:20`). The SPA is briefly missing, and any open browser tab that lazy-loads an old hashed chunk gets a 404.
+  - The frontend container runs `rm -rf /srv/*` and then copies into the shared volume (`product/frontend-solid/Dockerfile:20`). The SPA is briefly missing, and any open browser tab that lazy-loads an old hashed chunk gets a 404.
 - **The deploy executes code from `main` it has never vetted:** `ExecStart` runs the script from the deploy checkout itself (`install-deploy-timer.sh:83,115`). Any merged change to `deploy-environment.sh` runs unreviewed on the next tick as a user with Docker access.
 
 **Why it matters:** One bad factory merge leaves QA down until a human notices, and per OPS-01 nobody is told. Without image tags there is no "last good" version to return to, and a rollback that rebuilds from an older SHA rebuilds against whatever base images are current.
@@ -276,7 +276,7 @@ The scripts are carefully written and have stubbed tests, but the operating mode
 **Evidence**
 - **Deploy-script tests never run in CI.** `dev-ops/scripts/tests/test-{deploy-environment,install-deploy-timer,dev-server-agent,get-login-code,check-acceptance-criteria}.sh` are run by no workflow; `grep "tests/test-" .github` returns nothing. PRs #153–#155, which fixed #85, #86 and #89, ran only "Security" and "Semgrep" (run list for 2026-11-19 09:07–11:07 UTC; from GitHub metadata).
 - **No shellcheck, `docker compose config` or `caddy validate`.** None of these appears anywhere in the workflows.
-- **Only the backend image is built in CI** (`backend-ci.yml:51-58`). Nothing builds `product/frontend/Dockerfile`, `projects/sauna/sidecar/Dockerfile` or `dev-ops/testing/Dockerfile`.
+- **Only the backend image is built in CI** (`backend-ci.yml:51-58`). Nothing builds `product/frontend-solid/Dockerfile`, `projects/sauna/sidecar/Dockerfile` or `dev-ops/testing/Dockerfile`.
 - **No job brings up the compose stack** to hit `/healthz`, `/api/...` through Caddy, and the SPA.
 
 **Why it matters:** The last three production-impacting fixes were all in deploy shell scripts, and the repo already had tests for them, but CI never ran those tests. Compose, Caddy and Dockerfile regressions only surface at the 00:00/12:00 deploy on the shared host.

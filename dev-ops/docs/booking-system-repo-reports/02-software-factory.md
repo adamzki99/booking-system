@@ -376,7 +376,7 @@ with a single `Session` dataclass carrying `ref_kind` (issue or pr), so the 10 d
 
 **Evidence**
 - `dev-ops/factory/validate.sh` runs `bash -n`, shellcheck, py_compile, `validate-models` and pytest, and `dev-ops/scripts/tests/` has shell tests too. No workflow runs any of them: none of the `.github/workflows/*` files mentions `factory`, `validate.sh` or `test-factory-lib`.
-- The workflow triggers are path-filtered to `product/backend/**`, `product/frontend/**` and `projects/sauna/sidecar/**` (`backend-ci.yml:4-11`, `frontend-ci.yml:4-13`, `sidecar-ci.yml:4-13`). A PR that changes only `dev-ops/` gets only the security scans from the unfiltered `security.yml` and `semgrep.yml` (PR #155 shows 5 security checks, from GitHub metadata).
+- The workflow triggers are path-filtered to `product/backend/**`, `product/frontend-solid/**` and `projects/sauna/sidecar/**` (`backend-ci.yml:4-11`, `frontend-ci.yml:4-13`, `sidecar-ci.yml:4-13`). A PR that changes only `dev-ops/` gets only the security scans from the unfiltered `security.yml` and `semgrep.yml` (PR #155 shows 5 security checks, from GitHub metadata).
 
 **Why it matters:** the most privileged code in the repo is the least tested before merge. The `SyntaxError` in FAC-13 is exactly what a smoke test would catch.
 

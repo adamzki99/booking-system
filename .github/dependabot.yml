@@ -26,7 +26,7 @@ updates:
 
   # npm
   - package-ecosystem: npm
-    directory: /product/frontend
+    directory: /product/frontend-solid
     schedule:
       interval: weekly
     groups:
@@ -34,11 +34,6 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      # FE-18: stay on Chakra UI v2 through the redesign.
-      - dependency-name: "@chakra-ui/*"
-        update-types:
-          - version-update:semver-major
 
   - package-ecosystem: npm
     directory: /dev-ops/testing
@@ -73,7 +68,7 @@ updates:
           - patch
 
   - package-ecosystem: docker
-    directory: /product/frontend
+    directory: /product/frontend-solid
     schedule:
       interval: weekly
     groups:

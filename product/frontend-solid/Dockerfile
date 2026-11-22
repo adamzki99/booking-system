@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# Build the Vite/React SPA.
+# Build the Vite/Solid SPA.
 # Pinned patch-level tag per Semgrep node-brotli-usage (CVE-2026-111497 fix is
 # in 22.23.4); keep in sync with upgrades.
 FROM node:22.23.4-alpine AS build
