@@ -81,6 +81,10 @@ classify_git_text() {
   printf '%s' "$1" | python3 "$SCRIPT_DIR/lib/factory.py" classify-git - 2>/dev/null || echo other
 }
 
+classify_pr_changes() {
+  printf '%s' "$1" | python3 "$SCRIPT_DIR/lib/factory.py" classify-pr-changes - 2>/dev/null || echo unknown
+}
+
 should_retry_category() {
   local cat="$1"
   [[ "$cat" == "transient" || "$cat" == "rate_limit" ]]
@@ -544,6 +548,46 @@ open_factory_pr_for_issue() {
   printf '%s\n' "$GH_OUT"
 }
 
+close_if_empty_pr() {
+  # $1 PR number, $2 issue number. Post-session cleanup only: a factory PR
+  # with changedFiles == 0 is closed, never marked ready and never merged.
+  local pr="$1" issue="${2:-}"
+  [[ -n "$pr" ]] || return 0
+  local state changed_files head_branch verdict body
+  if ! gh_run_capture "close_if_empty_pr_view" gh pr view "$pr" \
+      --json number,state,changedFiles,headRefName \
+      --jq '[.number, .state, (.changedFiles | tostring), .headRefName] | @tsv'; then
+    emit_event gh_op_failed op="close_if_empty_pr_view" pr="$pr" issue="$issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+    return 0
+  fi
+  IFS=$'\t' read -r _ state changed_files head_branch <<< "${GH_OUT:-}"
+  # Only factory branches are in scope; human PRs are never touched here.
+  [[ "$head_branch" == factory/issue-* ]] || return 0
+  [[ "$state" == "OPEN" ]] || return 0
+  verdict="$(classify_pr_changes "$changed_files")"
+  [[ "$verdict" == "empty" ]] || return 0
+  if [[ "$DRY_RUN" == 1 ]]; then
+    log "dry-run: would close empty PR #$pr (issue #${issue:-unknown}, changed_files=0)"
+    emit_event dry_run kind="empty_pr_close" pr="$pr" issue="$issue" changed_files=0
+    return 0
+  fi
+  body="Factory guard: this PR changed no files, so it is closed without merge. Keep the work for issue #${issue:-unknown} in a single PR with real changes."
+  if ! gh_run_capture "close_if_empty_pr_comment" gh pr comment "$pr" --body "$body"; then
+    emit_event gh_op_failed op="close_if_empty_pr_comment" pr="$pr" issue="$issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+    return 0
+  fi
+  if ! gh_run_capture "close_if_empty_pr_close" gh pr close "$pr"; then
+    emit_event gh_op_failed op="close_if_empty_pr_close" pr="$pr" issue="$issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+    return 0
+  fi
+  emit_event empty_pr_closed pr="$pr" issue="$issue" changed_files=0
+  log "closed empty PR #$pr (issue #${issue:-unknown})"
+  return 0
+}
+
 model_for_labels() {
   python3 "$SCRIPT_DIR/lib/factory.py" model-for-labels "$MODELS_CONFIG" "$@"
 }
@@ -585,6 +629,8 @@ $PLAN_MARKER
 3. Categorize the issue with labels (see gh label list). If the task is
    large, also add the heavy-build-task label. Never add the
    "$APPROVED_LABEL" label - only the repository owner applies it.
+4. If the work is too large for one PR, propose sub-issues in the plan
+   instead of asking the builder to open several PRs for this issue.
 
 Do not modify any code or files.
 
@@ -647,7 +693,11 @@ conflict):
 6. Draft PR creation: detect an existing PR for the branch first
    (gh pr list --head factory/issue-$1); reuse it. Otherwise create in draft
    mode: gh pr create --draft against the base branch. Include Closes #$1.
-   Do not mark ready for review automatically.
+   Do not mark ready for review automatically. Open exactly one PR for this
+   issue. If the work cannot fit in one PR, stop and ask the planner to
+   propose sub-issues rather than opening several PRs. After pushing,
+   self-check with \`gh pr view <pr> --json changedFiles\`; if it is 0,
+   stop and report instead of marking ready or merging.
 7. CI monitoring: identify checks (gh pr checks), wait (gh pr checks --watch).
    Distinguish success/failed/pending/cancelled/skipped; do not treat pending
    as success. Retrieve logs for failures (gh run view, gh run view --log-failed).
@@ -1121,6 +1171,7 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
     if [[ "$DRY_RUN" == 1 ]]; then
       log "dry-run: would fix PR #$pr_number (issue #$issue_number, reasons: $reasons, model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
       emit_event dry_run kind="fix" pr="$pr_number" issue="$issue_number"
+      close_if_empty_pr "$pr_number" "$issue_number"
       fix_count=$((fix_count + 1))
     else
       if start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"; then
@@ -1128,6 +1179,8 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       else
         fix_failures=$((fix_failures + 1))
       fi
+      # Check even when the session failed; a half-created PR can still be empty.
+      close_if_empty_pr "$pr_number" "$issue_number"
       release_claim "$claim_dir"
       fix_count=$((fix_count + 1))
     fi
@@ -1230,6 +1283,12 @@ if [[ -n "$build_issue" ]]; then
       emit_event claim_conflict issue="$build_issue" reason="${build_claim:-claim-failed}" kind="build"
     else
       start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" || TICK_RC=1
+      # Resolve the PR the session opened, if any. Check even on session
+      # failure so a half-created empty PR is still caught.
+      built_pr=""
+      if built_pr="$(open_factory_pr_for_issue "$build_issue")" && [[ -n "$built_pr" ]]; then
+        close_if_empty_pr "$built_pr" "$build_issue"
+      fi
       release_claim "$build_claim"
     fi
   fi

@@ -119,6 +119,21 @@ def should_retry_category(category):
     return category in ("transient", "rate_limit")
 
 
+def classify_pr_changes(changed_files):
+    """Classify a PR's changedFiles value as empty, changes, or unknown.
+
+    There is deliberately no merge-ready verdict: a PR with no changed files
+    can never be classified as mergeable by this function. Missing,
+    non-integer, and negative values are unknown so callers fail safe instead
+    of acting on data they cannot trust.
+    """
+    if isinstance(changed_files, bool):
+        return "unknown"
+    if isinstance(changed_files, int) and changed_files >= 0:
+        return "empty" if changed_files == 0 else "changes"
+    return "unknown"
+
+
 QUOTA_PATTERNS = [
     "usage limit", "limit exceeded", "rate limit", "quota",
 ]
@@ -326,7 +341,7 @@ def main(argv):
     # CLI subcommands for shell integration
     if len(argv) < 2:
         print(
-            "usage: factory.py <validate-models|validate-event|normalize-model|classify-gh|classify-git|should-retry|is-usage-filled|model-for-labels|claim-acquire|claim-release> ...",
+            "usage: factory.py <validate-models|validate-event|normalize-model|classify-gh|classify-git|classify-pr-changes|should-retry|is-usage-filled|model-for-labels|claim-acquire|claim-release> ...",
             file=sys.stderr,
         )
         return 2
@@ -358,6 +373,15 @@ def main(argv):
         arg = argv[2] if len(argv) > 2 else "-"
         text = sys.stdin.read() if arg == "-" else arg
         print(classify_git_error(text))
+        return 0
+    if cmd == "classify-pr-changes":
+        arg = argv[2] if len(argv) > 2 else "-"
+        raw = sys.stdin.read() if arg == "-" else arg
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = raw
+        print(classify_pr_changes(value))
         return 0
     if cmd == "should-retry":
         arg = argv[2] if len(argv) > 2 else "-"

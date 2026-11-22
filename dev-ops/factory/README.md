@@ -26,6 +26,12 @@ The automation that turns GitHub issues into merged PRs.
        project issues, the oldest project (by `createdAt`) wins, then the
        numeric `Build order` project field ascending (from 1). Fallback is
        issue age.
+     - **empty-PR guard** - after each build or fix session, tick reads the
+       session's PR with `gh pr view --json changedFiles`. A factory PR (head
+       `factory/issue-*`) with `changedFiles == 0` gets a short comment and is
+       closed with an `empty_pr_closed` event instead of being left for merge.
+       Human PRs are never touched. The guard runs even when a session failed;
+       under `--dry-run` it only logs the intended action.
 3. Labels select the model for the session, per [`models.yaml`](models.yaml)
    (fix sessions use the related issue's labels).
 
@@ -188,7 +194,7 @@ Representative events include `tick_start/end/result/interrupted`,
 `claim_conflict`, `dirty_worktree_skipped_reset`, `git_fetch_failed`,
 `guardrail_drift/guardrail_ok`, `session_*`, `usage_filled`, `backup_retry/ok`,
 `free_retry`, `dry_run`,
-`marker_skip`, and `nothing_to_do`.
+`marker_skip`, `empty_pr_closed`, and `nothing_to_do`.
 
 Cron (keep human output separate):
 ```
