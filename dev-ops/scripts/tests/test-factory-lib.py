@@ -111,6 +111,33 @@ def test_classify_matrix():
     assert factory.classify_gh_error("permission denied 403") == "permission"
 
 
+def test_changed_files_zero_is_empty_and_never_merge_ready():
+    # A PR with changedFiles: 0 is empty. There is deliberately no merge-ready
+    # verdict, so an empty PR can never be classified as mergeable.
+    verdict = factory.classify_pr_changes(0)
+    assert verdict == "empty"
+    assert verdict != "changes"
+    assert "merge" not in verdict
+
+
+def test_classify_pr_changes_matrix():
+    assert factory.classify_pr_changes(3) == "changes"
+    assert factory.classify_pr_changes(-1) == "unknown"
+    assert factory.classify_pr_changes(None) == "unknown"
+    assert factory.classify_pr_changes("") == "unknown"
+    assert factory.classify_pr_changes("abc") == "unknown"
+    assert factory.classify_pr_changes(True) == "unknown"
+
+
+def test_classify_pr_changes_cli():
+    import subprocess
+    script = os.path.join(os.path.dirname(__file__), "..", "..", "factory", "lib", "factory.py")
+    out = subprocess.check_output([sys.executable, script, "classify-pr-changes", "0"], text=True).strip()
+    assert out == "empty"
+    out = subprocess.check_output([sys.executable, script, "classify-pr-changes", "abc"], text=True).strip()
+    assert out == "unknown"
+
+
 def test_classify_extended_and_retry_decisions():
     assert factory.classify_gh_error("Bad credentials") == "auth"
     assert factory.classify_gh_error("abuse detection mechanism") == "rate_limit"

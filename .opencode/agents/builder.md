@@ -122,6 +122,11 @@ Post-merge/interruption:
 - Do not automatically mark ready for review.
 - Detect an existing PR for the branch before creating:
   `gh pr list --head <branch>`. Reuse it instead of creating a duplicate.
+- Open exactly one PR per issue. If the work cannot fit in one PR, report the
+  blocker and ask the planner to propose sub-issues instead of creating several
+  PRs for the same issue.
+- After pushing, run `gh pr view <pr> --json changedFiles`. If it is 0, stop and
+  report; an empty PR is never marked ready or merged.
 
 ### 7. CI monitoring and validation
 1. Identify checks: `gh pr checks <pr>`.
@@ -153,6 +158,8 @@ Verify all of:
 - No unresolved implementation blockers remain.
 - No unrelated changes are present.
 - Required reviews and repository protection rules are satisfied.
+- PR has at least one changed file (`gh pr view <pr> --json changedFiles`);
+  an empty PR is never merge-ready.
 - PR is mergeable according to GitHub.
 - Target branch has not introduced conflicts invalidating the implementation.
 
