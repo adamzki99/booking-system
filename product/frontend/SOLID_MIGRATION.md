@@ -87,21 +87,21 @@ No separate lint or typecheck script is defined; type checking runs as part of `
 
 ### Route, session, and shell behaviors
 
-- [ ] Unauthenticated visits to protected routes (`/`, `/account`, `/users`) redirect to `/login` (replace) and preserve the attempted location in navigation state.
-- [ ] While a stored session token is being validated on load, protected routes render nothing instead of flashing the login page.
-- [ ] Invalid or expired stored tokens are cleared and treated as signed out.
-- [ ] Unknown routes redirect to `/` (replace); unauthenticated users are then sent to `/login`.
-- [ ] Authenticated protected pages render inside `AppShell` with page content in the main area.
-- [ ] App shell loads chrome info on mount (`getChrome`) and displays header/footer branding with graceful fallback to empty values on failure.
-- [ ] Desktop sidebar shows brand lockup, "Create booking" button, Pages navigation (Bookings `/`, Members `/users`, Account `/account`) with active-state styling, and member footer.
-- [ ] Member footer shows signed-in user avatar initials, email (or "Not signed in" fallback), role label (`Member`, `Super user`, `Admin`, or "Signed out"), and a "Log out" button.
-- [ ] "Log out" clears the session and navigates to `/login` (replace).
-- [ ] "Create booking" in the desktop sidebar, mobile drawer, and mobile bottom dock navigates to `/?create=1` (and closes the mobile drawer when used there).
-- [ ] Desktop top bar includes a member-search form that submits to `/users` or `/users?q=<trimmed query>`.
-- [ ] Mobile top bar includes menu and member-search icon actions; search icon navigates to `/users` or `/users?q=<trimmed query>`.
-- [ ] Redeploy indicator shows a countdown derived from chrome `nextRedeploy` when valid (updates periodically, shows "Next redeploy due now" / "Next redeploy in <1m>" / day-hour-minute forms) with full target time in `title`, and is hidden when unavailable/invalid.
-- [ ] Mobile slide-over menu opens from the menu button, can be closed via the close button or navigation link clicks, and displays brand lockup, "Create booking", Pages navigation, and member footer.
-- [ ] Notifications icon button is present in the top bar (visual/action affordance shown in shell).
+- [x] Unauthenticated visits to protected routes (`/`, `/account`, `/users`) redirect to `/login` (replace) and preserve the attempted location in navigation state.
+- [x] While a stored session token is being validated on load, protected routes render nothing instead of flashing the login page.
+- [x] Invalid or expired stored tokens are cleared and treated as signed out.
+- [x] Unknown routes redirect to `/` (replace); unauthenticated users are then sent to `/login`.
+- [x] Authenticated protected pages render inside `AppShell` with page content in the main area.
+- [x] App shell loads chrome info on mount (`getChrome`) and displays header/footer branding with graceful fallback to empty values on failure.
+- [x] Desktop sidebar shows brand lockup, "Create booking" button, Pages navigation (Bookings `/`, Members `/users`, Account `/account`) with active-state styling, and member footer.
+- [x] Member footer shows signed-in user avatar initials, email (or "Not signed in" fallback), role label (`Member`, `Super user`, `Admin`, or "Signed out"), and a "Log out" button.
+- [x] "Log out" clears the session and navigates to `/login` (replace).
+- [x] "Create booking" in the desktop sidebar, mobile drawer, and mobile bottom dock navigates to `/?create=1` (and closes the mobile drawer when used there).
+- [x] Desktop top bar includes a member-search form that submits to `/users` or `/users?q=<trimmed query>`.
+- [x] Mobile top bar includes menu and member-search icon actions; search icon navigates to `/users` or `/users?q=<trimmed query>`.
+- [x] Redeploy indicator shows a countdown derived from chrome `nextRedeploy` when valid (updates periodically, shows "Next redeploy due now" / "Next redeploy in <1m>" / day-hour-minute forms) with full target time in `title`, and is hidden when unavailable/invalid.
+- [x] Mobile slide-over menu opens from the menu button, can be closed via the close button or navigation link clicks, and displays brand lockup, "Create booking", Pages navigation, and member footer.
+- [x] Notifications icon button is present in the top bar (visual/action affordance shown in shell).
 
 ### Login page (`/login`)
 
