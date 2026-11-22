@@ -159,7 +159,7 @@ export default function Login() {
               <Switch>
                 <Match when={qaMode()}>
                   <form class="login-form" onSubmit={signInWithoutCode} novalidate>
-                    <div class={`login-field ${emailError() ? "login-field--invalid" : ""}`}>
+                    <div class={["login-field", { "login-field--invalid": !!emailError() }]}>
                       <label class="login-label" for="email">
                         Email
                       </label>
@@ -228,7 +228,7 @@ export default function Login() {
                 </Match>
                 <Match when={!qaMode() && !codeSent()}>
                   <form class="login-form" onSubmit={requestCodeForEmail} novalidate>
-                    <div class={`login-field ${emailError() ? "login-field--invalid" : ""}`}>
+                    <div class={["login-field", { "login-field--invalid": !!emailError() }]}>
                       <label class="login-label" for="email">
                         Email
                       </label>
