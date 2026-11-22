@@ -68,11 +68,15 @@ def test_fix_candidates_from_prs():
     prs = [
         {"isDraft": False, "headRefName": "factory/issue-1", "headRefOid": "abc",
          "reviewDecision": "CHANGES_REQUESTED", "mergeable": "MERGEABLE",
-         "statusCheckRollup": [], "createdAt": "2026-01-01", "number": 10},
+         "statusCheckRollup": [], "createdAt": "2026-01-01", "number": 10,
+         "isCrossRepository": False, "author": {"login": "owner"},
+         "headRepositoryOwner": {"login": "owner"}},
         {"isDraft": True, "headRefName": "factory/issue-2", "headRefOid": "def",
-         "reviewDecision": "", "mergeable": "", "statusCheckRollup": [], "createdAt": "x", "number": 11},
+         "reviewDecision": "", "mergeable": "", "statusCheckRollup": [], "createdAt": "x", "number": 11,
+         "isCrossRepository": False, "author": {"login": "owner"},
+         "headRepositoryOwner": {"login": "owner"}},
     ]
-    rows = factory.fix_candidates_from_prs(prs)
+    rows = factory.fix_candidates_from_prs(prs, {"owner"}, "owner")
     assert len(rows) == 1
     assert rows[0][1] == 10
     assert "changes-requested" in rows[0][4]

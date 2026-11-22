@@ -25,6 +25,7 @@ ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
 MAX_FIX_SESSIONS="${FACTORY_MAX_FIX_SESSIONS:-1}"
 FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
 FACTORY_LOGIN="${FACTORY_LOGIN:-}"
+FACTORY_TRUSTED_LOGINS="${FACTORY_TRUSTED_LOGINS:-}"
 FACTORY_GITHUB_APP_ID="${FACTORY_GITHUB_APP_ID:-}"
 FACTORY_GITHUB_APP_PRIVATE_KEY_FILE="${FACTORY_GITHUB_APP_PRIVATE_KEY_FILE:-}"
 FACTORY_GITHUB_APP_PRIVATE_KEY="${FACTORY_GITHUB_APP_PRIVATE_KEY:-}"
@@ -65,7 +66,7 @@ Environment (key):
   FACTORY_SESSION_LOG_DIR, FACTORY_LOG_SESSION_OUTPUT (tail|metadata),
   FACTORY_PRESERVE_SESSION_LOGS (on-failure|always|never),
   FACTORY_WORKTREE, FACTORY_CONFIG_TAG, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED,
-  FACTORY_LOGIN, FACTORY_GITHUB_APP_ID, FACTORY_GITHUB_APP_PRIVATE_KEY_FILE,
+  FACTORY_LOGIN, FACTORY_TRUSTED_LOGINS, FACTORY_GITHUB_APP_ID, FACTORY_GITHUB_APP_PRIVATE_KEY_FILE,
   FACTORY_GITHUB_APP_PRIVATE_KEY, FACTORY_GITHUB_INSTALLATION_ID.
 USAGE
 }
@@ -283,14 +284,30 @@ fi
 OLDEST_UNLABELED_ISSUE=""
 oldest_unlabeled_issue() {
   OLDEST_UNLABELED_ISSUE=""
-  if ! gh_run_capture "oldest_unlabeled_issue" gh issue list --state open --limit 200 --json number,labels,createdAt \
-    --jq '[.[] | select((.labels | length) == 0)] | sort_by(.createdAt) | .[0].number // empty'; then
+  if ! gh_run_capture "oldest_unlabeled_issue" gh issue list --state open --limit 200 --json number,labels,createdAt,author; then
     emit_event gh_op_failed op="oldest_unlabeled_issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     return 1
   fi
-  OLDEST_UNLABELED_ISSUE="$GH_OUT"
-  printf '%s\n' "$GH_OUT"
+  local trusted="${FACTORY_TRUSTED_LOGINS:-}"
+  if [[ -n "${FACTORY_LOGIN:-}" ]]; then
+    trusted="${trusted:+$trusted,}${FACTORY_LOGIN}"
+  fi
+  OLDEST_UNLABELED_ISSUE="$(FACTORY_LIB_DIR="$SCRIPT_DIR/lib" FACTORY_TRUSTED_LOGINS="$trusted" python3 -c '
+import json, os, sys
+sys.path.insert(0, os.environ.get("FACTORY_LIB_DIR", ""))
+import factory
+raw = os.environ.get("FACTORY_TRUSTED_LOGINS", "")
+trusted = factory.parse_trusted_logins(raw)
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = []
+cands = [i for i in (data or []) if not (i.get("labels") or []) and factory.is_trusted_login(i.get("author"), trusted)]
+cands.sort(key=lambda i: (i.get("createdAt") or "9999", i.get("number", 0)))
+print(cands[0]["number"] if cands else "")
+' <<< "$GH_OUT")"
+  printf '%s\n' "$OLDEST_UNLABELED_ISSUE"
 }
 
 # Legacy inline discovery helpers retained for reference; active paths use
@@ -614,13 +631,52 @@ is_usage_filled() {
 }
 
 
+prompt_context() { # $1 issue number, optional $2 pr number
+  local issue="$1" pr="${2:-}"
+  local trusted="${FACTORY_TRUSTED_LOGINS:-}"
+  [[ -n "${FACTORY_LOGIN:-}" ]] && trusted="${trusted:+$trusted,}${FACTORY_LOGIN}"
+  local issue_json
+  if gh_run_capture "prompt_context_issue" gh issue view "$issue" --json body,comments; then
+    issue_json="$GH_OUT"
+  else
+    issue_json='{"body":"","comments":[]}'
+  fi
+  FACTORY_LIB_DIR="$SCRIPT_DIR/lib" FACTORY_TRUSTED_LOGINS="$trusted" python3 - "$issue_json" << 'PYEOF'
+import json, os, sys
+sys.path.insert(0, os.environ.get("FACTORY_LIB_DIR", ""))
+import factory
+raw = os.environ.get("FACTORY_TRUSTED_LOGINS", "")
+trusted = factory.parse_trusted_logins(raw)
+data = json.loads(sys.argv[1])
+print(factory.build_prompt_context(data.get("body", ""), data.get("comments", []), trusted))
+PYEOF
+  if [[ -n "$pr" ]]; then
+    local pr_json
+    if gh_run_capture "prompt_context_pr" gh pr view "$pr" --json body,comments; then
+      pr_json="$GH_OUT"
+    else
+      pr_json='{"body":"","comments":[]}'
+    fi
+    printf '\n\n--- PR context ---\n'
+    FACTORY_LIB_DIR="$SCRIPT_DIR/lib" FACTORY_TRUSTED_LOGINS="$trusted" python3 - "$pr_json" << 'PYEOF'
+import json, os, sys
+sys.path.insert(0, os.environ.get("FACTORY_LIB_DIR", ""))
+import factory
+raw = os.environ.get("FACTORY_TRUSTED_LOGINS", "")
+trusted = factory.parse_trusted_logins(raw)
+data = json.loads(sys.argv[1])
+print(factory.build_prompt_context(data.get("body", ""), data.get("comments", []), trusted))
+PYEOF
+  fi
+}
+
 # prompts unchanged (abbreviated here but included)
 plan_prompt() { # $1 issue number
   cat << EOF
 You are the planning agent of this software factory. Turn GitHub issue #$1
 into a planned, categorized issue.
 
-1. Read it: gh issue view $1 --comments
+1. The issue body and trusted-author comments are already supplied in the prompt; do not fetch comments yourself.
 2. Post one comment with a concrete, minimal implementation plan. The comment
    body must start with this exact marker line:
 
@@ -676,7 +732,7 @@ every issue. If a follow-up issue must be filed, use the
 \`dev-ops/scripts/validate-issue-body.sh\`.
 Factory delivery rules (these override generic skill defaults where they
 conflict):
-1. Read the issue and its plan: gh issue view $1 --comments
+1. Read the issue and its plan; the issue body and trusted-author comments are already supplied in the prompt.
 2. Inspect repository/working-tree state with git status in the primary
    checkout; never modify it. Create an isolated per-issue worktree and a
    descriptive feature branch (factory/issue-$1) based on the latest
@@ -736,7 +792,7 @@ Blocking reasons reported by GitHub: $3
 (failing-checks = status/CI failures; changes-requested = review requested
 changes; conflicts = merge conflicts / not mergeable.)
 
-1. Read context: gh pr view $1 --comments; gh pr checks $1 || true; gh issue view $2 --comments
+1. Read context: gh pr checks $1 || true. The issue body and trusted-author comments are already supplied in the prompt.
 2. Locate/reuse the existing worktree for the PR branch; verify branch and status.
    Read <worktree>/.factory-deliver-state.json if present and verify against
    actual Git/GitHub state. Never modify unrelated working directories.
@@ -1174,7 +1230,61 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       close_if_empty_pr "$pr_number" "$issue_number"
       fix_count=$((fix_count + 1))
     else
-      if start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"; then
+      # Pre-session re-check: PR may have turned cross-repository/untrusted or
+      # its head SHA may have changed since discovery.
+      if ! gh_run_capture "fix_pr_recheck" gh pr view "$pr_number" --json isCrossRepository,headRefOid,author,headRepositoryOwner; then
+        log "could not re-check PR #$pr_number; skipping"
+        emit_event marker_skip pr="$pr_number" reason="recheck-failed"
+        release_claim "$claim_dir"
+        continue
+      fi
+      IFS=$'\t' read -r _is_cross _new_sha _author_login _hro_login < <(printf '%s' "$GH_OUT" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+a = d.get("author") or {}
+h = d.get("headRepositoryOwner") or {}
+print(str(d.get("isCrossRepository")).lower())
+print(d.get("headRefOid") or "")
+print((a.get("login") if isinstance(a, dict) else a) or "")
+print((h.get("login") if isinstance(h, dict) else h) or "")
+' | tr "\n" "\t"; printf '\n')
+      _repo_owner="${REPO_OWNER:-}"
+      if [[ -z "$_repo_owner" ]]; then
+        _repo_owner="$(gh repo view --json owner --jq .owner.login 2>/dev/null || true)"
+        REPO_OWNER="$_repo_owner"
+      fi
+      _untrusted="false"
+      _trusted_raw="${FACTORY_TRUSTED_LOGINS:-}"
+      [[ -n "${FACTORY_LOGIN:-}" ]] && _trusted_raw="${_trusted_raw:+$_trusted_raw,}${FACTORY_LOGIN}"
+      if [[ -n "$_author_login" ]]; then
+        _untrusted="$(FACTORY_LIB_DIR="$SCRIPT_DIR/lib" FACTORY_TRUSTED_LOGINS="$_trusted_raw" python3 -c '
+import os, sys
+sys.path.insert(0, os.environ.get("FACTORY_LIB_DIR", ""))
+import factory
+raw = os.environ.get("FACTORY_TRUSTED_LOGINS", "")
+trusted = factory.parse_trusted_logins(raw)
+login = sys.argv[1]
+print("true" if not factory.is_trusted_login(login, trusted) else "false")
+' "$_author_login")"
+      fi
+      _skip_reason=""
+      if [[ "$_is_cross" == "true" || "$_untrusted" == "true" ]]; then
+        _skip_reason="untrusted-pr"
+      elif [[ -n "$_hro_login" && -n "$_repo_owner" && "${_hro_login,,}" != "${_repo_owner,,}" ]]; then
+        _skip_reason="untrusted-pr"
+      elif [[ -n "$_new_sha" && "$_new_sha" != "$head_sha" ]]; then
+        _skip_reason="sha-changed"
+      fi
+      if [[ -n "$_skip_reason" ]]; then
+        log "PR #$pr_number skipped before session ($_skip_reason)"
+        emit_event marker_skip pr="$pr_number" reason="$_skip_reason"
+        release_claim "$claim_dir"
+        continue
+      fi
+      if start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")
+
+Context (issue/PR body and trusted comments):
+$(prompt_context "$issue_number" "$pr_number")"; then
         :
       else
         fix_failures=$((fix_failures + 1))
@@ -1264,7 +1374,10 @@ if [[ -n "$plan_issue" ]]; then
       log "issue #$plan_issue already claimed for planning; skipping"
       emit_event claim_conflict issue="$plan_issue" reason="${plan_claim:-claim-failed}" kind="plan"
     else
-      start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" || TICK_RC=1
+      start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")
+
+Context (issue body and trusted comments):
+$(prompt_context "$plan_issue")" || TICK_RC=1
       release_claim "$plan_claim"
     fi
   fi
@@ -1282,7 +1395,10 @@ if [[ -n "$build_issue" ]]; then
       log "issue #$build_issue already claimed for build; skipping"
       emit_event claim_conflict issue="$build_issue" reason="${build_claim:-claim-failed}" kind="build"
     else
-      start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" || TICK_RC=1
+      start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")
+
+Context (issue body and trusted comments):
+$(prompt_context "$build_issue")" || TICK_RC=1
       # Resolve the PR the session opened, if any. Check even on session
       # failure so a half-created empty PR is still caught.
       built_pr=""

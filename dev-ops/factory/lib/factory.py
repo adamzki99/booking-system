@@ -422,3 +422,152 @@ def main(argv):
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))
+
+
+def parse_trusted_logins(raw):
+    """Parse a comma/whitespace separated login list into a lowercase set.
+
+    An empty/None value yields an empty set (fail closed).
+    """
+    if raw is None:
+        return set()
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        out = set()
+        for item in raw:
+            if isinstance(item, dict):
+                val = item.get("login") or item.get("name") or ""
+            else:
+                val = item
+            val = str(val).strip().lower()
+            if val:
+                out.add(val)
+        return out
+    text = str(raw)
+    out = set()
+    for part in re.split(r"[,\s]+", text):
+        part = part.strip().lower()
+        if part:
+            out.add(part)
+    return out
+
+
+def _login_of(candidate):
+    if isinstance(candidate, dict):
+        for key in ("login", "name", "user"):
+            if key in candidate and candidate.get(key) is not None:
+                return candidate.get(key)
+        return ""
+    return candidate
+
+
+def is_trusted_login(candidate, trusted):
+    """Return True if candidate (login or {login:...}) is in trusted set."""
+    trusted_set = parse_trusted_logins(trusted) if not isinstance(trusted, (set, frozenset)) else trusted
+    # normalize trusted set to lowercase strings even if passed as set
+    trusted_set = {str(x).strip().lower() for x in trusted_set if str(x).strip()}
+    login = _login_of(candidate)
+    return str(login).strip().lower() in trusted_set
+
+
+def filter_trusted_issues(issues, trusted):
+    """Keep only issues whose author.login is trusted. Empty trusted keeps nothing."""
+    trusted_set = parse_trusted_logins(trusted) if not isinstance(trusted, (set, frozenset)) else trusted
+    trusted_set = {str(x).strip().lower() for x in trusted_set if str(x).strip()}
+    out = []
+    for issue in issues or []:
+        if not isinstance(issue, dict):
+            continue
+        author = issue.get("author")
+        if is_trusted_login(author, trusted_set):
+            out.append(issue)
+    return out
+
+
+def build_prompt_context(body, comments, trusted):
+    """Return body plus only trusted-author comments, with author/timestamp headers."""
+    trusted_set = parse_trusted_logins(trusted) if not isinstance(trusted, (set, frozenset)) else trusted
+    trusted_set = {str(x).strip().lower() for x in trusted_set if str(x).strip()}
+    parts = []
+    if body is not None and str(body).strip():
+        parts.append(str(body).rstrip())
+    for c in comments or []:
+        if not isinstance(c, dict):
+            continue
+        author = c.get("author")
+        if not is_trusted_login(author, trusted_set):
+            continue
+        login = _login_of(author)
+        created = c.get("createdAt") or c.get("created_at") or c.get("timestamp") or ""
+        header = f"--- Comment by {login}" + (f" at {created}" if created else "") + " ---"
+        parts.append(header + "\n" + (c.get("body") or ""))
+    return "\n\n".join(parts).strip()
+
+
+def pr_is_trusted(pr, trusted, repo_owner=None):
+    if not isinstance(pr, dict):
+        return False
+    if pr.get("isCrossRepository") is True:
+        return False
+    if not is_trusted_login(pr.get("author"), trusted):
+        return False
+    if repo_owner is not None:
+        hro = pr.get("headRepositoryOwner")
+        hro_login = _login_of(hro)
+        if hro_login and str(hro_login).strip().lower() != str(repo_owner).strip().lower():
+            return False
+    return True
+
+
+# Wrap fix_candidates_from_prs to accept trusted/repo_owner while keeping
+# backward compatibility with the no-arg form.
+_orig_fix_candidates_from_prs = fix_candidates_from_prs
+
+def fix_candidates_from_prs(prs, trusted=None, repo_owner=None):
+    rows = []
+    for pr in prs or []:
+        if not isinstance(pr, dict):
+            continue
+        if pr.get("isDraft"):
+            continue
+        head = pr.get("headRefName") or ""
+        m = re.match(r"^factory/issue-(\d+)$", head)
+        if not m:
+            continue
+        issue = int(m.group(1))
+        sha = (pr.get("headRefOid") or "").strip()
+        if not sha:
+            continue
+        if pr.get("isCrossRepository") is True:
+            continue
+        if trusted is not None and not is_trusted_login(pr.get("author"), trusted):
+            continue
+        if trusted is None:
+            # fail closed when no trusted set provided? keep legacy behavior:
+            pass
+        if repo_owner is not None:
+            hro = pr.get("headRepositoryOwner")
+            hro_login = _login_of(hro)
+            if hro_login and str(hro_login).strip().lower() != str(repo_owner).strip().lower():
+                continue
+        reasons = []
+        rollup = pr.get("statusCheckRollup") or []
+        if isinstance(rollup, list):
+            for item in rollup:
+                st = check_state(item)
+                if st in FAIL_STATES:
+                    reasons.append("failing-checks")
+                    break
+        rd = (pr.get("reviewDecision") or "").upper()
+        if rd == "CHANGES_REQUESTED":
+            reasons.append("changes-requested")
+        mergeable = (pr.get("mergeable") or "").upper()
+        if mergeable == "CONFLICTING":
+            reasons.append("conflicts")
+        if not reasons:
+            continue
+        reasons = sorted(set(reasons))
+        rkey = ",".join(reasons)
+        marker = f"<!-- factory:fix-pr:{sha}:{rkey} -->"
+        rows.append((pr.get("createdAt") or "9999", pr.get("number"), issue, sha, rkey, marker))
+    rows.sort()
+    return rows
