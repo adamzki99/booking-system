@@ -22,7 +22,8 @@ receivers:
   filelog/factory:
     include:
       - /var/log/factory/tick.jsonl
-    start_at: end
+    start_at: beginning
+    storage: file_storage
     operators:
       - type: json_parser
         timestamp:
@@ -33,6 +34,7 @@ receivers:
     include:
       - /var/lib/docker/containers/*/*-json.log
     start_at: end
+    storage: file_storage
     include_file_path: true
     operators:
       - type: container
@@ -94,6 +96,8 @@ extensions:
     endpoint: 0.0.0.0:13133
   pprof:
     endpoint: 0.0.0.0:1777
+  file_storage:
+    directory: /var/lib/otelcol/file_storage
 
 exporters:
   clickhousetraces:
@@ -114,6 +118,7 @@ service:
   extensions:
     - health_check
     - pprof
+    - file_storage
   pipelines:
     traces:
       receivers: [otlp]
