@@ -195,10 +195,18 @@ Cron (keep human output separate):
 0 * * * * /path/to/repo/dev-ops/factory/tick.sh >> "$HOME/.local/state/factory/tick.log" 2>&1
 ```
 
-Ship to SigNoz via `otelcol-contrib` running as a **user** systemd unit on the
-cron host, using `otel-collector.yaml` (`filelog` receiver → OTLP/HTTP).
-Required env: `FACTORY_LOG_FILE`, `SIGNOZ_OTLP_ENDPOINT`, optional
-`SIGNOZ_INGESTION_KEY`.
+Ship factory tick events to SigNoz using one of these same-host options:
+
+- **SigNoz collector integration (preferred when SigNoz runs on the same host):**
+  `dev-ops/signoz/otel-collector-config.yaml` includes a `filelog/factory`
+  receiver that tails `/var/log/factory/tick.jsonl` inside the collector
+  container. Set `FACTORY_LOG_DIR` to the directory containing `tick.jsonl`
+  (default `${XDG_STATE_HOME:-$HOME/.local/state}/factory`) when starting
+  `dev-ops/signoz/docker-compose.yml`.
+- **Standalone shipper:** run `otelcol-contrib` as a user systemd unit on the
+  cron host using `dev-ops/factory/otel-collector.yaml` (`filelog` receiver →
+  OTLP/HTTP). Required env: `FACTORY_LOG_FILE`, `SIGNOZ_OTLP_ENDPOINT`, optional
+  `SIGNOZ_INGESTION_KEY`.
 
 ## Security expectations
 

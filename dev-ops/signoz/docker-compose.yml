@@ -170,6 +170,8 @@ services:
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
       - ./signoz/otel-collector-opamp-config.yaml:/etc/manager-config.yaml:ro
+      - ${FACTORY_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/factory}:/var/log/factory:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /proc:/hostfs/proc:ro
       - /sys:/hostfs/sys:ro
     environment:
