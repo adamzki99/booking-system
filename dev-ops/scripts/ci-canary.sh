@@ -376,7 +376,7 @@ cmd_cleanup() {
       || die "failed to delete remote branch $branch"
   done < <(git -C "$REPO_ROOT" ls-remote --heads "$REMOTE" 'canary/*' | awk '{print $2}')
 
-  remaining="$(git -C "$REPO_ROOT" ls-remote --heads "$REMOTE" 'canary/*' || true)"
+  remaining="$(git -C "$REPO_ROOT" ls-remote --heads "$REMOTE" 'canary/*')"
   [[ -z "$remaining" ]] || die "canary branches remain: $remaining"
 
   open="$(list_open_canary_prs)"
