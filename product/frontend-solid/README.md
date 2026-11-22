@@ -8,6 +8,7 @@ Generic Solid frontend for the booking platform. It provides booking calendar, a
 - **TypeScript**
 - **Vite**
 - **@solidjs/router**
+- **Solid UI** (https://www.solid-ui.com/) for UI component patterns and primitives
 
 ## Commands
 
@@ -45,7 +46,7 @@ npm run preview
 
 ## UI and theming
 
-The frontend uses shared UI primitives in `src/ui/` and theme tokens in `src/theme.ts`. Keep generic visual patterns reusable across deployments. Deployment-specific branding, copy, and assets belong under `projects/<name>/`.
+The frontend uses shared UI primitives in `src/ui/` and theme tokens in `src/theme.ts`, following [Solid UI](https://www.solid-ui.com/) patterns where they fit the product. Keep generic visual patterns reusable across deployments. Deployment-specific branding, copy, and assets belong under `projects/<name>/`.
 
 ## Testing
 

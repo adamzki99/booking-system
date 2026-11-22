@@ -20,7 +20,7 @@
  *   source) after a server write. Call from actions/effects/handlers.
  *
  * Optimistic updates:
- * - Current React page behavior: not found. Page flows load data and, after
+ * - Current page behavior: not found. Page flows load data and, after
  *   mutations, await the server call and re-fetch/refresh; no immediate
  *   optimistic list updates before server acknowledgement were identified.
  * - Pattern support is provided via `createOptimisticStore` /
