@@ -7,9 +7,13 @@ on:
 permissions:
   contents: read
 
+
 jobs:
   test:
     name: Sidecar tests
+    concurrency:
+      group: ${{ github.workflow }}-test-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     defaults:
       run:

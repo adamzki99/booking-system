@@ -9,9 +9,13 @@ on:
 permissions:
   contents: read
 
+
 jobs:
   semgrep:
     name: semgrep/ci
+    concurrency:
+      group: ${{ github.workflow }}-semgrep-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep
