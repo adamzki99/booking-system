@@ -28,7 +28,7 @@ x-common: &common
 
 x-clickhouse-defaults: &clickhouse-defaults
   <<: *common
-  image: clickhouse/clickhouse-server:25.5.6
+  image: clickhouse/clickhouse-server:26.10.4.207
   tty: true
   depends_on:
     signoz-init-clickhouse:
@@ -59,7 +59,7 @@ x-db-depend: &db-depend
 services:
   signoz-init-clickhouse:
     <<: *common
-    image: clickhouse/clickhouse-server:25.5.6
+    image: clickhouse/clickhouse-server:26.10.4.207
     container_name: signoz-init-clickhouse
     deploy:
       resources:
@@ -85,7 +85,7 @@ services:
 
   signoz-zookeeper:
     <<: *common
-    image: signoz/zookeeper:3.7.1
+    image: signoz/zookeeper:3.9.3
     container_name: signoz-zookeeper
     deploy:
       resources:
@@ -125,7 +125,7 @@ services:
 
   signoz-server:
     <<: *db-depend
-    image: signoz/signoz:v0.96.1
+    image: signoz/signoz:v0.150.0
     container_name: signoz-server
     deploy:
       resources:
@@ -155,7 +155,7 @@ services:
 
   signoz-otel-collector:
     <<: *db-depend
-    image: signoz/signoz-otel-collector:v0.129.6
+    image: signoz/signoz-otel-collector:v0.144.15
     container_name: signoz-otel-collector
     deploy:
       resources:
@@ -192,7 +192,7 @@ services:
 
   signoz-schema-migrator-sync:
     <<: *common
-    image: signoz/signoz-schema-migrator:v0.129.6
+    image: signoz/signoz-schema-migrator:v0.144.15
     container_name: signoz-schema-migrator-sync
     deploy:
       resources:
@@ -209,7 +209,7 @@ services:
 
   signoz-schema-migrator-async:
     <<: *db-depend
-    image: signoz/signoz-schema-migrator:v0.129.6
+    image: signoz/signoz-schema-migrator:v0.144.15
     container_name: signoz-schema-migrator-async
     deploy:
       resources:
