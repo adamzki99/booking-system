@@ -17,4 +17,7 @@ RUN npm run build
 FROM alpine:3.21
 
 COPY --from=build /src/dist /www
+# nosemgrep: dockerfile.security.missing-user.missing-user
+# This one-shot publish container must write to the shared /srv volume; runtime
+# ownership is managed by the volume mount, matching product/frontend/Dockerfile.
 CMD ["sh", "-c", "rm -rf /srv/* 2>/dev/null; mkdir -p /srv; cp -a /www/. /srv/; exec sleep infinity"]
