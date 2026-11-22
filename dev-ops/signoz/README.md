@@ -33,15 +33,17 @@ docker compose -f dev-ops/signoz/docker-compose.yml down
 
 ## How environments discover the collector
 
-Booking environments run in their own compose projects (`COMPOSE_PROJECT_NAME=booking-*`).
-The SigNoz collector publishes ports `4317`/`4318` on the host. Backends running
-in Docker on the same host reach it via `host.docker.internal` (the sauna compose
-adds `extra_hosts: host.docker.internal:host-gateway`), so the default endpoint is:
+Booking environments run in their own compose projects (`COMPOSE_PROJECT_NAME=booking-*`)
+and attach the backend to the shared external `signoz-net` Docker network. Backends
+reach the collector by container DNS name, so the default endpoint is:
 
 ```env
-OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318
 OTEL_SERVICE_NAME=booking-backend
 ```
+
+Ports `4317`/`4318` are published on loopback only. Use an SSH tunnel or Tailscale
+to reach them from another machine.
 
 If the collector runs on another machine, set `OTEL_EXPORTER_OTLP_ENDPOINT=http://<signoz-host>:4318`.
 Leave `OTEL_EXPORTER_OTLP_ENDPOINT` empty to disable export.
@@ -104,7 +106,6 @@ processor (`host.name`).
 
 The collector container must see the host filesystem. The compose file mounts:
 
-- `/` → `/hostfs` (read-only)
 - `/proc` → `/hostfs/proc` (read-only)
 - `/sys` → `/hostfs/sys` (read-only)
 
@@ -112,9 +113,6 @@ and sets:
 
 - `HOST_PROC=/hostfs/proc`
 - `HOST_SYS=/hostfs/sys`
-- `HOST_ETC=/hostfs/etc`
-- `HOST_VAR=/hostfs/var`
-- `HOST_RUN=/hostfs/run`
 
 The `hostmetrics` receiver uses `root_path: /hostfs`. Do not remove these mounts
 or the env vars; hostmetrics will silently report container (not host) values.

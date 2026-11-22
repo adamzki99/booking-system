@@ -376,10 +376,9 @@ for line in lines:
     if line.startswith('OTEL_EXPORTER_OTLP_ENDPOINT='):
         found_otel = True
         _, _, val = line.partition('=')
-        if val.strip() in ('', '""', "''"):
-            out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318\n')
-        else:
-            out.append(line)
+        # Always normalize to the shared-network collector address so a stale
+        # host.docker.internal value cannot survive a redeploy.
+        out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318\n')
     elif line.startswith('QA_MODE='):
         found_qa = True
         out.append(f'QA_MODE={qa_mode}\n')
