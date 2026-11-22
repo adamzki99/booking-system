@@ -14,7 +14,7 @@ RUN npm run build
 # Publish the static files onto a shared volume: the container copies its
 # build output to /srv and keeps running, and the Caddy service mounts the
 # same named volume to serve the files. A rebuild republishes on start.
-FROM alpine:3.21
+FROM alpine:3.24
 
 COPY --from=build /src/dist /www
 # This one-shot publish container must write to the shared /srv volume; runtime
