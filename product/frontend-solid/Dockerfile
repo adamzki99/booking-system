@@ -3,7 +3,7 @@
 # Build the Vite/Solid SPA.
 # Pinned patch-level tag per Semgrep node-brotli-usage (CVE-2026-111497 fix is
 # in 22.23.4); keep in sync with upgrades.
-FROM node:22.23.4-alpine AS build
+FROM node:26.13.1-alpine AS build
 
 WORKDIR /src
 COPY package.json package-lock.json* ./
