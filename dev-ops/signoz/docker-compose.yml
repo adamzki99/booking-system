@@ -28,7 +28,7 @@ x-common: &common
 
 x-clickhouse-defaults: &clickhouse-defaults
   <<: *common
-  image: clickhouse/clickhouse-server:25.5.6
+  image: clickhouse/clickhouse-server:26.10.4.207
   tty: true
   depends_on:
     signoz-init-clickhouse:
@@ -59,7 +59,7 @@ x-db-depend: &db-depend
 services:
   signoz-init-clickhouse:
     <<: *common
-    image: clickhouse/clickhouse-server:25.5.6
+    image: clickhouse/clickhouse-server:26.10.4.207
     container_name: signoz-init-clickhouse
     deploy:
       resources:
