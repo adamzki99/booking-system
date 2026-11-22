@@ -430,6 +430,92 @@ tmp_log=$(find "$tmp/tmp/booking-deploy-$(id -u)" -maxdepth 1 -type f -name '*.l
 grep -qF "Your login code is 481516" "$tmp_log" \
   && pass || fail "TMPDIR fallback log keeps the full raw log"
 
+# A deploy checkout left mid-rebase by an interrupted run must recover on the
+# next deploy instead of failing repeatedly at "git rebase origin/$BRANCH"
+# (issue #324).
+rebase_origin="$tmp/rebase-origin.git"
+rebase_fixture="$tmp/rebase-fixture"
+rebase_deploy="$tmp/rebase-deploy"
+make_deploy_checkout "$rebase_origin" "$rebase_fixture"
+"$git_bin" clone -q "$rebase_origin" "$rebase_deploy"
+
+# Create a conflicting local commit so rebasing onto an advanced origin stops.
+"$git_bin" -C "$rebase_deploy" checkout -q main
+echo "local change" > "$rebase_deploy/rebase-conflict.txt"
+"$git_bin" -C "$rebase_deploy" add rebase-conflict.txt
+"$git_bin" -C "$rebase_deploy" commit -qm "local: conflicting change"
+
+advance="$tmp/rebase-advance"
+"$git_bin" clone -q "$rebase_origin" "$advance"
+"$git_bin" -C "$advance" config user.email "deploy-test@example.invalid"
+"$git_bin" -C "$advance" config user.name "deploy-test"
+echo "origin change" > "$advance/rebase-conflict.txt"
+"$git_bin" -C "$advance" add rebase-conflict.txt
+"$git_bin" -C "$advance" commit -qm "origin: conflicting change"
+"$git_bin" -C "$advance" push -q origin main
+
+"$git_bin" -C "$rebase_deploy" fetch -q origin main
+set +e
+"$git_bin" -C "$rebase_deploy" rebase origin/main >/dev/null 2>&1
+rebase_rc=$?
+set -e
+[[ "$rebase_rc" -ne 0 ]] && pass || fail "test setup should leave rebase in conflict"
+[[ -d "$rebase_deploy/.git/rebase-merge" || -d "$rebase_deploy/.git/rebase-apply" ]] \
+  && pass || fail "test setup should leave rebase state behind"
+
+out="$tmp/out-rebase-recovery.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$rebase_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/rebase.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  pass
+else
+  fail "deploy should recover from an interrupted rebase"
+fi
+grep -q "aborting interrupted rebase in deploy checkout" "$out" \
+  && pass || fail "recovery log mentions aborted rebase"
+grep -q "deploy complete" "$out" && pass || fail "deploy completes after rebase recovery"
+[[ ! -d "$rebase_deploy/.git/rebase-merge" && ! -d "$rebase_deploy/.git/rebase-apply" ]] \
+  && pass || fail "rebase state removed after recovery"
+expected_sha="$("$git_bin" -C "$rebase_origin" rev-parse main)"
+"$git_bin" -C "$rebase_deploy" merge-base --is-ancestor "$expected_sha" HEAD \
+  && pass || fail "recovered checkout is based on origin tip"
+
+# Local commits that diverged from origin must not block deploys; the deploy
+# checkout mirrors origin exactly.
+diverge_origin="$tmp/diverge-origin.git"
+diverge_fixture="$tmp/diverge-fixture"
+diverge_deploy="$tmp/diverge-deploy"
+make_deploy_checkout "$diverge_origin" "$diverge_fixture"
+"$git_bin" clone -q "$diverge_origin" "$diverge_deploy"
+"$git_bin" -C "$diverge_deploy" checkout -q main
+echo "local-only" > "$diverge_deploy/local-only.txt"
+"$git_bin" -C "$diverge_deploy" add local-only.txt
+"$git_bin" -C "$diverge_deploy" commit -qm "local: unpushed metadata-like commit"
+local_sha="$("$git_bin" -C "$diverge_deploy" rev-parse HEAD)"
+origin_sha="$("$git_bin" -C "$diverge_origin" rev-parse main)"
+[[ "$local_sha" != "$origin_sha" ]] && pass || fail "test setup should create diverged local commit"
+
+out="$tmp/out-diverge.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$diverge_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/diverge.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  pass
+else
+  fail "deploy should recover from diverged local commits"
+fi
+"$git_bin" -C "$diverge_deploy" merge-base --is-ancestor "$origin_sha" HEAD \
+  && pass || fail "diverged deploy checkout is based on origin tip"
+"$git_bin" -C "$diverge_deploy" merge-base --is-ancestor "$local_sha" HEAD \
+  && fail "diverged local-only commit should not remain on deployed branch" || pass
+[[ ! -f "$diverge_deploy/local-only.txt" ]] \
+  && pass || fail "diverged local-only file removed from deploy checkout"
+
 # The deploy script itself must no longer contain a Log tail section.
 grep -q "Log tail" "$SCRIPT" \
   && fail "deploy script still has a Log tail section" || pass
