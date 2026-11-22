@@ -35,4 +35,5 @@ jobs:
 
       - name: Test report
         if: always()
-        run: "$GITHUB_WORKSPACE/dev-ops/scripts/go-test-report.sh" "$RUNNER_TEMP/go-test.json"
+        run: |
+          "$GITHUB_WORKSPACE/dev-ops/scripts/go-test-report.sh" "$RUNNER_TEMP/go-test.json"
