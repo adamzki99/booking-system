@@ -8,8 +8,8 @@ permissions:
   contents: read
 
 jobs:
-  check-solid:
-    name: Install, typecheck, test, build (Solid)
+  check:
+    name: Install, typecheck, test, build
     runs-on: ubuntu-latest
     defaults:
       run:

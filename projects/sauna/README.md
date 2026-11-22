@@ -10,7 +10,7 @@ Supplied normal-user UI mockups for this deployment live in [`docs/mocks/`](docs
 - [`sauna_booking_website_normal_user_mock_desktop.html`](docs/mocks/sauna_booking_website_normal_user_mock_desktop.html): desktop bookings view (app shell, create-booking action, quick book/repeat flow, upcoming bookings list).
 - [`sauna_booking_website_normal_user_mock_mobile.html`](docs/mocks/sauna_booking_website_normal_user_mock_mobile.html): mobile bookings view and menu-open state.
 
-When implementing sauna UI, align layout, styling, coloring, spacing, typography, and component states with these mockups. Use the fixed frontend stack (**React 18, TypeScript, Vite, React Router, Chakra UI v2**) and implement visual treatment through Chakra primitives, theme tokens, and component recipes/variants (see [`../../product/frontend/README.md`](../../product/frontend/README.md)). Reusable visual patterns should be captured in generic frontend theme/components when broadly useful; sauna-specific branding and content remain deployment-specific.
+When implementing sauna UI, align layout, styling, coloring, spacing, typography, and component states with these mockups. Use the fixed frontend stack (**Solid 2, TypeScript, Vite, @solidjs/router**) and implement visual treatment through shared UI primitives, theme tokens, and component patterns (see [`../../product/frontend-solid/README.md`](../../product/frontend-solid/README.md)). Reusable visual patterns should be captured in generic frontend theme/components when broadly useful; sauna-specific branding and content remain deployment-specific.
 
 ## User roles
 

@@ -1,6 +1,6 @@
 # Security & Privacy Review - Sauna Booking System and its AI Software Factory
 
-**Scope** · Security across the whole repo `adamzki99/booking-system`. That covers the factory (`dev-ops/factory/**`, `.opencode/**`, `opencode.jsonc`, skills supply chain), GitHub Actions, the backend (`product/backend/**`), the sidecar (`projects/sauna/sidecar/**`), the frontend (`product/frontend/src/**`), deployment config (`projects/sauna/**`, `dev-ops/signoz/**`, `dev-ops/scripts/**`), git history, and GDPR basics. This was a static review: I read files and local git history, ran no repo scripts and did no live testing. · **Reviewed** 2026-11-19 at commit 45f6ee5
+**Scope** · Security across the whole repo `adamzki99/booking-system`. That covers the factory (`dev-ops/factory/**`, `.opencode/**`, `opencode.jsonc`, skills supply chain), GitHub Actions, the backend (`product/backend/**`), the sidecar (`projects/sauna/sidecar/**`), the frontend (`product/frontend-solid/src/**`), deployment config (`projects/sauna/**`, `dev-ops/signoz/**`, `dev-ops/scripts/**`), git history, and GDPR basics. This was a static review: I read files and local git history, ran no repo scripts and did no live testing. · **Reviewed** 2026-11-19 at commit 45f6ee5
 
 > **Addendum (2026-11-19).** A second, deeper pass reviewed TLS and Let's Encrypt usage and the exposure of the QA host. It added SEC-22 to SEC-27 and the section [Let's Encrypt and TLS review](#lets-encrypt-and-tls-review). That pass read only the local clone: no `gh`, network or web lookups, and nothing was run.
 
@@ -262,7 +262,7 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 **Evidence**
 - `internal/server/server.go:52` wraps `GET /users` in `protect(...)` only. `internal/user/http.go:67-85` (`HandleListUsers`) has **no role check**. Compare `HandleCreateUser` at `:129-133`.
 - `userToMap` returns `email`, `address`, `role`, `active` and `deactivatedAt` (`http.go:321-337`).
-- The frontend `/users` route needs only `RequireSession` (`product/frontend/src/App.tsx:33-41`).
+- The frontend `/users` route needs only `RequireSession` (`product/frontend-solid/src/App.tsx:33-41`).
 
 **Attack scenario.** Any basic resident, or anyone holding a stolen session token, downloads the full membership list with email addresses and flat addresses: material for phishing and a GDPR data-minimisation issue.
 
@@ -271,7 +271,7 @@ Convert the four agent files to `permissions:` lists in the same style. Remember
 ### SEC-10 - Session handling (Medium, M)
 
 **Evidence**
-- The token is stored in `localStorage` (`product/frontend/src/api/client.ts:1`, `15-34`), so any XSS (there is no CSP; see SEC-11) can read it.
+- The token is stored in `localStorage` (`product/frontend-solid/src/api/client.ts:1`, `15-34`), so any XSS (there is no CSP; see SEC-11) can read it.
 - The TTL is a fixed 24 hours (`internal/auth/service.go:16`), with no idle timeout and no rotation.
 - There is no logout or revoke endpoint. Nothing ever writes `revoked_at`; it is only read (`internal/auth/projection.go:162,183`). Frontend logout only clears storage (`SessionContext.tsx:67-70`), so a copied token keeps working for up to 24 hours unless the user is deactivated.
 - When the email changes, existing sessions are **re-keyed instead of revoked** (`internal/auth/projection.go:154-169`).

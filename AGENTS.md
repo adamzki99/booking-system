@@ -29,7 +29,7 @@ For details, read `product/README.md` and the deployment READMEs under `projects
 ## Stack
 
 - **Backend:** Go
-- **Frontend:** React
+- **Frontend:** Solid (TypeScript, Vite)
 - **Database:** PostgreSQL
 - **HTTP server:** Caddy
 - **APM:** SigNoz
