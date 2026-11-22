@@ -29,7 +29,7 @@ For details, read `product/README.md` and the deployment READMEs under `projects
 ## Stack
 
 - **Backend:** Go
-- **Frontend:** React
+- **Frontend:** Solid (TypeScript, Vite)
 - **Database:** PostgreSQL
 - **HTTP server:** Caddy
 - **APM:** SigNoz
@@ -55,6 +55,13 @@ Deployment-specific logic (for example, sauna rules) lives in a **stateless side
 - If a deployment needs new behavior, first ask whether it belongs in the sidecar. Only extend the product when the capability is useful to every deployment.
 
 ## Workflow
+
+### Work in git worktrees
+
+- **Always make changes in a git worktree.** Create a dedicated git worktree for every change and do all edits, commits, and other modifications there.
+- **Only reading actions are allowed on the `main` branch.** You may inspect, search, and read files on `main`, but you must not create, edit, delete, stage, commit, or otherwise modify files there.
+- Do not check out feature branches in the primary repository checkout. Use `git worktree add ...` (or equivalent tooling) to work in a separate directory.
+- Before creating the worktree, fetch the latest changes from the remote and make sure the worktree is based on the latest version of the target branch (for example, fetch `origin` and create the worktree from `origin/main`).
 
 ### Changes are made through pull requests
 

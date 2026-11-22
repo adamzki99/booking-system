@@ -1,5 +1,5 @@
-import { screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, screen, waitFor } from "@solidjs/testing-library";
+import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../test-utils";
 import type { Booking } from "../api/auth";
@@ -28,13 +28,26 @@ function booking(id: string, userId: string, start: string): Booking {
 
 function stubSession(id: string) {
   useSessionMock.mockReturnValue({
-    user: { id, email: "user@example.com", role: "basic", address: null, active: true },
-    loading: false,
+    user: () => ({
+      id,
+      email: "user@example.com",
+      role: "basic",
+      address: null,
+      active: true,
+    }),
+    loading: () => false,
     login: vi.fn(),
     loginWithQAMode: vi.fn(),
     refresh: vi.fn(),
     logout: vi.fn(),
-  });
+  } as any);
+}
+
+function setInput(element: HTMLElement, value: string) {
+  const input = element as HTMLInputElement;
+  input.value = value;
+  fireEvent.input(input);
+  flush();
 }
 
 describe("Calendar page", () => {
@@ -55,7 +68,7 @@ describe("Calendar page", () => {
       booking("b3", "u2", "2026-11-07T12:00:00Z"),
     ]);
 
-    render(<Calendar />);
+    render(() => <Calendar />);
 
     await screen.findByRole("list");
     const times = screen
@@ -74,11 +87,11 @@ describe("Calendar page", () => {
       .mockResolvedValue([booking("b1", "u1", "2026-11-08T08:00:00Z")]);
     createMock.mockResolvedValue(booking("b1", "u1", "2026-11-08T08:00:00Z"));
 
-    render(<Calendar />);
+    render(() => <Calendar />);
 
-    await userEvent.type(screen.getByLabelText("Start"), "2026-11-08T08:00");
-    await userEvent.type(screen.getByLabelText("End"), "2026-11-08T09:00");
-    await userEvent.click(screen.getByRole("button", { name: "Create booking" }));
+    setInput(await screen.findByLabelText("Start"), "2026-11-08T08:00");
+    setInput(screen.getByLabelText("End"), "2026-11-08T09:00");
+    fireEvent.click(screen.getByRole("button", { name: "Create booking" }));
 
     await waitFor(() =>
       expect(createMock).toHaveBeenCalledWith({
@@ -87,20 +100,22 @@ describe("Calendar page", () => {
       }),
     );
     // The refreshed list shows the new own booking with a cancel control.
-    expect(await screen.findByRole("button", { name: "Cancel booking" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Cancel booking" }),
+    ).toBeInTheDocument();
     expect(listMock).toHaveBeenCalledTimes(2);
   });
 
   it("enables creation only with a complete interval", async () => {
     listMock.mockResolvedValue([]);
 
-    render(<Calendar />);
+    render(() => <Calendar />);
 
     expect(
       await screen.findByRole("button", { name: "Create booking" }),
     ).toBeDisabled();
 
-    await userEvent.type(screen.getByLabelText("Start"), "2026-11-08T08:00");
+    setInput(screen.getByLabelText("Start"), "2026-11-08T08:00");
     expect(screen.getByRole("button", { name: "Create booking" })).toBeDisabled();
   });
 
@@ -111,15 +126,17 @@ describe("Calendar page", () => {
     ]);
     cancelMock.mockResolvedValue(undefined);
 
-    render(<Calendar />);
+    render(() => <Calendar />);
 
     // Only one cancel control exists: for the signed-in user's own booking.
     expect(
       await screen.findByRole("button", { name: "Cancel booking" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Cancel booking" })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: "Cancel booking" }),
+    ).toHaveLength(1);
 
-    await userEvent.click(screen.getByRole("button", { name: "Cancel booking" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel booking" }));
     await waitFor(() => expect(cancelMock).toHaveBeenCalledWith("b1"));
   });
 
@@ -127,7 +144,7 @@ describe("Calendar page", () => {
     listMock.mockResolvedValue([]);
     window.history.replaceState({}, "", "/?create=1");
     try {
-      render(<Calendar />);
+      render(() => <Calendar />);
 
       await waitFor(() => expect(screen.getByLabelText("Start")).toHaveFocus());
     } finally {

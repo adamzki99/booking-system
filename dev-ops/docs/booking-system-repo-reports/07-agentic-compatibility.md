@@ -97,7 +97,7 @@ The tally: **5 of 22 skills are headless-safe and relevant as they stand. 6 need
 
 **Evidence**
 - The only first-party skill is `dev-server-ssh` (`dev-ops/skills.yaml`), and it is for operators.
-- `product/backend/README.md` (51 lines) describes responsibilities and the advisory lock, but has no "how to add a feature" walkthrough. `AGENTS.md` (69 lines) states rules without examples. There is no `AGENTS.md` in `product/backend`, `product/frontend`, `projects/sauna/sidecar` or `dev-ops/factory`.
+- `product/backend/README.md` (51 lines) describes responsibilities and the advisory lock, but has no "how to add a feature" walkthrough. `AGENTS.md` (69 lines) states rules without examples. There is no `AGENTS.md` in `product/backend`, `product/frontend-solid`, `projects/sauna/sidecar` or `dev-ops/factory`.
 - The build prompt relies on generic skills instead (`tick.sh:555-575`).
 - The result is visible in the code: 35 alias declarations and 17 copies of the same command type switch (BE-13), a Postgres test harness copied 11 times (BE-14), and dead shim pages and duplicated aliases in the frontend (FE-17).
 
@@ -236,7 +236,7 @@ This roughly halves the prompt, and the scaffolding cost is no longer paid in to
 ### AGT-09 - `/lint-frontend` is broken and the check commands cover only the backend (Medium, S)
 
 **Evidence**
-- `.opencode/commands/lint-frontend.md:8,12` runs `npm run lint` and `npm run typecheck`. `product/frontend/package.json:6-11` defines only `dev`, `build`, `test` and `preview`, so the command always reports "missing script", and there's no ESLint at all (FE-15).
+- `.opencode/commands/lint-frontend.md:8,12` runs `npm run lint` and `npm run typecheck`. `product/frontend-solid/package.json:6-11` defines only `dev`, `build`, `test` and `preview`, so the command always reports "missing script", and there's no ESLint at all (FE-15).
 - The build prompt's local checks are backend-only: "gofmt -l ., go vet ./..., go test ./..., go build ./cmd/server for backend" (`tick.sh:605-606`).
 - There are no commands for frontend tests (`vitest`), sidecar tests, or the Playwright e2e suite. `test-backend` runs the Postgres integration tests with no hint about how to start a database. Its `${PIPESTATUS[0]}` also assumes bash for command shell interpolation (not verified).
 
@@ -348,7 +348,7 @@ dev-ops/skills/     # first-party, versioned with the code they describe
   es-feature/  db-migration/  sidecar-rule/  notification/  ui-conventions/  e2e/
   factory-tdd/ factory-review/ factory-pr/ factory-diagnosing-bugs/
 GLOSSARY.md, docs/adr/0001-…   # domain + decisions, cited by planner and reviewer
-product/backend/AGENTS.md, product/frontend/AGENTS.md, projects/sauna/sidecar/AGENTS.md
+product/backend/AGENTS.md, product/frontend-solid/AGENTS.md, projects/sauna/sidecar/AGENTS.md
 ```
 
 In this setup, `tick.sh` owns the worktree, PR, CI wait, merge and markers, chooses the skills per area and tier, routes models by role and risk, and measures every session against the benchmark.

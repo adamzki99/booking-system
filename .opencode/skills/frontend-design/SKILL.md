@@ -1,6 +1,6 @@
 ---
 name: frontend-design
-description: Guidance for frontend visual design in this repository. When supplied mockups or design references exist, follow them for styling, coloring, layout, and similar details; otherwise make deliberate, intentional choices. Always respect the fixed frontend stack (React 18, TypeScript, Vite, React Router, Chakra UI v2).
+description: Guidance for frontend visual design in this repository. When supplied mockups or design references exist, follow them for styling, coloring, layout, and similar details; otherwise make deliberate, intentional choices. Always respect the fixed frontend stack (Solid 2, TypeScript, Vite, @solidjs/router).
 license: Complete terms in LICENSE.txt
 ---
 
@@ -11,8 +11,8 @@ license: Complete terms in LICENSE.txt
 When working in this repository:
 
 - **Follow supplied mockups/design references when they exist.** Treat them as the visual source of truth for layout, hierarchy, spacing, coloring, typography, radii, component states, and responsive behavior for the relevant screens/flows. Do not invent a conflicting visual direction or replace mockup styling with a different aesthetic.
-- **Respect the fixed frontend stack:** React 18, TypeScript, Vite, React Router, and Chakra UI v2. Do not introduce a different UI framework, styling system, router, bundler, or language stack. Implement mockup intent with Chakra primitives, theme tokens, semantic tokens, and component recipes/variants.
-- **Align with the existing generic theme:** prefer `product/frontend/src/theme.ts` tokens/recipes and established frontend patterns. Reuse or extend tokens/variants instead of duplicating ad-hoc hex values, spacing, or bespoke CSS.
+- **Respect the fixed frontend stack:** Solid 2, TypeScript, Vite, and @solidjs/router. Do not introduce a different UI framework, styling system, router, bundler, or language stack. Implement mockup intent with existing UI primitives, theme tokens, and component patterns.
+- **Align with the existing generic theme:** prefer `product/frontend-solid/src/theme.ts` tokens and established frontend patterns in `product/frontend-solid/`. Reuse or extend shared primitives/tokens instead of duplicating ad-hoc hex values, spacing, or bespoke CSS.
 - **Keep boundaries clear:** deployment-specific branding/copy/assets belong in `projects/<name>/`; reusable visual patterns belong in generic frontend code/theme only when useful across deployments.
 - If no relevant mockup/design reference is supplied, you may make deliberate, intentional visual choices that fit the product and existing design language (do not default to unrelated template aesthetics).
 

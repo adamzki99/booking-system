@@ -26,12 +26,12 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 
 ## `frontend-ci.yml`
 
-**Triggers:** `pull_request` and `push` to `main` when `product/frontend/**` or the workflow file changes; `workflow_dispatch`.
+**Triggers:** `pull_request` and `push` to `main` when `product/frontend-solid/**` or the workflow file changes; `workflow_dispatch`.
 
 **Jobs:**
-- **Install, test, build** (`product/frontend`): installs dependencies with `npm ci` (deterministic, from `package-lock.json`), runs the Vitest suite (`npm test`), and runs the production build (`npm run build`, which runs `tsc --noEmit` then `vite build`). Node 22 is used, matching `product/frontend/Dockerfile`. Dependencies are cached via `actions/setup-node`. Actions are pinned to full commit SHAs (`actions/checkout` and `actions/setup-node` v4.4.0) so a repointed tag cannot inject code into the job.
+- **Install, typecheck, test, build** (`product/frontend-solid`): installs dependencies with `npm ci` (deterministic, from `package-lock.json`), runs typecheck (`npm run typecheck`), runs the Vitest suite (`npm test`), and runs the production build (`npm run build`, which runs `tsc --noEmit` then `vite build`). Node 22 is used, matching `product/frontend-solid/Dockerfile`. Dependencies are cached via `actions/setup-node`. Actions are pinned to full commit SHAs (`actions/checkout` and `actions/setup-node` v4.4.0) so a repointed tag cannot inject code into the job.
 
-**Notes:** Any failing test or type/build error fails the check. No secrets are required.
+**Notes:** Any failing typecheck, test, or build error fails the check. No secrets are required.
 
 ## `sidecar-ci.yml`
 

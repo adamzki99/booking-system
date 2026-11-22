@@ -1,5 +1,5 @@
 # Sauna booking - Caddy configuration.
-# Serves the React SPA and proxies API calls to the backend.
+# Serves the SPA and proxies API calls to the backend.
 #
 # TLS: the public FQDN comes from the SITE_ADDRESS environment variable. Caddy
 # obtains and auto-renews a Let's Encrypt certificate for it (see ACME_EMAIL

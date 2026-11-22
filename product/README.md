@@ -8,7 +8,7 @@ deployment-specific configuration and logic live in `../projects/<name>/`.
 | Component   | Tech  | Purpose |
 |-------------|-------|---------|
 | `backend/`  | Go    | Commands, queries, event store, projections, REST API, auth. |
-| `frontend/` | React | Booking calendar UI, account management, super-user tooling. |
+| `frontend-solid/` | Solid (TypeScript, Vite) | Booking calendar UI, account management, super-user tooling. |
 
 ## Core capabilities
 

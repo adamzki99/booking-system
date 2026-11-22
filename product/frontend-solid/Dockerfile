@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# Build the Vite/React SPA.
+# Build the Vite/Solid SPA.
 # Pinned patch-level tag per Semgrep node-brotli-usage (CVE-2026-111497 fix is
 # in 22.23.4); keep in sync with upgrades.
 FROM node:22.23.4-alpine AS build
@@ -17,4 +17,7 @@ RUN npm run build
 FROM alpine:3.21
 
 COPY --from=build /src/dist /www
+# This one-shot publish container must write to the shared /srv volume; runtime
+# ownership is managed by the volume mount, matching the containerized frontend publish pattern.
+# nosemgrep: dockerfile.security.missing-user.missing-user
 CMD ["sh", "-c", "rm -rf /srv/* 2>/dev/null; mkdir -p /srv; cp -a /www/. /srv/; exec sleep infinity"]

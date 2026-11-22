@@ -16,7 +16,7 @@ Each top-level directory is a "group" within the organization:
 ## Stack
 
 - **Backend:** Go
-- **Frontend:** React
+- **Frontend:** Solid (TypeScript, Vite)
 - **Database:** PostgreSQL
 - **HTTP server:** Caddy
 - **APM:** SigNoz

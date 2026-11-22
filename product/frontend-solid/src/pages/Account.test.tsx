@@ -1,5 +1,5 @@
-import { screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, screen, waitFor } from "@solidjs/testing-library";
+import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../test-utils";
 import { useSession } from "../auth/SessionContext";
@@ -47,13 +47,20 @@ const refreshedUser: User = { ...user, email: "moved@example.com" };
 
 function stubSession() {
   useSessionMock.mockReturnValue({
-    user,
-    loading: false,
+    user: () => user,
+    loading: () => false,
     login: vi.fn(),
     loginWithQAMode: vi.fn(),
     refresh: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn(),
-  });
+  } as any);
+}
+
+function setInput(element: HTMLElement, value: string) {
+  const input = element as HTMLInputElement;
+  input.value = value;
+  fireEvent.input(input);
+  flush();
 }
 
 describe("Account page email change", () => {
@@ -83,7 +90,7 @@ describe("Account page email change", () => {
   });
 
   it("shows the account email from the session", async () => {
-    render(<Account />);
+    render(() => <Account />);
     await screen.findByTestId("account-email");
     await waitFor(() =>
       expect(screen.getByTestId("account-email").textContent).toBe(
@@ -93,7 +100,7 @@ describe("Account page email change", () => {
   });
 
   it("renders the Account, Email and Calendar section headings", async () => {
-    render(<Account />);
+    render(() => <Account />);
     await screen.findByTestId("account-email");
     expect(screen.getByRole("heading", { name: "Account", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Email", level: 2 })).toBeInTheDocument();
@@ -107,55 +114,51 @@ describe("Account page email change", () => {
       configurable: true,
     });
 
-    render(<Account />);
+    render(() => <Account />);
     await screen.findByTestId("account-email");
 
-    await userEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+    await flush();
     expect(await screen.findByText("https://cal.example/feed.ics")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Copy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await flush();
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith("https://cal.example/feed.ics"),
     );
   });
 
   it("walks through request, code entry and confirm, then refreshes the session", async () => {
-    render(<Account />);
+    render(() => <Account />);
     await screen.findByTestId("account-email");
 
-    const usr = userEvent.setup();
     const emailInput = screen.getByLabelText("New email") as HTMLInputElement;
-    await usr.clear(emailInput);
-    await usr.type(emailInput, "moved@example.com");
-    await usr.click(screen.getByRole("button", { name: "Send verification code" }));
+    setInput(emailInput, "moved@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    await flush();
 
     await waitFor(() =>
       expect(requestEmailChangeMock).toHaveBeenCalledWith("moved@example.com"),
     );
 
-    // The page moves to the code step.
     await screen.findByLabelText("Verification code");
     expect(
       screen.getAllByText(/verification code was sent to moved@example.com/i).length,
     ).toBeGreaterThan(0);
 
-    await usr.type(screen.getByLabelText("Verification code"), "ABC123");
-    await usr.click(screen.getByRole("button", { name: "Confirm email change" }));
+    setInput(screen.getByLabelText("Verification code"), "ABC123");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm email change" }));
+    await flush();
 
     await waitFor(() => expect(confirmEmailChangeMock).toHaveBeenCalledWith("ABC123"));
-
-    // The session context is refreshed so it agrees with the account.
     await waitFor(() => expect(useSessionMock().refresh).toHaveBeenCalled());
 
-    // The displayed email and the code step are cleared.
     await waitFor(() =>
       expect(screen.getByTestId("account-email").textContent).toBe(
         "moved@example.com",
       ),
     );
-    expect(
-      screen.queryByLabelText("Verification code"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Verification code")).not.toBeInTheDocument();
   });
 
   it("shows pending email change persistently and supports resend and cancel", async () => {
@@ -164,17 +167,19 @@ describe("Account page email change", () => {
       expiresAt: "2026-11-17T20:00:00Z",
     });
 
-    render(<Account />);
+    render(() => <Account />);
 
     expect(await screen.findByTestId("pending-email-change")).toBeInTheDocument();
     expect(screen.getByText(/email change pending/i)).toBeInTheDocument();
     expect(screen.getAllByText(/pending@example.com/i).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Verification code")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Resend code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+    await flush();
     await waitFor(() => expect(resendEmailChangeMock).toHaveBeenCalled());
 
-    await userEvent.click(screen.getByRole("button", { name: "Cancel email change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel email change" }));
+    await flush();
     await waitFor(() => expect(cancelEmailChangeMock).toHaveBeenCalled());
     await waitFor(() =>
       expect(screen.queryByTestId("pending-email-change")).not.toBeInTheDocument(),
@@ -186,15 +191,13 @@ describe("Account page email change", () => {
     requestEmailChangeMock.mockRejectedValue(
       Object.assign(new Error("user: duplicate email"), { name: "ApiError" }),
     );
-    render(<Account />);
+    render(() => <Account />);
     await screen.findByTestId("account-email");
 
-    await userEvent
-      .setup()
-      .click(screen.getByRole("button", { name: "Send verification code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    await flush();
 
     await screen.findByRole("alert");
-    // A friendly message is shown instead of the raw internal prefix.
     expect(screen.getByRole("alert").textContent).toMatch(/already in use/i);
     expect(screen.getByRole("alert").textContent).not.toContain("user:");
   });

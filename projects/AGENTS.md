@@ -11,7 +11,7 @@ Read the root [`../AGENTS.md`](../AGENTS.md) first for repository-wide rules (wo
 There are no repository-wide build/test/lint commands in this directory. Verification depends on the specific deployment and the components involved:
 
 - Follow the deployment's own `README.md` and scripts under `projects/<name>/` (for example compose, setup, smoke-test, and sidecar commands).
-- When a deployment change affects generic behavior, also run the relevant verification in [`../product/backend/`](../product/backend/AGENTS.md) and/or [`../product/frontend/`](../product/frontend/AGENTS.md).
+- When a deployment change affects generic behavior, also run the relevant verification in [`../product/backend/`](../product/backend/AGENTS.md) and/or [`../product/frontend-solid/`](../product/frontend-solid/AGENTS.md).
 - For operational/dev-ops tooling used by deployments, see [`../dev-ops/AGENTS.md`](../dev-ops/AGENTS.md).
 
 If a deployment directory does not define a particular verification step (build, lint, smoke test, etc.), state that explicitly in the deployment docs or AGENTS file rather than assuming one exists.

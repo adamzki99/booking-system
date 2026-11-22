@@ -22,14 +22,14 @@ No dedicated frontend lint/format script is defined for this deployment director
 
 - **Stateless sidecar:** sauna-specific runtime logic lives in `sidecar/` and is exposed over REST for the backend to call. The sidecar must remain stateless (no persistent storage or hidden durable state). Keep deployment-specific booking/policy logic here rather than in `../../product/`.
 - **Deployment-specific configuration:** hostnames, tunnel tokens, secrets, ACME/public base URLs, and other environment values belong in `.env`/deployment config (not committed secrets) and deployment docs. Do not move deployment identifiers into generic product code.
-- **Product boundary:** reuse generic product capabilities from `../../product/backend/` and `../../product/frontend/`. Only extend the generic product when a capability is useful to every deployment.
+- **Product boundary:** reuse generic product capabilities from `../../product/backend/` and `../../product/frontend-solid/`. Only extend the generic product when a capability is useful to every deployment.
 - **Operational context:** this deployment is commonly used with dev/QA tooling described in [`../../dev-ops/README.md`](../../dev-ops/README.md). QA-mode/testing-agent behavior is dev/QA only; do not enable or assume it for production environments.
 - **Architecture alignment:** follow root/product rules (CQRS/event sourcing, append-only events, PR-based workflow, no issue labels at creation, no em-dashes).
 
 ## UI mockups
 
 - Supplied sauna UI mockups are canonical visual references for the corresponding flows: [`docs/mocks/sauna_booking_website_normal_user_mock_desktop.html`](docs/mocks/sauna_booking_website_normal_user_mock_desktop.html) and [`docs/mocks/sauna_booking_website_normal_user_mock_mobile.html`](docs/mocks/sauna_booking_website_normal_user_mock_mobile.html).
-- When implementing or changing sauna UI, follow these mockups for layout, styling, coloring, spacing, typography, and component states while respecting the fixed frontend stack (**React 18, TypeScript, Vite, React Router, Chakra UI v2**) and generic frontend conventions in [`../../product/frontend/AGENTS.md`](../../product/frontend/AGENTS.md). Keep reusable visual patterns in generic theme/tokens/components when broadly useful; keep sauna-specific branding/copy/assets in this deployment.
+- When implementing or changing sauna UI, follow these mockups for layout, styling, coloring, spacing, typography, and component states while respecting the fixed frontend stack (**Solid 2, TypeScript, Vite, @solidjs/router**) and generic frontend conventions in [`../../product/frontend-solid/AGENTS.md`](../../product/frontend-solid/AGENTS.md). Keep reusable visual patterns in generic theme/tokens/components when broadly useful; keep sauna-specific branding/copy/assets in this deployment.
 
 ## Canonical references
 

@@ -265,7 +265,7 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 **Acceptance criteria**
 - [ ] A docs-only PR gets a green `ci-gate`, with the backend, frontend and sidecar jobs shown as skipped.
 - [ ] A PR with a failing Go test under `product/backend/` gets a red `ci-gate`.
-- [ ] A PR that touches only `product/frontend/` runs the frontend suite and skips the backend suite.
+- [ ] A PR that touches only `product/frontend-solid/` runs the frontend suite and skips the backend suite.
 - [ ] A PR that changes only `dev-ops/**` still reports a `ci-gate` result.
 - [ ] When a needed job is cancelled, `ci-gate` concludes `failure`.
 
@@ -342,9 +342,9 @@ GitHub enforces none of the rules the agents are told to follow. This epic moves
 **Proposed change.**
 - Add `.github/dependabot.yml`, weekly, grouping minor and patch updates:
   - `gomod`: `/product/backend`, `/projects/sauna/sidecar`
-  - `npm`: `/product/frontend`, `/dev-ops/testing`
+  - `npm`: `/product/frontend-solid`, `/dev-ops/testing`
   - `github-actions`: `/`
-  - `docker`: the Dockerfile directories `/product/backend`, `/product/frontend`, `/projects/sauna/sidecar`, `/dev-ops/testing`, plus the compose files in `/projects/sauna` and `/dev-ops/signoz` via the `docker-compose` ecosystem.
+  - `docker`: the Dockerfile directories `/product/backend`, `/product/frontend-solid`, `/projects/sauna/sidecar`, `/dev-ops/testing`, plus the compose files in `/projects/sauna` and `/dev-ops/signoz` via the `docker-compose` ecosystem.
 - Ignore semver-major updates of `@chakra-ui/*`, following FE-18's advice to stay on Chakra v2 through the redesign.
 - Dependabot PRs go through `ci-gate` (I-004) like any other PR.
 - Tracked outside this epic: the Vite/Vitest upgrade and `@types/node` alignment (FE-18), `--pull` in the deploy and image scanning (OPS-21), and removing the Authelia skeleton (SEC-20).
@@ -865,14 +865,14 @@ The hourly orchestrator `dev-ops/factory/tick.sh` has failure modes that silentl
 **Acceptance criteria**
 - [ ] `grep -n "continuing in" dev-ops/factory/tick.sh` returns nothing, and a test where `git worktree add` fails sees a non-zero exit and no session.
 - [ ] A test with a worktree dirty for 3 ticks finds a `factory/rescue-*` branch and a clean worktree afterwards.
-- [ ] `product/frontend/node_modules` in the worktree survives a tick.
+- [ ] `product/frontend-solid/node_modules` in the worktree survives a tick.
 - [ ] `nightly-cleanup.sh` removes a per-issue worktree under `$FACTORY_WORKTREES` whose PR is merged.
 
 ### I-035 - Add a CI workflow for the factory and deploy scripts
 
 **Covers:** FAC-18, OPS-08, AGT-16, OBS-13 · **Labels:** `dev-ops`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Owner-reviewed PR · **Depends on:** I-004
 
-**Problem.** `dev-ops/factory/validate.sh` (bash -n, shellcheck, py_compile, `validate-models`, pytest) and `dev-ops/scripts/tests/test-*.sh` are run by no workflow, and CI is path-filtered to `product/backend/**`, `product/frontend/**` and the sidecar (`backend-ci.yml:4-11`, `frontend-ci.yml:4-13`, `sidecar-ci.yml:4-13`). PRs #153-#155, which fixed deploy-script bugs #85, #86 and #89, ran only Security and Semgrep. Nothing runs shellcheck, `docker compose config` or `caddy validate`, only the backend image is built, `opencode.jsonc` is never validated against its `$schema`, and the collector config (`start_at: end` without `file_storage`, `otel-collector.yaml:15`; a `%f` layout against millisecond timestamps, `:18-20`, unverified) is never tested.
+**Problem.** `dev-ops/factory/validate.sh` (bash -n, shellcheck, py_compile, `validate-models`, pytest) and `dev-ops/scripts/tests/test-*.sh` are run by no workflow, and CI is path-filtered to `product/backend/**`, `product/frontend-solid/**` and the sidecar (`backend-ci.yml:4-11`, `frontend-ci.yml:4-13`, `sidecar-ci.yml:4-13`). PRs #153-#155, which fixed deploy-script bugs #85, #86 and #89, ran only Security and Semgrep. Nothing runs shellcheck, `docker compose config` or `caddy validate`, only the backend image is built, `opencode.jsonc` is never validated against its `$schema`, and the collector config (`start_at: end` without `file_storage`, `otel-collector.yaml:15`; a `%f` layout against millisecond timestamps, `:18-20`, unverified) is never tested.
 
 **Proposed change.**
 - Add `.github/workflows/factory-ci.yml` on `pull_request` for `dev-ops/**`, `.opencode/**`, `opencode.jsonc`, `AGENTS.md`, `projects/sauna/**` and the Dockerfiles. Run `validate.sh`, every `dev-ops/scripts/tests/test-*.sh`, and shellcheck (missing shellcheck fails).
@@ -1026,7 +1026,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 
 **Covers:** AGT-01 · **Labels:** `frontend`, `standard-build-task`, `documentation` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
-**Problem.** UI and e2e work relies on generic skills that don't fit: `frontend-design` pushes "distinctive… aesthetic risk" while the project has approved mockups and a fixed Chakra theme, and `webapp-testing` ships Python Playwright helpers while the e2e suite is TypeScript in `dev-ops/testing/`. There is no `AGENTS.md` in `product/backend`, `product/frontend`, `projects/sauna/sidecar` or `dev-ops/factory`, so agents get no package map or golden-path links. The frontend already shows the drift: dead shim pages and duplicated aliases (FE-17).
+**Problem.** UI and e2e work relies on generic skills that don't fit: `frontend-design` pushes "distinctive… aesthetic risk" while the project has approved mockups and a fixed Chakra theme, and `webapp-testing` ships Python Playwright helpers while the e2e suite is TypeScript in `dev-ops/testing/`. There is no `AGENTS.md` in `product/backend`, `product/frontend-solid`, `projects/sauna/sidecar` or `dev-ops/factory`, so agents get no package map or golden-path links. The frontend already shows the drift: dead shim pages and duplicated aliases (FE-17).
 
 **Proposed change.**
 - Add `dev-ops/skills/ui-conventions`: Chakra theme tokens from `theme.ts`, the mockups in `projects/sauna/docs/mocks/`, the `api/client.ts` pattern, `test-utils.tsx`, accessibility and mobile rules.
@@ -1083,7 +1083,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 
 **Covers:** AGT-09, FE-15 · **Labels:** `dev-ops`, `frontend`, `light-build-task`, `bug` · **Priority:** Now · **Executor:** Owner-reviewed PR · **Depends on:** –
 
-**Problem.** `.opencode/commands/lint-frontend.md:8,12` runs `npm run lint` and `npm run typecheck`, but `product/frontend/package.json:6-11` defines only `dev`, `build`, `test` and `preview`, so the command always reports a missing script. The build prompt's local checks are backend-only (`tick.sh:605-606`), and there are no commands for vitest, sidecar tests or the Playwright suite. The frontend has no ESLint and `frontend-ci.yml:39-43` runs only test and build (FE-15). Every frontend or sidecar slip costs a CI round trip plus a fix session.
+**Problem.** `.opencode/commands/lint-frontend.md:8,12` runs `npm run lint` and `npm run typecheck`, but `product/frontend-solid/package.json:6-11` defines only `dev`, `build`, `test` and `preview`, so the command always reports a missing script. The build prompt's local checks are backend-only (`tick.sh:605-606`), and there are no commands for vitest, sidecar tests or the Playwright suite. The frontend has no ESLint and `frontend-ci.yml:39-43` runs only test and build (FE-15). Every frontend or sidecar slip costs a CI round trip plus a fix session.
 
 **Proposed change.**
 - Add `dev-ops/scripts/check.sh [backend|frontend|sidecar|e2e|all]`: non-zero on failure, output bounded with `tail`.
@@ -1092,7 +1092,7 @@ The agents run headless on OpenCode Go models with contradictory role definition
 - Have the build prompt call `check.sh <area>` from the area label, and the area CI workflows call the same script.
 
 **Acceptance criteria**
-- [ ] `cd product/frontend && npm run lint && npm run typecheck` exits 0 on `main`.
+- [ ] `cd product/frontend-solid && npm run lint && npm run typecheck` exits 0 on `main`.
 - [ ] `dev-ops/scripts/check.sh frontend` exits non-zero when a type error is introduced (test).
 - [ ] `dev-ops/scripts/check.sh all` exits 0 on `main`, with at most 200 lines of output per area.
 - [ ] `backend-ci.yml`, `frontend-ci.yml` and `sidecar-ci.yml` invoke `dev-ops/scripts/check.sh` (grep).
@@ -1460,7 +1460,7 @@ SigNoz runs and the backend exports basic traces, but factory telemetry may neve
 
 **Covers:** OBS-14 · **Labels:** `backend`, `frontend`, `standard-build-task`, `enhancement` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-060
 
-**Problem.** There is no OpenTelemetry code under `projects/sauna/sidecar/` or `product/frontend/src/` (grep). Rule-evaluation latency and failures in the sidecar are invisible, which matters because the sidecar fails open (BE-09). Frontend load and API errors seen by residents are not measured at all.
+**Problem.** There is no OpenTelemetry code under `projects/sauna/sidecar/` or `product/frontend-solid/src/` (grep). Rule-evaluation latency and failures in the sidecar are invisible, which matters because the sidecar fails open (BE-09). Frontend load and API errors seen by residents are not measured at all.
 
 **Proposed change.**
 - Sidecar: wrap the handler with `otelhttp`, initialise telemetry like the backend, and add attributes for the rule evaluated and its result. With the I-060 client transport, traces run end to end.
@@ -2071,7 +2071,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 
 **Covers:** SEC-10, BE-11, FE-14 · **Labels:** `backend`, `frontend`, `standard-build-task`, `enhancement` · **Priority:** Next · **Executor:** Factory · **Depends on:** – (relates to open issue #125, which shortens the session lifetime to 24 h)
 
-**Problem.** The session token is stored in `localStorage` (`product/frontend/src/api/client.ts:1,15-34`), so any XSS can read it, and there is no CSP. Nothing ever writes `sessions.revoked_at` (`internal/auth/projection.go:162,183`), and there is no logout or revoke endpoint. "Log out" only clears storage (`SessionContext.tsx:67-70`), so a copied token keeps working until expiry (`internal/auth/service.go:16`). On an email change, sessions are re-keyed instead of revoked (`projection.go:154-169`). The middleware accepts a `session` cookie (`middleware.go:66`) that nothing sets, and POST routes have no CSRF or Origin check.
+**Problem.** The session token is stored in `localStorage` (`product/frontend-solid/src/api/client.ts:1,15-34`), so any XSS can read it, and there is no CSP. Nothing ever writes `sessions.revoked_at` (`internal/auth/projection.go:162,183`), and there is no logout or revoke endpoint. "Log out" only clears storage (`SessionContext.tsx:67-70`), so a copied token keeps working until expiry (`internal/auth/service.go:16`). On an email change, sessions are re-keyed instead of revoked (`projection.go:154-169`). The middleware accepts a `session` cookie (`middleware.go:66`) that nothing sets, and POST routes have no CSRF or Origin check.
 
 **Proposed change.**
 - Issue the session as `Set-Cookie: session=…; HttpOnly; Secure; SameSite=Strict; Path=/api`. Stop storing the token in `localStorage`. Add an Origin check on state-changing routes.
@@ -2128,7 +2128,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 
 > **Sensitive.** This describes an authorization gap that is exploitable now on any deployment, so fix it first and file it afterwards with neutral wording, or track it in a private security advisory.
 
-**Problem.** `GET /users` is wrapped only in `protect(...)` (`internal/server/server.go:52`), and `HandleListUsers` (`internal/user/http.go:67-85`) has no role check, unlike `HandleCreateUser` (`:129-133`). `userToMap` returns `email`, `address`, `role`, `active` and `deactivatedAt` (`http.go:321-337`). The frontend `/users` route needs only `RequireSession` (`product/frontend/src/App.tsx:33-41`). Any basic resident, or anyone with a stolen session, can download every resident's email and flat address. That is phishing material and a GDPR data-minimisation problem.
+**Problem.** `GET /users` is wrapped only in `protect(...)` (`internal/server/server.go:52`), and `HandleListUsers` (`internal/user/http.go:67-85`) has no role check, unlike `HandleCreateUser` (`:129-133`). `userToMap` returns `email`, `address`, `role`, `active` and `deactivatedAt` (`http.go:321-337`). The frontend `/users` route needs only `RequireSession` (`product/frontend-solid/src/App.tsx:33-41`). Any basic resident, or anyone with a stolen session, can download every resident's email and flat address. That is phishing material and a GDPR data-minimisation problem.
 
 **Proposed change.**
 - Require `RoleSuper` in `HandleListUsers` and return 403 otherwise.
@@ -2201,7 +2201,7 @@ These issues fix session handling and authentication storage, close gaps in the 
 
 **Covers:** BE-08 · **Labels:** `backend`, `light-build-task`, `bug` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
-**Problem.** The frontend sends `new Date(start).toISOString()`, which is always UTC (`product/frontend/src/pages/Calendar.tsx:72-73`). The notifier formats the time without converting it: `payload.Start.Format("2006-01-02 15:04")` (`internal/booking/notify.go:61`). The only timezone setting is in the sidecar (`BOOKING_TIMEZONE`), and the product has no display timezone. A Stockholm resident who books 18:00–19:00 is told "17:00 to 18:00" in winter and "16:00 to 17:00" in summer. This breaks happy-flow step 8 in `projects/sauna/README.md`.
+**Problem.** The frontend sends `new Date(start).toISOString()`, which is always UTC (`product/frontend-solid/src/pages/Calendar.tsx:72-73`). The notifier formats the time without converting it: `payload.Start.Format("2006-01-02 15:04")` (`internal/booking/notify.go:61`). The only timezone setting is in the sidecar (`BOOKING_TIMEZONE`), and the product has no display timezone. A Stockholm resident who books 18:00–19:00 is told "17:00 to 18:00" in winter and "16:00 to 17:00" in summer. This breaks happy-flow step 8 in `projects/sauna/README.md`.
 
 **Proposed change.**
 - Add `DISPLAY_TIMEZONE` to `config.Config`. Load it once with `time.LoadLocation`, and fail at startup if it is invalid (alongside I-100's validation).
@@ -2296,7 +2296,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 
 **Covers:** FE-01, FE-16 · **Labels:** `frontend`, `bug`, `light-build-task` · **Priority:** Next · **Executor:** Factory · **Depends on:** –
 
-**Problem.** `product/frontend/src/auth/SessionContext.tsx:39-45` clears the token on every rejected restore (`.catch(() => { // Token expired or revoked: treat as signed out. setToken(null); ...})`), so a network error, or a 502 or 503 during the hourly redeploy, logs the resident out. Logging in again needs a new emailed code (limited to 5 per 15 minutes, `auth/service.go:20-21`). Conversely, `api/client.ts:52-63` only throws `ApiError` and nothing reacts to a 401, so an expired token leaves the user on a page where every action fails. While restoring, `RequireSession.tsx:14-16` renders `null`, which shows a blank screen on slow networks (FE-16).
+**Problem.** `product/frontend-solid/src/auth/SessionContext.tsx:39-45` clears the token on every rejected restore (`.catch(() => { // Token expired or revoked: treat as signed out. setToken(null); ...})`), so a network error, or a 502 or 503 during the hourly redeploy, logs the resident out. Logging in again needs a new emailed code (limited to 5 per 15 minutes, `auth/service.go:20-21`). Conversely, `api/client.ts:52-63` only throws `ApiError` and nothing reacts to a 401, so an expired token leaves the user on a page where every action fails. While restoring, `RequireSession.tsx:14-16` renders `null`, which shows a blank screen on slow networks (FE-16).
 
 **Proposed change.**
 - In `client.ts`, add `setUnauthorizedHandler(fn)`. On `res.status === 401`, clear the token and call the handler.
@@ -2417,7 +2417,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 **Acceptance criteria**
 - [ ] `/api/chrome` returns a `timeZone` field, covered by a sidecar test.
 - [ ] A `datetime.test.ts` case with `TZ=America/New_York` asserts that 09:00 entered for a Stockholm deployment is sent as `07:00Z` or `08:00Z` depending on DST. The CI zone matrix is I-119.
-- [ ] `grep -rn "toLocaleString\|toISOString().slice" product/frontend/src --include=*.tsx` finds no display formatting outside `src/lib/datetime.ts`.
+- [ ] `grep -rn "toLocaleString\|toISOString().slice" product/frontend-solid/src --include=*.tsx` finds no display formatting outside `src/lib/datetime.ts`.
 - [ ] A test asserts `describeError` turns `booking: slot already booked` (409) into text without the `booking:` prefix.
 - [ ] The owner's language decision is recorded on this issue.
 
@@ -2438,7 +2438,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test asserts `fetch` receives an `AbortSignal`.
 - [ ] Tests for Calendar, Users and Account assert a loading indicator renders before data resolves.
 - [ ] A test asserts `Account` makes no `currentUser()` call when a session user exists.
-- [ ] `grep -rn "useEffect" product/frontend/src/pages` shows no data-fetching effects.
+- [ ] `grep -rn "useEffect" product/frontend-solid/src/pages` shows no data-fetching effects.
 
 ### I-115 - Fix accessibility issues
 
@@ -2456,14 +2456,14 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - [ ] A test renders each authenticated route and asserts exactly one `main` landmark (`getAllByRole("main")` has length 1).
 - [ ] A test asserts the drawer toggle has `aria-expanded` that changes when clicked.
 - [ ] A routing test asserts `document.title` differs per route and the `h1` has focus after navigation.
-- [ ] No `Button` or `IconButton` in `product/frontend/src/pages` or `src/components` uses `size="xs"` or `size="sm"` (checked by grep in review).
+- [ ] No `Button` or `IconButton` in `product/frontend-solid/src/pages` or `src/components` uses `size="xs"` or `size="sm"` (checked by grep in review).
 - [ ] A test asserts an invalid email in Login sets `aria-invalid="true"` on the input.
 
 ### I-116 - Add asset caching, compression and asset retention across deploys
 
 **Covers:** FE-11 · **Labels:** `frontend`, `dev-ops`, `bug`, `light-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-082
 
-**Problem.** On start, the frontend container runs `rm -rf /srv/* …; cp -a /www/. /srv/; exec sleep infinity` (`product/frontend/Dockerfile:17-20`), so every deploy deletes the previous hashed `/assets/*.js`. Caddy serves the SPA with `try_files {path} /index.html` + `file_server` (`projects/sauna/config/Caddyfile:41-44`), with no `Cache-Control` and no `encode`. A browser that cached `index.html` heuristically, or an open tab that lazy-loads after a deploy, requests an old asset hash, gets `index.html` as `text/html`, fails to load the module and shows a blank page. With hourly dev/QA redeploys this is likely. The CSP and security headers from FE-11 are in I-082.
+**Problem.** On start, the frontend container runs `rm -rf /srv/* …; cp -a /www/. /srv/; exec sleep infinity` (`product/frontend-solid/Dockerfile:17-20`), so every deploy deletes the previous hashed `/assets/*.js`. Caddy serves the SPA with `try_files {path} /index.html` + `file_server` (`projects/sauna/config/Caddyfile:41-44`), with no `Cache-Control` and no `encode`. A browser that cached `index.html` heuristically, or an open tab that lazy-loads after a deploy, requests an old asset hash, gets `index.html` as `text/html`, fails to load the module and shows a blank page. With hourly dev/QA redeploys this is likely. The CSP and security headers from FE-11 are in I-082.
 
 **Proposed change.**
 - In the Caddyfile:
@@ -2525,7 +2525,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 
 **Covers:** FE-15 · **Labels:** `frontend`, `enhancement`, `light-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** I-046
 
-**Problem.** `product/frontend/package.json` has no ESLint, so missing hook deps (`Users.tsx:65-76`) and a11y mistakes go unflagged. CI (`frontend-ci.yml:39-43`) runs only test and build, with no coverage. `src/theme.test.ts` (236 lines) mostly re-asserts hex constants copied from `theme.ts` (`:43-55, 58-86`), so any palette change needs two edits and catches no behaviour. `tests.setup.ts:7` pins `TZ=UTC`, and the `Calendar.test.tsx:22-24` fixture creates zero-length bookings. Several flows have no tests: SessionContext restore, 401 mid-session, `App` routing, Login deep-link return, Account Regenerate/Copy, and the Users add/block/broadcast forms.
+**Problem.** `product/frontend-solid/package.json` has no ESLint, so missing hook deps (`Users.tsx:65-76`) and a11y mistakes go unflagged. CI (`frontend-ci.yml:39-43`) runs only test and build, with no coverage. `src/theme.test.ts` (236 lines) mostly re-asserts hex constants copied from `theme.ts` (`:43-55, 58-86`), so any palette change needs two edits and catches no behaviour. `tests.setup.ts:7` pins `TZ=UTC`, and the `Calendar.test.tsx:22-24` fixture creates zero-length bookings. Several flows have no tests: SessionContext restore, 401 mid-session, `App` routing, Login deep-link return, Account Regenerate/Copy, and the Users add/block/broadcast forms.
 
 **Proposed change.**
 - Add `eslint`, `typescript-eslint`, `eslint-plugin-react-hooks` and `eslint-plugin-jsx-a11y`, an `npm run lint` script and a CI step.
@@ -2535,7 +2535,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - Add tests for the untested flows above that are not already added by I-107, I-108 and I-117.
 
 **Acceptance criteria**
-- [ ] `npm run lint` exits 0 in `product/frontend` and runs as a step in `frontend-ci.yml`.
+- [ ] `npm run lint` exits 0 in `product/frontend-solid` and runs as a step in `frontend-ci.yml`.
 - [ ] `frontend-ci.yml` fails when line coverage drops below the configured floor.
 - [ ] The CI job runs `npm test` under both `TZ=UTC` and `TZ=America/New_York`.
 - [ ] `theme.test.ts` has no assertions that compare against literal hex strings.
@@ -2561,7 +2561,7 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 - Land this as a prep PR before #120 (sequence in I-111).
 
 **Acceptance criteria**
-- [ ] `grep -c "<RequireSession>" product/frontend/src/App.tsx` returns 1.
+- [ ] `grep -c "<RequireSession>" product/frontend-solid/src/App.tsx` returns 1.
 - [ ] A routing test asserts `/`, `/account` and `/users` all render inside a single `AppShell` and redirect to `/login` when signed out.
 - [ ] A test renders a child that throws and asserts a "Reload" button is shown instead of an empty document.
 - [ ] Existing `RequireSession` and `AppShell` tests pass unchanged or are updated in the same PR.
@@ -2570,21 +2570,21 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 
 **Covers:** FE-17 · **Labels:** `frontend`, `documentation`, `light-build-task` · **Priority:** Later · **Executor:** Factory · **Depends on:** –
 
-**Problem.** `pages/AccountPage.tsx`, `pages/SuperUser.tsx` and `pages/UserDirectory.tsx` are one-line re-exports (from `4ef24c5`) that nothing imports. `getMe` (`api/auth.ts:43-44`), `updateUserRole`, `setUserRole` and `changeAddress` (`api/users.ts:58-63`) are unused aliases. `Booking` is defined in `api/auth.ts:13-22`, and the `RawUser` comment claims dual key styles that nothing normalises (`users.ts:4-11`). Colours are hardcoded (`gray.600`, `gray.50`, `colorScheme="red"`) next to the semantic tokens (`AppShell.tsx:46, 97`; `Calendar.tsx:143`). `product/frontend/README.md` says deployments extend the theme from `projects/<name>/`, but no such mechanism exists (`main.tsx:7` imports `./theme` directly), and its `extendTheme` example would let the base override deployment colours. These are signs of several models writing without local conventions.
+**Problem.** `pages/AccountPage.tsx`, `pages/SuperUser.tsx` and `pages/UserDirectory.tsx` are one-line re-exports (from `4ef24c5`) that nothing imports. `getMe` (`api/auth.ts:43-44`), `updateUserRole`, `setUserRole` and `changeAddress` (`api/users.ts:58-63`) are unused aliases. `Booking` is defined in `api/auth.ts:13-22`, and the `RawUser` comment claims dual key styles that nothing normalises (`users.ts:4-11`). Colours are hardcoded (`gray.600`, `gray.50`, `colorScheme="red"`) next to the semantic tokens (`AppShell.tsx:46, 97`; `Calendar.tsx:143`). `product/frontend-solid/README.md` says deployments extend the theme from `projects/<name>/`, but no such mechanism exists (`main.tsx:7` imports `./theme` directly), and its `extendTheme` example would let the base override deployment colours. These are signs of several models writing without local conventions.
 
 **Proposed change.**
 - Delete the three shim pages and the four unused aliases. Move `Booking` to `api/bookings.ts` and fix the `RawUser` comment.
 - Replace hardcoded `gray.*` and `colorScheme="red"` with semantic tokens.
 - Correct the README to describe how theming works today.
-- Add a short `product/frontend/AGENTS.md`: one test style (`userEvent.setup()`), tokens instead of `gray.*`/hex, no alias exports, a single `main`. Because agents read it, the owner should review that file before merge.
+- Add a short `product/frontend-solid/AGENTS.md`: one test style (`userEvent.setup()`), tokens instead of `gray.*`/hex, no alias exports, a single `main`. Because agents read it, the owner should review that file before merge.
 - The chrome branding question goes to the redesign re-plan (see I-111).
 
 **Acceptance criteria**
-- [ ] `ls product/frontend/src/pages` lists none of `AccountPage.tsx`, `SuperUser.tsx`, `UserDirectory.tsx`.
-- [ ] `grep -rn "getMe\|updateUserRole\|setUserRole\|changeAddress\b" product/frontend/src` returns no definitions.
-- [ ] `grep -rn "gray\.[0-9]\|colorScheme=\"red\"" product/frontend/src --include=*.tsx` returns nothing outside tests.
-- [ ] `product/frontend/README.md` no longer refers to a `projects/<name>/` theme override.
-- [ ] `product/frontend/AGENTS.md` exists, and `npm test` and `npm run build` pass.
+- [ ] `ls product/frontend-solid/src/pages` lists none of `AccountPage.tsx`, `SuperUser.tsx`, `UserDirectory.tsx`.
+- [ ] `grep -rn "getMe\|updateUserRole\|setUserRole\|changeAddress\b" product/frontend-solid/src` returns no definitions.
+- [ ] `grep -rn "gray\.[0-9]\|colorScheme=\"red\"" product/frontend-solid/src --include=*.tsx` returns nothing outside tests.
+- [ ] `product/frontend-solid/README.md` no longer refers to a `projects/<name>/` theme override.
+- [ ] `product/frontend-solid/AGENTS.md` exists, and `npm test` and `npm run build` pass.
 
 ### I-122 - Upgrade Vite and Vitest, fix overrides and decide on the Chakra version
 
@@ -2595,14 +2595,14 @@ The React SPA covers the happy flow, but it is still a prototype: it signs peopl
 **Proposed change.**
 - Upgrade Vite and Vitest together in one PR and remove the `tinypool` override.
 - Align `@types/node` with `22.x`.
-- Record the decision to stay on Chakra v2 through the redesign: pin `~2.10` and note it in `product/frontend/README.md`.
-- Add npm entries for `/product/frontend` and `/dev-ops/testing` to `.github/dependabot.yml`, with minor and patch updates grouped.
+- Record the decision to stay on Chakra v2 through the redesign: pin `~2.10` and note it in `product/frontend-solid/README.md`.
+- Add npm entries for `/product/frontend-solid` and `/dev-ops/testing` to `.github/dependabot.yml`, with minor and patch updates grouped.
 
 **Acceptance criteria**
-- [ ] `npm ls esbuild` in `product/frontend` reports 0.25 or later.
+- [ ] `npm ls esbuild` in `product/frontend-solid` reports 0.25 or later.
 - [ ] `package.json` has no `overrides.tinypool`, and `npm test` and `npm run build` pass.
 - [ ] `package.json` lists `@types/node` as `^22` and `@chakra-ui/react` as `~2.10`.
-- [ ] `.github/dependabot.yml` has `npm` entries for `/product/frontend` and `/dev-ops/testing`.
+- [ ] `.github/dependabot.yml` has `npm` entries for `/product/frontend-solid` and `/dev-ops/testing`.
 - [ ] The README states that the Chakra version stays on v2 until the redesign ships.
 
 ## Epic L - End-to-end testing

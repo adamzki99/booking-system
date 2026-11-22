@@ -38,7 +38,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    build: ../../product/frontend
+    build: ../../product/frontend-solid
     deploy:
       resources:
         limits:

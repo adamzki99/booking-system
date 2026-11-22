@@ -1,6 +1,6 @@
 # Frontend, UX and E2E Review: React SPA, Mockups and Playwright
 
-**Scope** `product/frontend/**` (App.tsx, main.tsx, RequireSession, api/*, auth/SessionContext, components/AppShell, pages/*, theme.ts, index.css, index.html, all `*.test.ts(x)`, vite.config.ts, tsconfig.json, package.json + lockfile, Dockerfile), `projects/sauna/docs/mocks/*.html` (unpacked and read), `dev-ops/testing/**`, `dev-ops/scripts/run-playwright.sh`, `.github/workflows/frontend-ci.yml`, issues #120–#123 and their `factory:plan` comments (read with `gh issue view` before a no-network restriction took effect; everything taken from them is marked "(from GitHub issue)"). I also read the backend/sidecar/Caddy code that the SPA depends on (`product/backend/internal/{auth,booking,server}`, `projects/sauna/sidecar/internal/server/server.go`, `projects/sauna/config/Caddyfile`). This was a static review only: I did not install, build or run anything. · **Reviewed** 2026-11-19 at commit 45f6ee5
+**Scope** `product/frontend-solid/**` (App.tsx, main.tsx, RequireSession, api/*, auth/SessionContext, components/AppShell, pages/*, theme.ts, index.css, index.html, all `*.test.ts(x)`, vite.config.ts, tsconfig.json, package.json + lockfile, Dockerfile), `projects/sauna/docs/mocks/*.html` (unpacked and read), `dev-ops/testing/**`, `dev-ops/scripts/run-playwright.sh`, `.github/workflows/frontend-ci.yml`, issues #120–#123 and their `factory:plan` comments (read with `gh issue view` before a no-network restriction took effect; everything taken from them is marked "(from GitHub issue)"). I also read the backend/sidecar/Caddy code that the SPA depends on (`product/backend/internal/{auth,booking,server}`, `projects/sauna/sidecar/internal/server/server.go`, `projects/sauna/config/Caddyfile`). This was a static review only: I did not install, build or run anything. · **Reviewed** 2026-11-19 at commit 45f6ee5
 
 ## Summary
 
@@ -40,8 +40,8 @@ What's working well:
 ### FE-01: Session restore deletes the token on any error; no global 401 handling (High, S)
 
 **Evidence**
-- `product/frontend/src/auth/SessionContext.tsx:39-45`: `.catch(() => { // Token expired or revoked: treat as signed out. setToken(null); ...})`. Every rejection is handled the same way, whether it is a network error, a 502 or 503 while the backend restarts, or a real 401.
-- `product/frontend/src/api/client.ts:52-63`: a non-OK response just throws `ApiError`. Nothing reacts to `status === 401` (grep finds no `401` anywhere in `src/`).
+- `product/frontend-solid/src/auth/SessionContext.tsx:39-45`: `.catch(() => { // Token expired or revoked: treat as signed out. setToken(null); ...})`. Every rejection is handled the same way, whether it is a network error, a 502 or 503 while the backend restarts, or a real 401.
+- `product/frontend-solid/src/api/client.ts:52-63`: a non-OK response just throws `ApiError`. Nothing reacts to `status === 401` (grep finds no `401` anywhere in `src/`).
 - The factory redeploys dev/QA hourly (`AppShell.tsx` shows a "Next redeploy" countdown), and logging in needs a fresh emailed code, which is rate-limited to 5 per 15 minutes (`product/backend/internal/auth/service.go:20-21`).
 
 **Why it matters.** A resident who opens the app during a redeploy, or on a flaky mobile connection, is silently logged out and has to fetch a new email code. The opposite case also exists: when a token really expires mid-session (TTL is 24 hours, `auth/service.go:16`), the user stays on the page and every action shows "unauthorized" with no route back to login except the manual Log out button.
@@ -197,7 +197,7 @@ Add tests for "network error keeps the token" and "401 mid-session redirects to 
 ### FE-11: Static serving: no cache policy, redeploys can white-screen open tabs, no compression or CSP (Medium, S)
 
 **Evidence**
-- `product/frontend/Dockerfile:17-20`: on start it runs `rm -rf /srv/*; … cp -a /www/. /srv/; exec sleep infinity`, so every deploy deletes the previous hashed `/assets/*.js`.
+- `product/frontend-solid/Dockerfile:17-20`: on start it runs `rm -rf /srv/*; … cp -a /www/. /srv/; exec sleep infinity`, so every deploy deletes the previous hashed `/assets/*.js`.
 - `projects/sauna/config/Caddyfile:41-44`: `try_files {path} /index.html` + `file_server`. There is no `Cache-Control` and no `encode`.
 - A browser that heuristically cached `index.html` (it has a `Last-Modified` and no `no-cache`) requests the old `/assets/index-<oldhash>.js`. `try_files` answers with `index.html` (`text/html`), the module fails to load, and the user sees a blank page. The same happens to any open tab that lazy-loads after a deploy.
 - No security headers. That matters more because the session token is readable from JS (FE-14).
@@ -281,9 +281,9 @@ Show a centered `Spinner` while `loading`. Wrap the shell in a small `ErrorBound
 - **Unused aliases.** `getMe` (`api/auth.ts:43-44`, "plan naming"), `updateUserRole`, `setUserRole` and `changeAddress` (`api/users.ts:58-63`) are never imported.
 - **Misplaced types and misleading comments.** `Booking` is defined in `api/auth.ts:13-22` rather than `bookings.ts`. `RawUser`'s comment claims dual key styles, but nothing normalizes them (`users.ts:4-11`).
 - **Signs of several models writing.** There are three different code-input behaviours (Login upper-cases with maxLength 6, Account does neither). Some tests use `userEvent.setup()` and others call `userEvent.*` directly. `AppShell.test.tsx:34, 69` has misindented lines. Pages render `main` inside the shell's `main`. Colours are hardcoded (`gray.600`, `gray.50`, `colorScheme="red"`) right next to the new semantic tokens (`AppShell.tsx:46, 97`; `Calendar.tsx:143`).
-- **Wrong README.** `product/frontend/README.md` says deployments extend the theme from `projects/<name>/`, but no such mechanism exists (`main.tsx:7` imports `./theme` directly, and `projects/sauna` has no theme). Its example `extendTheme({ colors: … }, ...baseTheme)` would let the base override the deployment colours. The sidecar's chrome strings ("Sauna booking system" / "Homeowner association sauna", `sidecar/.../server.go:203-204`) also differ from the mockup branding that #120 expects (from GitHub issue).
+- **Wrong README.** `product/frontend-solid/README.md` says deployments extend the theme from `projects/<name>/`, but no such mechanism exists (`main.tsx:7` imports `./theme` directly, and `projects/sauna` has no theme). Its example `extendTheme({ colors: … }, ...baseTheme)` would let the base override the deployment colours. The sidecar's chrome strings ("Sauna booking system" / "Homeowner association sauna", `sidecar/.../server.go:203-204`) also differ from the mockup branding that #120 expects (from GitHub issue).
 
-**Recommendation.** Delete the shims and aliases, move `Booking` to `api/bookings.ts`, fix the README (or implement a `projects/sauna/frontend/theme.ts` override with a build-time alias), and add a short `product/frontend/AGENTS.md` with conventions: one test style, tokens instead of `gray.*`/hex values, no alias exports, a single `main`. Cheaper models follow local conventions far better than repo-wide prose.
+**Recommendation.** Delete the shims and aliases, move `Booking` to `api/bookings.ts`, fix the README (or implement a `projects/sauna/frontend/theme.ts` override with a build-time alias), and add a short `product/frontend-solid/AGENTS.md` with conventions: one test style, tokens instead of `gray.*`/hex values, no alias exports, a single `main`. Cheaper models follow local conventions far better than repo-wide prose.
 
 ### FE-18: Dependency hygiene (Low, S)
 
@@ -294,7 +294,7 @@ Show a centered `Spinner` while `loading`. Wrap the shell in a small `ErrorBound
 - **Pinned and unwatched.** `@playwright/test` is pinned at 1.49.0 (`dev-ops/testing/package.json:7`). There is no `.github/dependabot.yml`.
 - **Chakra UI** v2 (2.10.10) is in maintenance, and v3 is a breaking rewrite (no `extendTheme`, different recipes and APIs). The whole redesign (#120–#123) and `theme.ts` are written against v2.
 
-**Recommendation.** Decide explicitly to stay on Chakra v2 through the redesign. Pin `~2.10` and note it in the README so a builder model doesn't "upgrade" mid-issue. Upgrade Vite/Vitest together in one PR (removing the `tinypool` override), align `@types/node` with `22.x`, and add Dependabot for `/product/frontend` and `/dev-ops/testing` (npm), grouped minor/patch, so the existing Dependabot PR flow covers the frontend. `framer-motion`, Emotion and React 18 are the correct peers for Chakra v2 and are not unnecessary.
+**Recommendation.** Decide explicitly to stay on Chakra v2 through the redesign. Pin `~2.10` and note it in the README so a builder model doesn't "upgrade" mid-issue. Upgrade Vite/Vitest together in one PR (removing the `tinypool` override), align `@types/node` with `22.x`, and add Dependabot for `/product/frontend-solid` and `/dev-ops/testing` (npm), grouped minor/patch, so the existing Dependabot PR flow covers the frontend. `framer-motion`, Emotion and React 18 are the correct peers for Chakra v2 and are not unnecessary.
 
 ## Prioritized roadmap
 
@@ -306,7 +306,7 @@ Show a centered `Spinner` while `loading`. Wrap the shell in a small `ErrorBound
 5. FE-06 (part 1): fix `login.spec.ts` so the code is fetched after the UI request, and update its heading assertion together with #121.
 
 **Next (alongside the redesign)**
-1. Prep PR: FE-16 (layout route + error boundary) + FE-17 (delete dead code, `product/frontend/AGENTS.md`) + ESLint from FE-15.
+1. Prep PR: FE-16 (layout route + error boundary) + FE-17 (delete dead code, `product/frontend-solid/AGENTS.md`) + ESLint from FE-15.
 2. FE-08: `src/lib/datetime.ts` with the deployment time zone from `/api/chrome`, friendly error mapping, and an i18n decision.
 3. FE-09: TanStack Query (or a shared hook) so #121/#122 build on one data layer.
 4. FE-10 and FE-12: landmark, title and focus fixes, 44 px targets, login back/resend, deep-link return and OTP attributes.

@@ -17,6 +17,6 @@ example `projects/sauna/docs/mocks/`). When mockups exist, frontend work for
 that deployment should follow them for layout, styling, coloring, spacing,
 typography, and component states while using the fixed frontend stack
 (**React 18, TypeScript, Vite, React Router, Chakra UI v2**) and the generic
-frontend conventions in [`../product/frontend/AGENTS.md`](../product/frontend/AGENTS.md). Keep
+frontend conventions in [`../product/frontend-solid/AGENTS.md`](../product/frontend-solid/AGENTS.md). Keep
 deployment-specific branding/assets in the deployment folder and reusable
 patterns in the generic product where appropriate.

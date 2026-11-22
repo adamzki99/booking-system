@@ -181,7 +181,7 @@ Add `stream_version INT NOT NULL` and `UNIQUE (aggregate_type, aggregate_id, str
 ### BE-08 - Booking emails show UTC times (Medium, S)
 
 **Evidence**
-- The frontend sends `new Date(start).toISOString()` (`product/frontend/src/pages/Calendar.tsx:72-73`), which is always in UTC (`Z`). Go keeps that offset, and the notifier formats it without converting: `payload.Start.Format("2006-01-02 15:04")` (`internal/booking/notify.go:61`).
+- The frontend sends `new Date(start).toISOString()` (`product/frontend-solid/src/pages/Calendar.tsx:72-73`), which is always in UTC (`Z`). Go keeps that offset, and the notifier formats it without converting: `payload.Start.Format("2006-01-02 15:04")` (`internal/booking/notify.go:61`).
 - The only timezone setting is in the sidecar (`BOOKING_TIMEZONE`, `projects/sauna/sidecar/internal/config/config.go`). The product has no display timezone.
 
 **Why it matters**

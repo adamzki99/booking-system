@@ -8,6 +8,8 @@ updates:
     directory: /product/backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
@@ -18,6 +20,8 @@ updates:
     directory: /projects/sauna/sidecar
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
@@ -26,24 +30,23 @@ updates:
 
   # npm
   - package-ecosystem: npm
-    directory: /product/frontend
+    directory: /product/frontend-solid
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
           - minor
           - patch
-    ignore:
-      # FE-18: stay on Chakra UI v2 through the redesign.
-      - dependency-name: "@chakra-ui/*"
-        update-types:
-          - version-update:semver-major
 
   - package-ecosystem: npm
     directory: /dev-ops/testing
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
@@ -55,6 +58,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
@@ -66,6 +71,8 @@ updates:
     directory: /product/backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
@@ -73,9 +80,11 @@ updates:
           - patch
 
   - package-ecosystem: docker
-    directory: /product/frontend
+    directory: /product/frontend-solid
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
@@ -86,6 +95,8 @@ updates:
     directory: /projects/sauna/sidecar
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
@@ -96,6 +107,8 @@ updates:
     directory: /dev-ops/testing
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
@@ -107,6 +120,8 @@ updates:
     directory: /projects/sauna
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:
@@ -117,6 +132,8 @@ updates:
     directory: /dev-ops/signoz
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       minor-and-patch:
         update-types:

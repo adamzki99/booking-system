@@ -1,11 +1,11 @@
-import { screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, screen, waitFor } from "@solidjs/testing-library";
+import { createRouter, memoryHistory, useLocation } from "@solidjs/router";
+import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, useLocation } from "react-router-dom";
 import { render } from "../test-utils";
-import { useSession } from "../auth/SessionContext";
 import type { User } from "../api/auth";
-import * as usersApi from "../api/users";
+import { addUser, changeUserAddress, changeUserRole, listUsers, removeUser } from "../api/users";
+import { useSession } from "../auth/SessionContext";
 import Users from "./Users";
 
 vi.mock("../auth/SessionContext", () => ({ useSession: vi.fn() }));
@@ -16,12 +16,19 @@ vi.mock("../api/users", () => ({
   changeUserAddress: vi.fn(),
   changeUserRole: vi.fn(),
 }));
+vi.mock("../api/bookings", () => ({
+  blockTimePeriod: vi.fn(),
+}));
+vi.mock("../api/broadcast", () => ({
+  broadcastMessage: vi.fn(),
+}));
 
 const useSessionMock = vi.mocked(useSession);
-const listUsersMock = vi.mocked(usersApi.listUsers);
-const removeUserMock = vi.mocked(usersApi.removeUser);
-const changeUserAddressMock = vi.mocked(usersApi.changeUserAddress);
-const changeUserRoleMock = vi.mocked(usersApi.changeUserRole);
+const listUsersMock = vi.mocked(listUsers);
+const addUserMock = vi.mocked(addUser);
+const removeUserMock = vi.mocked(removeUser);
+const changeUserAddressMock = vi.mocked(changeUserAddress);
+const changeUserRoleMock = vi.mocked(changeUserRole);
 
 const basicUser = { id: "b1", email: "basic@example.com", role: "basic" as const, address: "A", active: true };
 const superUser = { id: "s1", email: "super@example.com", role: "super" as const, address: null, active: true };
@@ -29,13 +36,13 @@ const adminUser = { id: "a1", email: "admin@example.com", role: "admin" as const
 
 function stubSession(user: User) {
   useSessionMock.mockReturnValue({
-    user,
-    loading: false,
+    user: () => user,
+    loading: () => false,
     login: vi.fn(),
     loginWithQAMode: vi.fn(),
     refresh: vi.fn(),
     logout: vi.fn(),
-  });
+  } as any);
 }
 
 /** Exposes the current query string so tests can assert the ?q= contract. */
@@ -45,18 +52,43 @@ function LocationProbe() {
 }
 
 function renderUsers(entry = "/users") {
-  render(
-    <MemoryRouter initialEntries={[entry]}>
-      <Users />
-      <LocationProbe />
-    </MemoryRouter>,
-  );
+  const Router = createRouter({
+    routes: [
+      {
+        path: "/users",
+        component: () => (
+          <>
+            <Users />
+            <LocationProbe />
+          </>
+        ),
+      },
+    ],
+    history: memoryHistory(entry),
+  });
+  return render(() => <Router>{(props) => <>{props.children}</>}</Router>);
+}
+
+function setInput(element: HTMLElement, value: string) {
+  const input = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+  input.value = value;
+  fireEvent.input(input);
+  flush();
+}
+
+function setSelect(element: HTMLElement, value: string) {
+  const select = element as HTMLSelectElement;
+  select.value = value;
+  fireEvent.input(select);
+  fireEvent.change(select);
+  flush();
 }
 
 describe("Users page", () => {
   beforeEach(() => {
     useSessionMock.mockReset();
     listUsersMock.mockReset();
+    addUserMock.mockReset();
     removeUserMock.mockReset();
     changeUserAddressMock.mockReset();
     changeUserRoleMock.mockReset();
@@ -82,10 +114,9 @@ describe("Users page", () => {
     // options include basic user by email
     expect(Array.from(select.options).map((o) => o.text)).toContain("basic@example.com");
 
-    const user = userEvent.setup();
-    await user.selectOptions(select, "b1");
-    await user.type(document.getElementById("address-value") as HTMLElement, "New addr");
-    await user.click(screen.getByRole("button", { name: "Change address" }));
+    setSelect(select, "b1");
+    setInput(document.getElementById("address-value") as HTMLElement, "New addr");
+    fireEvent.click(screen.getByRole("button", { name: "Change address" }));
 
     await waitFor(() => expect(changeUserAddressMock).toHaveBeenCalledWith("b1", "New addr"));
   });
@@ -96,8 +127,7 @@ describe("Users page", () => {
     removeUserMock.mockResolvedValue(undefined as never);
     renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(removeUserMock).toHaveBeenCalledWith("b1"));
   });
 
@@ -120,12 +150,11 @@ describe("Users page", () => {
     changeUserRoleMock.mockResolvedValue(basicUser);
     renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
-    const user = userEvent.setup();
     const selects = screen.getAllByLabelText("User");
     const roleSelect = selects[selects.length - 1];
-    await user.selectOptions(roleSelect, "b1");
-    await user.selectOptions(screen.getByLabelText("Role"), "super");
-    await user.click(screen.getByRole("button", { name: "Change role" }));
+    setSelect(roleSelect, "b1");
+    setSelect(screen.getByLabelText("Role"), "super");
+    fireEvent.click(screen.getByRole("button", { name: "Change role" }));
     await waitFor(() => expect(changeUserRoleMock).toHaveBeenCalledWith("b1", "super"));
   });
 
@@ -154,11 +183,10 @@ describe("Users page", () => {
     changeUserAddressMock.mockRejectedValue(new Error("boom"));
     renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
-    const user = userEvent.setup();
     const select = screen.getByLabelText("User");
-    await user.selectOptions(select, "b1");
-    await user.type(document.getElementById("address-value") as HTMLElement, "New addr");
-    await user.click(screen.getByRole("button", { name: "Change address" }));
+    setSelect(select, "b1");
+    setInput(document.getElementById("address-value") as HTMLElement, "New addr");
+    fireEvent.click(screen.getByRole("button", { name: "Change address" }));
     await screen.findByRole("alert");
   });
 
@@ -187,8 +215,7 @@ describe("Users page", () => {
     renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
 
-    const usr = userEvent.setup();
-    await usr.type(screen.getByLabelText("Search members"), "super");
+    setInput(screen.getByLabelText("Search members"), "super");
 
     expect(
       screen.queryByRole("cell", { name: "basic@example.com" }),
