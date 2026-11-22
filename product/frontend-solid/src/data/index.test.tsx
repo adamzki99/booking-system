@@ -169,9 +169,11 @@ describe("data conventions", () => {
     const [value, setValue] = createSignal("before");
 
     setValue("after");
+    // oxlint-disable-next-line solid/reactivity -- intentional untracked read before flush
     expect(value()).toBe("before");
 
     flush();
+    // oxlint-disable-next-line solid/reactivity -- intentional untracked read after flush
     expect(value()).toBe("after");
   });
 
