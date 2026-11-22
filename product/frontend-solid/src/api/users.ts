@@ -15,7 +15,7 @@ export function listUsers(): Promise<User[]> {
   return get<RawUser[]>("/api/users");
 }
 
-/** The pending state returned after requesting an email change. */
+/** The pending state returned for an unconfirmed email change. */
 export interface PendingEmailChange {
   pendingEmail: string;
   expiresAt: string;
@@ -24,15 +24,31 @@ export interface PendingEmailChange {
 /**
  * Starts a verified email change: the backend emails a code to the new
  * address; the account's login address is unchanged until the code is
- * confirmed.
+ * confirmed. Requesting again replaces any pending change.
  */
 export function requestEmailChange(email: string): Promise<PendingEmailChange> {
   return patch<PendingEmailChange>("/api/users/me/email", { email });
 }
 
+/** Returns the current user's pending email change, if any. */
+export async function getPendingEmailChange(): Promise<PendingEmailChange | null> {
+  const result = await get<PendingEmailChange | null>("/api/users/me/email-change");
+  return result ?? null;
+}
+
 /** Confirms an email change with the code sent to the new address. */
 export function confirmEmailChange(code: string): Promise<User> {
   return post<RawUser>("/api/users/me/email/confirm", { code });
+}
+
+/** Sends a new verification code to the current pending email address. */
+export function resendEmailChange(): Promise<PendingEmailChange> {
+  return post<PendingEmailChange>("/api/users/me/email-change/resend");
+}
+
+/** Cancels the current pending email change. */
+export function cancelEmailChange(): Promise<void> {
+  return post("/api/users/me/email-change/cancel");
 }
 
 /** Adds a basic user (super users only). */
