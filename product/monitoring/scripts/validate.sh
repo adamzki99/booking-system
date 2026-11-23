@@ -86,13 +86,43 @@ if have_docker; then
     if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then break; fi
     sleep 1
   done
-  docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null
-  docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
+  ready=0
+  for _ in $(seq 1 30); do
+    if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$ready" -ne 1 ]]; then
+    echo "[product-monitoring-validate] FAILED: ClickHouse did not become ready" >&2
+    docker logs --tail 80 "$CH_CID" >&2 || true
+    fail=1
+  else
+    ch_sql_ok=0
+    for attempt in 1 2 3; do
+      set +e
+      docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
 CREATE USER IF NOT EXISTS collector IDENTIFIED WITH plaintext_password BY 'test-collector';
 CREATE USER IF NOT EXISTS grafana IDENTIFIED WITH plaintext_password BY 'test-grafana';
 ALTER USER collector SETTINGS PROFILE 'collector_profile';
 ALTER USER grafana SETTINGS PROFILE 'grafana_profile';
 SQL
+      rc=$?
+      set -e
+      if [[ $rc -eq 0 ]]; then
+        ch_sql_ok=1
+        break
+      fi
+      echo "[product-monitoring-validate] clickhouse user setup attempt $attempt failed, retrying..." >&2
+      sleep 2
+    done
+    if [[ "$ch_sql_ok" -ne 1 ]]; then
+      echo "[product-monitoring-validate] FAILED: ClickHouse user setup" >&2
+      fail=1
+    fi
+  fi
+  if [[ "$fail" -eq 0 ]]; then
   for f in product/monitoring/clickhouse/init/*.sql; do
     echo "+ clickhouse init $f"
     ok=0
@@ -128,6 +158,7 @@ GRANT SELECT ON otel.otel_traces TO grafana;
 SQL
   docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_logs" | grep -q 1
   docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_traces" | grep -q 1
+  fi
   ch_cleanup
   CH_CID=""
   trap cleanup EXIT
