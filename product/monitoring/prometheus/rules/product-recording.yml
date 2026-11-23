@@ -1,0 +1,5 @@
+groups:
+  - name: product-monitoring-recording
+    rules:
+      - record: product:up:count
+        expr: count(up == 1)

@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Validate factory monitoring
+    name: Validate monitoring stacks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,5 +31,29 @@ jobs:
       - name: Run factory validation
         run: dev-ops/factory/validate.sh
 
-      - name: Run monitoring stack validation
+      - name: Run factory monitoring stack validation
         run: dev-ops/factory/monitoring/scripts/validate.sh
+
+      - name: Run product monitoring base validation
+        run: product/monitoring/scripts/validate.sh
+
+      - name: Validate sauna monitoring instance
+        run: |
+          TMP_ENV="$(mktemp)"
+          trap 'rm -f "$TMP_ENV"' EXIT
+          cat > "$TMP_ENV" <<'ENV'
+          MONITORING_PROJECT=sauna
+          CLICKHOUSE_COLLECTOR_PASSWORD=test-collector
+          CLICKHOUSE_GRAFANA_PASSWORD=test-grafana
+          GRAFANA_ADMIN_USER=admin
+          GRAFANA_ADMIN_PASSWORD=test-admin
+          HOST_NAME=test-host
+          GRAFANA_PORT=13001
+          OTLP_GRPC_PORT=14327
+          OTLP_HTTP_PORT=14328
+          TRACES_TTL_DAYS=7
+          LOGS_TTL_DAYS=14
+          PROMETHEUS_RETENTION=15d
+          PROMETHEUS_RETENTION_SIZE=2GB
+          ENV
+          docker compose -f projects/sauna/monitoring/compose.yaml --env-file "$TMP_ENV" config -q

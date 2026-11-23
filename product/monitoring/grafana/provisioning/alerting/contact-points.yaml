@@ -1,0 +1,12 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: product-monitoring-default
+    receivers:
+      - uid: product-monitoring-noop
+        type: webhook
+        disableResolveMessage: true
+        settings:
+          url: http://127.0.0.1:1/product-monitoring-alert
+          httpMethod: POST

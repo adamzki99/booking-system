@@ -29,6 +29,7 @@ HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 DEPLOY_START_MS="$(date +%s%3N 2>/dev/null || echo 0)"
 DEPLOY_COMMIT=""
 export DEPLOY_COMMIT
+COMPOSE_ARGS=()
 
 log() { printf '[deploy-%s] %s\n' "$ENV_NAME" "$*"; }
 die() { trap - ERR 2>/dev/null || true; printf '[deploy-%s] ERROR: %s\n' "$ENV_NAME" "$*" >&2; exit 1; }
@@ -165,6 +166,10 @@ surface_failure() {
   # login codes.
   local compose_file="${COMPOSE_FILE:-}"
   local log_file="" service_status="(no compose file)"
+  local -a compose_cmd=(-f "$compose_file")
+  if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
+    compose_cmd=("${COMPOSE_ARGS[@]}")
+  fi
   if [[ -n "$compose_file" && -f "$compose_file" ]]; then
     local state_dir
     if [[ -n "${XDG_STATE_HOME:-}" ]]; then
@@ -181,10 +186,10 @@ surface_failure() {
     umask 077
     if mkdir -p "$state_dir" 2>/dev/null; then
       log_file="$state_dir/${ts}.log"
-      docker compose -f "$compose_file" logs --tail=100 >"$log_file" 2>&1 || true
+      docker compose "${compose_cmd[@]}" logs --tail=100 >"$log_file" 2>&1 || true
     fi
     umask "$old_umask"
-    service_status="$(docker compose -f "$compose_file" ps 2>&1 || true)"
+    service_status="$(docker compose "${compose_cmd[@]}" ps 2>&1 || true)"
   fi
 
   local issue_number=""
@@ -280,9 +285,11 @@ else
   LOCK_CANDIDATES+=("/var/lock/$ENV_LOCK_NAME")
 fi
 
+PROJECT_NAME="${PROJECT_NAME:-sauna}"
+
 if [[ "$DRY_RUN" -eq 1 ]]; then
   log "env=$ENV_NAME branch=$BRANCH port=$PORT deploy_dir=$DEPLOY_DIR"
-  log "compose=$DEPLOY_DIR/projects/sauna/docker-compose.yml"
+  log "compose=$DEPLOY_DIR/projects/${PROJECT_NAME}/docker-compose.yml"
   log "lock=${LOCK_CANDIDATES[0]}"
   exit 0
 fi
@@ -396,8 +403,11 @@ deploy_emit "deploy.started" env_name="$ENV_NAME" branch="$BRANCH" commit="$DEPL
 
 UPDATE_FILE="$DEPLOY_DIR/dev-ops/environments.yaml"
 
-COMPOSE_FILE="$DEPLOY_DIR/projects/sauna/docker-compose.yml"
-SAUNA_ENV="$DEPLOY_DIR/projects/sauna/.env"
+PROJECT_NAME="${PROJECT_NAME:-sauna}"
+COMPOSE_FILE="$DEPLOY_DIR/projects/${PROJECT_NAME}/docker-compose.yml"
+MONITORING_OVERRIDE="$DEPLOY_DIR/projects/${PROJECT_NAME}/docker-compose.monitoring.yml"
+MONITORING_NETWORK="${PROJECT_NAME}-monitoring-net"
+SAUNA_ENV="$DEPLOY_DIR/projects/${PROJECT_NAME}/.env"
 if [[ -f "$SAUNA_ENV" ]]; then
   python3 - "$SAUNA_ENV" "$ENV_NAME" <<'PY'
 import sys
@@ -412,11 +422,10 @@ found_qa = False
 out = []
 for line in lines:
     if line.startswith('OTEL_EXPORTER_OTLP_ENDPOINT='):
+        # Never override an explicit operator value; only fill in the default
+        # when the key is absent. An explicit empty value disables export.
         found_otel = True
-        _, _, val = line.partition('=')
-        # Always normalize to the shared-network collector address so a stale
-        # host.docker.internal value cannot survive a redeploy.
-        out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318\n')
+        out.append(line)
     elif line.startswith('QA_MODE='):
         found_qa = True
         out.append(f'QA_MODE={qa_mode}\n')
@@ -426,7 +435,7 @@ for line in lines:
 if not found_otel:
     if out and not out[-1].endswith('\n'):
         out[-1] += '\n'
-    out.append('OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318\n')
+    out.append('OTEL_EXPORTER_OTLP_ENDPOINT=\n')
 if not found_qa:
     if out and not out[-1].endswith('\n'):
         out[-1] += '\n'
@@ -441,15 +450,27 @@ fi
 export PORT="$PORT"
 export COMPOSE_PROJECT_NAME="booking-${ENV_NAME}"
 
+COMPOSE_ARGS=(-f "$COMPOSE_FILE")
+if docker network inspect "$MONITORING_NETWORK" >/dev/null 2>&1; then
+  if [[ -f "$MONITORING_OVERRIDE" ]]; then
+    COMPOSE_ARGS+=(-f "$MONITORING_OVERRIDE")
+    log "monitoring network $MONITORING_NETWORK detected; using $MONITORING_OVERRIDE"
+  else
+    log "monitoring network $MONITORING_NETWORK detected but override missing: $MONITORING_OVERRIDE; deploying without monitoring override"
+  fi
+else
+  log "monitoring network $MONITORING_NETWORK not detected; deploying without monitoring override"
+fi
+
 log "starting compose"
-if ! docker compose -f "$COMPOSE_FILE" up -d --build --remove-orphans; then
+if ! docker compose "${COMPOSE_ARGS[@]}" up -d --build --remove-orphans; then
   trap - ERR 2>/dev/null || true
   now_ms="$(date +%s%3N 2>/dev/null || echo 0)"
   duration_ms=$(( now_ms - DEPLOY_START_MS ))
   [[ "$duration_ms" -ge 0 ]] 2>/dev/null || duration_ms=0
   deploy_emit "deploy.failed" env_name="$ENV_NAME" commit="$DEPLOYED_SHA" duration_ms="$duration_ms" failed_step="docker compose up"
   update_yaml "failed" "$DEPLOYED_SHA" ""
-  surface_failure "$DEPLOYED_SHA" "docker compose -f $COMPOSE_FILE up -d --build --remove-orphans"
+  surface_failure "$DEPLOYED_SHA" "docker compose ${COMPOSE_ARGS[*]} up -d --build --remove-orphans"
   die "docker compose up failed"
 fi
 

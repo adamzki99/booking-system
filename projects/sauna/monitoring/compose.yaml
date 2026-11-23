@@ -1,0 +1,11 @@
+# Sauna monitoring instance.
+# Uses the generic product monitoring base. All project-specific values live in .env.
+#
+# Run from this directory:
+#   cp .env.example .env
+#   docker compose up -d
+
+name: ${MONITORING_PROJECT:?set MONITORING_PROJECT in .env}-monitoring
+
+include:
+  - path: ../../../product/monitoring/compose.yaml
