@@ -16,3 +16,11 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../../../product/monitoring/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
+  grafana:
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../../../product/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ../../../product/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../../../product/monitoring/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      - ../../../product/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./dashboards:/var/lib/grafana/dashboards-project:ro

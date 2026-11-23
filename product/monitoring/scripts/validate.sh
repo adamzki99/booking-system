@@ -167,11 +167,48 @@ fi
 shopt -s nullglob
 dashboards=(product/monitoring/grafana/dashboards/*.json)
 if [ ${#dashboards[@]} -eq 0 ]; then
-  echo "[product-monitoring-validate] no dashboard JSON files (prompt 08 placeholder ok)"
+  echo "[product-monitoring-validate] FAILED: no dashboard JSON files" >&2
+  fail=1
 else
   for f in "${dashboards[@]}"; do
     run jq empty "$f"
   done
+fi
+
+echo "+ check dashboard generator up to date"
+tmpdash="$(mktemp -d)"
+cp -r product/monitoring/grafana/dashboards "$tmpdash/dashboards.bak"
+python3 product/monitoring/scripts/generate_dashboards.py >/dev/null
+if ! diff -ru "$tmpdash/dashboards.bak" product/monitoring/grafana/dashboards >/dev/null; then
+  echo "[product-monitoring-validate] FAILED: dashboard generator output is not up to date" >&2
+  diff -ru "$tmpdash/dashboards.bak" product/monitoring/grafana/dashboards || true
+  rm -rf product/monitoring/grafana/dashboards
+  mv "$tmpdash/dashboards.bak" product/monitoring/grafana/dashboards
+  fail=1
+else
+  rm -rf "$tmpdash"
+fi
+
+echo "+ check alert rules generator up to date"
+tmpalert="$(mktemp -d)"
+cp -r product/monitoring/grafana/provisioning/alerting "$tmpalert/alerting.bak"
+python3 product/monitoring/scripts/generate_alert_rules.py >/dev/null
+if ! diff -ru "$tmpalert/alerting.bak" product/monitoring/grafana/provisioning/alerting >/dev/null; then
+  echo "[product-monitoring-validate] FAILED: alert rules generator output is not up to date" >&2
+  diff -ru "$tmpalert/alerting.bak" product/monitoring/grafana/provisioning/alerting || true
+  rm -rf product/monitoring/grafana/provisioning/alerting
+  mv "$tmpalert/alerting.bak" product/monitoring/grafana/provisioning/alerting
+  fail=1
+else
+  rm -rf "$tmpalert"
+fi
+
+project_name_check="$(printf '%s%s' 'sau' 'na')"
+echo "+ check no ${project_name_check} references in product/monitoring"
+if grep -rni "$project_name_check" product/monitoring >/dev/null; then
+  echo "[product-monitoring-validate] FAILED: ${project_name_check} references found in product/monitoring" >&2
+  grep -rni "$project_name_check" product/monitoring >&2 || true
+  fail=1
 fi
 
 run python3 -c "import json,sys,pathlib; [json.load(open(p)) for p in pathlib.Path('product/monitoring').rglob('*.json')]"

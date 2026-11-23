@@ -161,6 +161,57 @@ factory monitoring, this exceeds the practical budget. Run at most one
 monitoring stack at a time on that host, or move monitoring to a separate host.
 Do not start product monitoring as a requirement for booking environments.
 
+## Dashboards
+
+Generic dashboards are provisioned into the Grafana `Product` folder. All
+support variables `deployment_environment`, `service_name`, and `service_version`.
+
+| UID | Title | What it answers |
+|---|---|---|
+| `product-overview` | Service overview | Request rate, 5xx error rate, p50/p95/p99 latency, top slow routes, top error routes, deploy/restart markers, telemetry freshness. |
+| `product-traces` | Traces and logs | Recent traces, error traces, and log search with TraceId/SpanId correlation from ClickHouse OTel tables. |
+| `product-event-sourcing` | Event sourcing and data | Events appended by type, projection checkpoint/lag/errors, command outcomes and duration, DB span latency, pgx pool stats, notification outbox health. |
+| `product-usage` | Product usage | Bookings created/cancelled/rejected by reason, logins by result, codes issued, rate-limit rejections, sidecar requests/latency by result, email send results. |
+| `product-runtime` | Runtime and dependencies | Go runtime memory/goroutines/GC, optional container memory, optional host/postgres/caddy profile panels with No data when profile is disabled. |
+
+## Alerts
+
+Grafana-managed alert rules are provisioned from
+`grafana/provisioning/alerting/rules.yaml`. Defaults come from
+`product/monitoring/.env.example` and are generated with
+`scripts/generate_alert_rules.py`.
+
+| Alert UID | Condition (default) | Runbook (first checks) |
+|---|---|---|
+| `product-backend-silent` | No backend telemetry for 10 min in an environment that reported in last 24h | Check backend logs/health, OTEL_EXPORTER_OTLP_ENDPOINT, collector health, and Prometheus recent samples. |
+| `product-high-error-rate` | 5xx above 2% for 10 min with at least 20 requests | Inspect Traces and logs dashboard for error traces, backend logs by trace_id, deploy markers, projection.errors and DB health. |
+| `product-high-latency` | p95 above 1s for 10 min | Inspect slow routes, DB span latency, pgx pool, sidecar duration, Go runtime/GC and host memory. |
+| `product-projection-lag` | Projection lag above 100 events for 5 min, or any projection error increase | Inspect projection.lag/errors by projection, backend projection logs, event store head vs checkpoints; projections must remain rebuildable. |
+| `product-notifications-failing` | notifications.failed increases, or pending above 50 for 30 min | Inspect notification metrics, backend SMTP/outbox logs, SMTP connectivity/credentials, outbox rows read-only. |
+| `product-sidecar-failing` | Sidecar error rate above 5% for 10 min | Check sidecar health/logs, sidecar.requests/duration by endpoint/result, connectivity, recent deploys; sidecar fails open. |
+| `product-telemetry-pipeline` | Collector refused/dropped/send_failed above 0 for 10 min | Check otel-collector logs/health, refused/dropped/send_failed metrics, ClickHouse and Prometheus health/disk. |
+| `product-disk-retention` | Disk usage above 85% for 15 min where measurable | Check ClickHouse/Prometheus volume sizes, TTL/retention, node-exporter filesystem metrics; reduce retention or move host before outage. |
+
+Notification policy groups by `alertname, project, deployment_environment`.
+
+## Project overrides
+
+- **Thresholds and contact point**: set `ALERT_*` variables in the project
+  `.env`, run `python3 product/monitoring/scripts/generate_alert_rules.py` with
+  those env vars, and commit the resulting alerting files in the project
+  override (or regenerate base defaults in product when changing defaults).
+  Projects can override alerting by mounting their own
+  `projects/<name>/monitoring/grafana/provisioning/alerting/` over
+  `/etc/grafana/provisioning/alerting:ro` in the project compose.
+- **Dashboards**: place project-specific dashboard JSON files in
+  `projects/<name>/monitoring/dashboards/`. The base provider provisions them
+  into a Grafana folder named after `MONITORING_PROJECT`.
+- **Contact points**: `ALERT_CONTACT_POINT_URL` controls the default webhook
+  receiver. For non-webhook receivers, provide a project-specific
+  `grafana/provisioning/alerting/contact-points.yaml` and mount it.
+- **Prometheus scrape/jobs**: override `prometheus/prometheus.yml` in the
+  project compose (for example to scrape a project Caddy endpoint).
+
 ## Validation
 
 From repo root:
@@ -171,13 +222,20 @@ product/monitoring/scripts/validate.sh
 
 The script runs compose config, collector config validation, promtool checks,
 ClickHouse init SQL smoke in a throwaway container, dashboard JSON/YAML parse,
-and fails if Docker is unavailable (CI has Docker).
+dashboard and alert generator up-to-date checks, and fails if Docker is
+unavailable (CI has Docker). It also fails if deployment-specific names appear
+in `product/monitoring`.
 
 Instance smoke test (requires a running configured instance):
 
 ```sh
 product/monitoring/scripts/smoke.sh projects/<name>/monitoring/.env
 ```
+
+The smoke test sends synthetic OTLP traces/logs via a pinned `telemetrygen`
+image, sends prompt 07 metric points via OTLP HTTP, waits for traces in
+ClickHouse, checks Grafana health, and queries Prometheus for one key query per
+dashboard.
 
 ## Operations
 
