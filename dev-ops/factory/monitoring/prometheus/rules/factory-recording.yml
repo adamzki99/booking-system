@@ -1,0 +1,9 @@
+groups:
+  - name: factory_recording
+    rules:
+      - record: factory:tick_staleness_seconds
+        expr: time() - factory_tick_last_success_timestamp_seconds
+      - record: host:memory_usage_ratio
+        expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+      - record: host:disk_usage_ratio
+        expr: 1 - (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})

@@ -1,46 +1,86 @@
-# OpenTelemetry Collector (contrib) config for the software factory.
-# Runs as a user systemd unit on the cron host (NOT beside SigNoz).
-# Tails the factory tick JSONL log and exports OTLP to the separately
-# deployed SigNoz instance.
+# Optional remote shipper for factory JSONL events.
+# Use this when tick.sh runs on a different machine than the factory
+# monitoring stack (dev-ops/factory/monitoring/).
+#
+# It tails the factory JSONL log and ships logs over OTLP/HTTP to the
+# factory monitoring collector. This file replaces the old SigNoz-oriented
+# shipper; it does not send a SigNoz ingestion key.
 #
 # Environment variables:
-#   FACTORY_LOG_FILE       - path to tick.jsonl (must match tick.sh)
-#   SIGNOZ_OTLP_ENDPOINT   - SigNoz OTLP HTTP endpoint, e.g. http://host:4318
-#   SIGNOZ_INGESTION_KEY   - optional SigNoz ingestion key
+#   FACTORY_LOG_DIR        - directory containing tick.jsonl (default below)
+#   FACTORY_OTLP_ENDPOINT  - OTLP/HTTP endpoint, e.g. http://monitoring-host:4318
+#   HOST_NAME              - stable host name reported in telemetry
+
+extensions:
+  file_storage:
+    directory: ${env:FILE_STORAGE_DIR:-/var/lib/otelcol/file_storage}
+    create_directory: true
 
 receivers:
-  filelog:
+  filelog/factory:
     include:
-      - ${env:FACTORY_LOG_FILE}
-    start_at: end
+      - ${env:FACTORY_LOG_DIR:-${env:XDG_STATE_HOME:-/var/lib/factory}/factory}/*.jsonl
+      - ${env:FACTORY_LOG_DIR:-${env:XDG_STATE_HOME:-/var/lib/factory}/factory}/*.log
+    start_at: beginning
+    storage: file_storage
+    include_file_path: true
     operators:
       - type: json_parser
+        parse_from: body
+        parse_to: attributes
         timestamp:
           parse_from: attributes.ts
-          layout: "%Y-%m-%dT%H:%M:%S.%fZ"
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.000Z07:00"
+      - type: move
+        from: attributes["service.name"]
+        to: resource["service.name"]
+        if: 'attributes["service.name"] != nil'
+      - type: move
+        from: attributes["deployment.environment"]
+        to: resource["deployment.environment"]
+        if: 'attributes["deployment.environment"] != nil'
+      - type: move
+        from: attributes["host.name"]
+        to: resource["host.name"]
+        if: 'attributes["host.name"] != nil'
+      - type: move
+        from: attributes.factory_id
+        to: resource["factory_id"]
+        if: 'attributes.factory_id != nil'
 
 processors:
   memory_limiter:
     check_interval: 1s
     limit_mib: 128
-  resource:
-    attributes:
-      - key: service.name
-        value: factory-tick
-        action: upsert
+  transform/resource:
+    error_mode: ignore
+    log_statements:
+      - context: resource
+        statements:
+          - set(attributes["host.name"], "${env:HOST_NAME}") where "${env:HOST_NAME}" != ""
+          - set(attributes["service.name"], "factory-tick") where attributes["service.name"] == nil
+  transform/redact:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - delete_key(attributes, "output_tail")
+          - delete_key(attributes, "session_output")
+          - delete_key(attributes, "prompt")
+          - delete_matching_keys(attributes, "(?i)(token|password|secret|authorization|api.?key|passwd|credential|private.?key)")
   batch:
     timeout: 5s
     send_batch_size: 256
 
 exporters:
-  otlphttp/signoz:
-    endpoint: ${env:SIGNOZ_OTLP_ENDPOINT}
-    headers:
-      signoz-ingestion-key: ${env:SIGNOZ_INGESTION_KEY}
+  otlphttp/factory:
+    endpoint: ${env:FACTORY_OTLP_ENDPOINT}
 
 service:
+  extensions: [file_storage]
   pipelines:
     logs:
-      receivers: [filelog]
-      processors: [memory_limiter, resource, batch]
-      exporters: [otlphttp/signoz]
+      receivers: [filelog/factory]
+      processors: [memory_limiter, transform/resource, transform/redact, batch]
+      exporters: [otlphttp/factory]

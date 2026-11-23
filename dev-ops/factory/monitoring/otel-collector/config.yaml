@@ -1,0 +1,143 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage:
+    directory: /var/lib/otelcol/file_storage
+    create_directory: true
+    compaction:
+      on_start: true
+      on_rebound: true
+
+receivers:
+  filelog/factory:
+    include:
+      - ${env:FACTORY_LOG_DIR}/*.jsonl
+      - ${env:FACTORY_LOG_DIR}/*.log
+    start_at: beginning
+    storage: file_storage
+    include_file_path: true
+    include_file_name: false
+    operators:
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+        timestamp:
+          parse_from: attributes.ts
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.000Z07:00"
+      - type: move
+        from: attributes["service.name"]
+        to: resource["service.name"]
+        if: 'attributes["service.name"] != nil'
+      - type: move
+        from: attributes["deployment.environment"]
+        to: resource["deployment.environment"]
+        if: 'attributes["deployment.environment"] != nil'
+      - type: move
+        from: attributes["host.name"]
+        to: resource["host.name"]
+        if: 'attributes["host.name"] != nil'
+      - type: move
+        from: attributes.factory_id
+        to: resource["factory_id"]
+        if: 'attributes.factory_id != nil'
+
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 32
+
+  transform/resource:
+    error_mode: ignore
+    log_statements:
+      - context: resource
+        statements:
+          - set(attributes["host.name"], "${env:HOST_NAME}") where "${env:HOST_NAME}" != ""
+          - set(attributes["service.name"], "factory-tick") where attributes["service.name"] == nil
+
+  transform/redact:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - delete_key(attributes, "output_tail")
+          - delete_key(attributes, "session_output")
+          - delete_key(attributes, "prompt")
+          - delete_key(attributes, "email")
+          - delete_key(attributes, "ical_token")
+          - delete_matching_keys(attributes, "(?i)(token|password|secret|authorization|api.?key|passwd|credential|private.?key)")
+
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+
+exporters:
+  clickhouse/logs:
+    endpoint: ${env:CLICKHOUSE_ENDPOINT}
+    database: otel
+    username: collector
+    password: ${env:CLICKHOUSE_COLLECTOR_PASSWORD}
+    create_schema: false
+    logs_table_name: otel_logs
+    traces_table_name: otel_traces
+    timeout: 10s
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  clickhouse/traces:
+    endpoint: ${env:CLICKHOUSE_ENDPOINT}
+    database: otel
+    username: collector
+    password: ${env:CLICKHOUSE_COLLECTOR_PASSWORD}
+    create_schema: false
+    logs_table_name: otel_logs
+    traces_table_name: otel_traces
+    timeout: 10s
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  extensions: [health_check, file_storage]
+  pipelines:
+    logs/factory:
+      receivers: [filelog/factory]
+      processors: [memory_limiter, transform/resource, transform/redact, batch]
+      exporters: [clickhouse/logs]
+    logs/otlp:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/resource, transform/redact, batch]
+      exporters: [clickhouse/logs]
+    traces/otlp:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/resource, batch]
+      exporters: [clickhouse/traces]

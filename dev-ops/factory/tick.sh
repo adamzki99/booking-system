@@ -190,6 +190,7 @@ mint_factory_github_token() {
     repo_arg="--repo $GITHUB_REPOSITORY"
   fi
   local token
+  # shellcheck disable=SC2086
   token="$(python3 "$SCRIPT_DIR/lib/mint_github_app_token.py" \
     --app-id "$FACTORY_GITHUB_APP_ID" \
     --key-file "$key_file" \
@@ -339,6 +340,7 @@ oldest_unlabeled_issue() {
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     return 1
   fi
+  # shellcheck disable=SC2034
   OLDEST_UNLABELED_COUNT="$(printf '%s' "${GH_OUT:-}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)"
   OLDEST_UNLABELED_ISSUE="$(printf '%s' "${GH_OUT:-}" | python3 -c 'import json,sys; v=json.load(sys.stdin).get("oldest",""); print("" if v is None else v)' 2>/dev/null || echo "")"
   printf '%s\n' "$OLDEST_UNLABELED_ISSUE"
@@ -615,6 +617,7 @@ is_usage_filled() {
   if [[ "$out" == *"rate limit"* ]]; then USAGE_FILLED_REASON="rate limit"; return 0; fi
   if [[ "$out" == *"quota"* && "$out" == *"exceed"* ]]; then USAGE_FILLED_REASON="quota exceeded"; return 0; fi
   if [[ "$out" == *"usage"* && "$out" == *"exceed"* ]]; then USAGE_FILLED_REASON="usage exceeded"; return 0; fi
+  # shellcheck disable=SC2034
   USAGE_FILLED_REASON=""
   return 1
 }
@@ -951,6 +954,7 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
     if k in d:
         print(f"{k}={d[k]!r}")
 ' 2>/dev/null || true)"
+  # shellcheck disable=SC1007
   local duration= steps= input_tokens= output_tokens= reasoning_tokens= \
     cache_read_tokens= cache_write_tokens= cost= tool_calls= tool_errors= files_changed=
   duration=$(( $(date +%s%3N) - session_start_ms ))
@@ -1290,6 +1294,7 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
 
   duration=$(( $(date +%s%3N) - session_start_ms ))
   tail_out=""
+  # shellcheck disable=SC2034
   if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$out" | tail -c 16384)" || true; fi
   if [[ "$kind" == "fix" ]]; then
     emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \

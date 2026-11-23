@@ -1,0 +1,218 @@
+name: factory-monitoring
+
+x-required-env: &required-env
+  CLICKHOUSE_COLLECTOR_PASSWORD: ${CLICKHOUSE_COLLECTOR_PASSWORD:?set CLICKHOUSE_COLLECTOR_PASSWORD in .env}
+  CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?set CLICKHOUSE_GRAFANA_PASSWORD in .env}
+  GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+
+services:
+  check-env:
+    image: alpine:3.21.3
+    command:
+      - sh
+      - -ec
+      - |
+        [ -n "$${CLICKHOUSE_COLLECTOR_PASSWORD:-}" ] || { echo "missing required secret: CLICKHOUSE_COLLECTOR_PASSWORD" >&2; exit 1; }
+        [ -n "$${CLICKHOUSE_GRAFANA_PASSWORD:-}" ] || { echo "missing required secret: CLICKHOUSE_GRAFANA_PASSWORD" >&2; exit 1; }
+        [ -n "$${GRAFANA_ADMIN_PASSWORD:-}" ] || { echo "missing required secret: GRAFANA_ADMIN_PASSWORD" >&2; exit 1; }
+        echo "env ok"
+    environment:
+      <<: *required-env
+    restart: "no"
+    networks:
+      - factory-monitoring-net
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.9.36.3
+    restart: unless-stopped
+    depends_on:
+      check-env:
+        condition: service_completed_successfully
+    environment:
+      CLICKHOUSE_DB: otel
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      CLICKHOUSE_COLLECTOR_PASSWORD: ${CLICKHOUSE_COLLECTOR_PASSWORD:?set CLICKHOUSE_COLLECTOR_PASSWORD in .env}
+      CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?set CLICKHOUSE_GRAFANA_PASSWORD in .env}
+      CLICKHOUSE_MAX_SERVER_MEMORY_BYTES: ${CLICKHOUSE_MAX_SERVER_MEMORY_BYTES:-805306368}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      - ./clickhouse/config.d:/etc/clickhouse-server/config.d:ro
+      - ./clickhouse/users.d/users.xml:/etc/clickhouse-server/users.d/users.xml:ro
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q 'Ok.'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+    networks:
+      - factory-monitoring-net
+
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:26.9.36.3
+    restart: "no"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_COLLECTOR_PASSWORD: ${CLICKHOUSE_COLLECTOR_PASSWORD:?set CLICKHOUSE_COLLECTOR_PASSWORD in .env}
+      CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?set CLICKHOUSE_GRAFANA_PASSWORD in .env}
+      CLICKHOUSE_TTL_DAYS: ${CLICKHOUSE_TTL_DAYS:-400}
+    volumes:
+      - ./clickhouse/init:/init:ro
+      - ./scripts/clickhouse-init.sh:/clickhouse-init.sh:ro
+    entrypoint: ["/bin/bash", "/clickhouse-init.sh"]
+    networks:
+      - factory-monitoring-net
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    user: "0:0"
+    restart: unless-stopped
+    depends_on:
+      check-env:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      HOST_NAME: ${HOST_NAME:-factory-host}
+      FACTORY_LOG_DIR: /var/log/factory
+      CLICKHOUSE_ENDPOINT: tcp://clickhouse:9000?dial_timeout=10s
+      CLICKHOUSE_COLLECTOR_PASSWORD: ${CLICKHOUSE_COLLECTOR_PASSWORD:?set CLICKHOUSE_COLLECTOR_PASSWORD in .env}
+    volumes:
+      - ./otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - otel-file-storage:/var/lib/otelcol/file_storage
+      - ${FACTORY_LOG_DIR:-/var/lib/factory-logs}:/var/log/factory:ro
+    ports:
+      - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${OTLP_HTTP_PORT:-4318}:4318"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:13133/ >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 192m
+    networks:
+      - factory-monitoring-net
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    restart: unless-stopped
+    depends_on:
+      check-env:
+        condition: service_completed_successfully
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-15d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-2GB}
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy | grep -q 'Prometheus Server is Healthy.'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks:
+      - factory-monitoring-net
+
+  node-exporter:
+    image: prom/node-exporter:v1.13.1
+    restart: unless-stopped
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      - --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run/docker/netns|var/lib/docker/.+)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+      - ${FACTORY_METRICS_DIR:-/var/lib/factory-metrics}:/var/lib/node_exporter/textfile_collector:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9100/metrics >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+    networks:
+      - factory-monitoring-net
+
+  grafana:
+    image: grafana/grafana:13.3.1
+    restart: unless-stopped
+    depends_on:
+      check-env:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource@4.23.5
+      CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?set CLICKHOUSE_GRAFANA_PASSWORD in .env}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health | grep -q 'ok'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks:
+      - factory-monitoring-net
+
+volumes:
+  clickhouse-data:
+  clickhouse-logs:
+  prometheus-data:
+  grafana-data:
+  otel-file-storage:
+
+networks:
+  factory-monitoring-net:
+    name: factory-monitoring-net

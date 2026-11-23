@@ -436,6 +436,24 @@ instructed to:
   guidance, and a validation checklist. Keep tunnel tokens, hostnames, and other
   deployment-specific identifiers in `projects/<name>/` config or environment
   variables, not in `product/`.
+## Factory monitoring
+
+The persistent factory monitoring stack lives in
+[`factory/monitoring/`](factory/monitoring/README.md). It ingests factory JSONL
+events and host metrics, stores analytics in ClickHouse, and serves Grafana with
+provisioned datasources. It is optional and best-effort: booking environments
+must start without any monitoring stack running.
+
+```sh
+cd dev-ops/factory/monitoring
+cp .env.example .env
+# fill required secrets and paths
+docker compose up -d
+```
+
+See [`factory/monitoring/README.md`](factory/monitoring/README.md) for endpoints,
+retention, validation, and remote shipper setup.
+
 ## Resource budgets (container memory limits)
 
 All compose services in this repo define explicit memory limits (`deploy.resources.limits.memory`) to prevent any single container from exhausting host RAM (see issue #136). Approximate budgets:
@@ -447,6 +465,11 @@ All compose services in this repo define explicit memory limits (`deploy.resourc
 | signoz | signoz-server | 512m |
 | signoz | signoz-otel-collector | 512m |
 | signoz | signoz-init-clickhouse / migrators | 256m |
+| factory-monitoring | clickhouse | 768m |
+| factory-monitoring | grafana | 256m |
+| factory-monitoring | prometheus | 256m |
+| factory-monitoring | otel-collector | 192m |
+| factory-monitoring | node-exporter | 64m |
 | sauna | backend | 512m |
 | sauna | postgres | 256m |
 | sauna | sidecar | 256m |
@@ -455,5 +478,10 @@ All compose services in this repo define explicit memory limits (`deploy.resourc
 | sauna | authelia | 256m |
 | sauna | cloudflared | 128m |
 
-Keep the always-on total (booking + persistent dev-ops services) below ~2.5 GB on the 3.2 GB dev host.
+The always-on booking baseline plus persistent dev-ops services already targets
+~2.5 GB on the 3.2 GB dev host. The factory monitoring stack adds ~1.54 GB of
+always-on limits if run concurrently, which exceeds that budget on a 3.2 GB host.
+Run it only when capacity is available, reduce retention/scrape frequency, or
+move it to a separate host. Do not start it as a requirement for booking
+environments.
 
