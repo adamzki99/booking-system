@@ -13,6 +13,8 @@ import (
 
 	"github.com/adamzki99/booking-system/projects/sauna/sidecar/internal/config"
 	"github.com/adamzki99/booking-system/projects/sauna/sidecar/internal/rules"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Deps holds the dependencies required by the HTTP server. The sidecar is
@@ -66,7 +68,7 @@ func New(cfg config.Config, logger *slog.Logger, deps ...Deps) *http.Server {
 	}
 	return &http.Server{
 		Addr:         ":" + strconv.Itoa(cfg.Port),
-		Handler:      NewMux(deps...),
+		Handler:      otelhttp.NewHandler(NewMux(deps...), "sidecar"),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

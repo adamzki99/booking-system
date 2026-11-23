@@ -12,6 +12,7 @@ import (
 
 	"github.com/adamzki99/booking-system/projects/sauna/sidecar/internal/config"
 	"github.com/adamzki99/booking-system/projects/sauna/sidecar/internal/server"
+	"github.com/adamzki99/booking-system/projects/sauna/sidecar/internal/telemetry"
 )
 
 func main() {
@@ -19,6 +20,12 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
+
+	telShutdown, err := telemetry.Init(context.Background(), cfg)
+	if err != nil {
+		logger.Error("configure telemetry", "err", err)
+		os.Exit(1)
+	}
 
 	srv := server.New(cfg, logger)
 	logger.Info("starting server", "port", cfg.Port)
@@ -38,6 +45,11 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("shutdown error", "err", err)
+	}
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelShutdown()
+	if err := telShutdown(shutdownCtx); err != nil {
+		logger.Error("telemetry shutdown", "err", err)
 	}
 	logger.Info("server stopped")
 }

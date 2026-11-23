@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/metrics"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -74,22 +76,31 @@ func (s *Service) Register(commandType string, handler Handler) {
 }
 
 // Execute dispatches a command to its registered handler.
-func (s *Service) Execute(ctx context.Context, cmd Command) error {
+func (s *Service) Execute(ctx context.Context, cmd Command) (err error) {
+	start := time.Now()
 	ctx, span := s.tracer.Start(ctx, "command.execute", trace.WithAttributes(attribute.String("command.type", cmd.CommandType())))
-	defer span.End()
+	defer func() {
+		outcome := "ok"
+		if err != nil {
+			outcome = "error"
+		}
+		metrics.CommandHandled(ctx, cmd.CommandType(), outcome, time.Since(start))
+		span.End()
+	}()
 
 	handler, ok := s.handlers[cmd.CommandType()]
 	if !ok {
-		err := fmt.Errorf("%w: %s", ErrUnknownCommand, cmd.CommandType())
+		err = fmt.Errorf("%w: %s", ErrUnknownCommand, cmd.CommandType())
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
-	if release, ok, err := s.lock(ctx, cmd); err != nil {
+	if release, locked, lockErr := s.lock(ctx, cmd); lockErr != nil {
+		err = lockErr
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
-	} else if ok {
+	} else if locked {
 		// Release runs on every path, including handler and append failures.
 		// A release failure destroys the locked connection, so the lock is
 		// never leaked; the command result is already determined, so the
@@ -108,7 +119,10 @@ func (s *Service) Execute(ctx context.Context, cmd Command) error {
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
-	if err := s.publisher.Publish(ctx, recorded); err != nil {
+	for _, e := range recorded {
+		metrics.EventAppended(ctx, e.EventType)
+	}
+	if err = s.publisher.Publish(ctx, recorded); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err

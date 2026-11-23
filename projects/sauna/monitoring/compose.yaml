@@ -9,3 +9,10 @@ name: ${MONITORING_PROJECT:?set MONITORING_PROJECT in .env}-monitoring
 
 include:
   - path: ../../../product/monitoring/compose.yaml
+
+services:
+  prometheus:
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../../product/monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus

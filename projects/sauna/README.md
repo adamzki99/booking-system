@@ -140,6 +140,12 @@ To attach a locally started booking stack to the running monitoring instance:
 docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 ```
 
+`docker-compose.monitoring.yml` is an optional override: it joins `backend`,
+`sidecar`, and optionally `caddy` (profile `caddy`) to `sauna-monitoring-net`
+and sets `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318` so traces,
+metrics, and logs flow to the sauna monitoring collector. The booking stack
+starts normally without this override.
+
 `dev-ops/scripts/deploy-environment.sh` detects `sauna-monitoring-net`: when the
 network exists it adds `docker-compose.monitoring.yml` automatically; when it is
 absent it deploys without monitoring and logs one line. Deploys never fail

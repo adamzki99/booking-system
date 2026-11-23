@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,9 @@ import (
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/booking"
+	"github.com/adamzki99/booking-system/product/backend/internal/metrics"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Client calls the sidecar's booking-rule validation endpoint.
@@ -36,6 +40,7 @@ func NewClient(baseURL string, opts ...any) *Client {
 			c.http = v
 		}
 	}
+	c.http.Transport = otelhttp.NewTransport(c.http.Transport)
 	return c
 }
 
@@ -52,7 +57,23 @@ type sidecarExisting struct {
 
 // ValidateBooking asks the sidecar to validate a candidate booking against
 // existing bookings (overlap + capacity).
-func (c *Client) ValidateBooking(ctx context.Context, candidate booking.Booking, existing []booking.Booking) error {
+func (c *Client) ValidateBooking(ctx context.Context, candidate booking.Booking, existing []booking.Booking) (err error) {
+	start := time.Now()
+	defer func() {
+		result := "ok"
+		if err != nil {
+			switch {
+			case errors.Is(err, booking.ErrBookingRejected):
+				result = "rejected"
+			case errors.Is(err, booking.ErrSidecarUnavailable):
+				result = "unavailable"
+			default:
+				result = "error"
+			}
+		}
+		metrics.SidecarRequest(ctx, "validate_booking", result, time.Since(start))
+	}()
+
 	ex := make([]sidecarExisting, 0, len(existing))
 	for _, b := range existing {
 		ex = append(ex, sidecarExisting{

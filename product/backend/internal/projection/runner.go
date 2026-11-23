@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/metrics"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -50,7 +51,20 @@ func NewRunner(store eventstore.Store, checkpoints CheckpointStore) *Runner {
 func (r *Runner) Register(projection Projection) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.projections[projection.Name()] = projection
+	name := projection.Name()
+	r.projections[name] = projection
+
+	head := func(context.Context) (int64, error) { return 0, nil }
+	if hs, ok := r.store.(interface {
+		Head(context.Context) (int64, error)
+	}); ok {
+		head = hs.Head
+	}
+	cpStore := r.checkpoints
+	proj := name
+	metrics.ObserveProjection(proj, func(ctx context.Context) (int64, error) {
+		return cpStore.Get(ctx, proj)
+	}, head)
 }
 
 // Handle applies events newer than each projection's checkpoint.
@@ -139,6 +153,7 @@ func (r *Runner) applyLocked(ctx context.Context, name string, projection Projec
 	defer span.End()
 	checkpoint, err := r.checkpoints.Get(ctx, name)
 	if err != nil {
+		metrics.ProjectionError(ctx, name)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("projection %s: get checkpoint: %w", name, err)
@@ -148,11 +163,13 @@ func (r *Runner) applyLocked(ctx context.Context, name string, projection Projec
 			continue
 		}
 		if err := projection.Apply(ctx, event); err != nil {
+			metrics.ProjectionError(ctx, name)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return fmt.Errorf("projection %s: apply event %d: %w", name, event.ID, err)
 		}
 		if err := r.checkpoints.Set(ctx, name, event.ID); err != nil {
+			metrics.ProjectionError(ctx, name)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return fmt.Errorf("projection %s: set checkpoint %d: %w", name, event.ID, err)

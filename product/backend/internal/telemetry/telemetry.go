@@ -10,6 +10,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/config"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
@@ -23,11 +24,37 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
+var (
+	newTraceExporter  = otlptracehttp.New
+	newMetricExporter = otlpmetrichttp.New
+	newLogExporter    = otlploghttp.New
+)
+
 // Init installs global OpenTelemetry providers. When no OTLP endpoint is
 // configured it leaves the default no-op providers in place and returns a
 // no-op shutdown function after logging a warning. The returned slog.Handler
 // exports log records through OTLP when telemetry is enabled; callers can
 // combine it with a local stdout handler.
+func buildResource(ctx context.Context, cfg config.Config) (*resource.Resource, error) {
+	serviceName := cfg.OTELServiceName
+	if serviceName == "" {
+		serviceName = "booking-backend"
+	}
+
+	// Service name from config/env has precedence over defaults, while
+	// OTEL_RESOURCE_ATTRIBUTES and other env-sourced attributes remain visible
+	// through WithFromEnv().
+	return resource.New(ctx,
+		resource.WithAttributes(semconv.ServiceName(serviceName)),
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
+		resource.WithHost(),
+		resource.WithProcessRuntimeName(),
+		resource.WithProcessRuntimeVersion(),
+		resource.WithProcessRuntimeDescription(),
+	)
+}
+
 func Init(ctx context.Context, cfg config.Config) (func(context.Context) error, slog.Handler, error) {
 	if cfg.OTLPEndpoint == "" {
 		slog.Warn("no OTLP endpoint configured; telemetry export disabled")
@@ -39,52 +66,56 @@ func Init(ctx context.Context, cfg config.Config) (func(context.Context) error, 
 		serviceName = "booking-backend"
 	}
 
-	res, err := resource.New(ctx,
-		resource.WithAttributes(semconv.ServiceName(serviceName)),
-	)
+	res, err := buildResource(ctx, cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("telemetry: resource: %w", err)
 	}
 
 	endpoint := strings.TrimRight(cfg.OTLPEndpoint, "/")
 
-	traceExp, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint+"/v1/traces"))
+	traceExp, err := newTraceExporter(ctx, otlptracehttp.WithEndpointURL(endpoint+"/v1/traces"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("telemetry: trace exporter: %w", err)
 	}
+
+	metricExp, err := newMetricExporter(ctx, otlpmetrichttp.WithEndpointURL(endpoint+"/v1/metrics"))
+	if err != nil {
+		_ = traceExp.Shutdown(ctx)
+		return nil, nil, fmt.Errorf("telemetry: metric exporter: %w", err)
+	}
+
+	logExp, err := newLogExporter(ctx, otlploghttp.WithEndpointURL(endpoint+"/v1/logs"))
+	if err != nil {
+		_ = metricExp.Shutdown(ctx)
+		_ = traceExp.Shutdown(ctx)
+		return nil, nil, fmt.Errorf("telemetry: log exporter: %w", err)
+	}
+
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(traceExp),
 		sdktrace.WithResource(res),
 	)
-	otel.SetTracerProvider(tp)
-
-	metricExp, err := otlpmetrichttp.New(ctx, otlpmetrichttp.WithEndpointURL(endpoint+"/v1/metrics"))
-	if err != nil {
-		_ = tp.Shutdown(ctx)
-		return nil, nil, fmt.Errorf("telemetry: metric exporter: %w", err)
-	}
 	mp := metric.NewMeterProvider(
 		metric.WithReader(metric.NewPeriodicReader(metricExp)),
 		metric.WithResource(res),
 	)
-	otel.SetMeterProvider(mp)
-
-	logExp, err := otlploghttp.New(ctx, otlploghttp.WithEndpointURL(endpoint+"/v1/logs"))
-	if err != nil {
-		_ = mp.Shutdown(ctx)
-		_ = tp.Shutdown(ctx)
-		return nil, nil, fmt.Errorf("telemetry: log exporter: %w", err)
-	}
 	lp := sdklog.NewLoggerProvider(
 		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
 		sdklog.WithResource(res),
 	)
-	global.SetLoggerProvider(lp)
 
+	// Install globals only after all providers are created successfully.
+	otel.SetTracerProvider(tp)
+	otel.SetMeterProvider(mp)
+	global.SetLoggerProvider(lp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	))
+
+	if err := runtime.Start(); err != nil {
+		slog.Warn("telemetry: runtime metrics disabled", "err", err)
+	}
 
 	shutdown := func(ctx context.Context) error {
 		var firstErr error
@@ -99,5 +130,5 @@ func Init(ctx context.Context, cfg config.Config) (func(context.Context) error, 
 		}
 		return firstErr
 	}
-	return shutdown, otelslog.NewHandler(serviceName), nil
+	return shutdown, otelslog.NewHandler(serviceName, otelslog.WithLoggerProvider(lp)), nil
 }

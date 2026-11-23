@@ -2,9 +2,11 @@ package booking
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/command"
+	"github.com/adamzki99/booking-system/product/backend/internal/metrics"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
 
@@ -50,6 +52,21 @@ func NewService(commands commandExecutor, bookings bookingsReader, users Directo
 	return &BookingService{commands: commands, bookings: bookings, users: users, blocked: blocked}
 }
 
+func bookingRejectionReason(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ErrDoubleBooking):
+		return "double_booking", true
+	case errors.Is(err, ErrBlockedPeriod):
+		return "blocked_period", true
+	case errors.Is(err, ErrBookingRejected), errors.Is(err, ErrSidecarUnavailable):
+		return "sidecar_rule", true
+	case errors.Is(err, ErrInvalidInterval), errors.Is(err, ErrStartInPast):
+		return "validation", true
+	default:
+		return "", false
+	}
+}
+
 // CreateBooking creates a booking for the authenticated user and returns it.
 func (s *BookingService) CreateBooking(ctx context.Context, email string, start, end time.Time) (Booking, error) {
 	u, err := s.users.GetByEmail(ctx, email)
@@ -63,8 +80,12 @@ func (s *BookingService) CreateBooking(ctx context.Context, email string, start,
 		Start:  start,
 		End:    end,
 	}); err != nil {
+		if reason, ok := bookingRejectionReason(err); ok {
+			metrics.BookingRejected(ctx, reason)
+		}
 		return Booking{}, err
 	}
+	metrics.BookingCreated(ctx)
 	return s.bookings.GetByID(ctx, id)
 }
 
@@ -83,15 +104,23 @@ func (s *BookingService) CancelBooking(ctx context.Context, email, bookingID str
 		if !u.Role.AtLeast(user.RoleSuper) {
 			return ErrNotOwner
 		}
-		return s.commands.Execute(ctx, CancelAnyBooking{
+		if err := s.commands.Execute(ctx, CancelAnyBooking{
 			BookingID:   b.ID,
 			RequesterID: u.ID,
-		})
+		}); err != nil {
+			return err
+		}
+		metrics.BookingCancelled(ctx)
+		return nil
 	}
-	return s.commands.Execute(ctx, CancelOwnBooking{
+	if err := s.commands.Execute(ctx, CancelOwnBooking{
 		BookingID: b.ID,
 		UserID:    u.ID,
-	})
+	}); err != nil {
+		return err
+	}
+	metrics.BookingCancelled(ctx)
+	return nil
 }
 
 // ListBookings returns active bookings in the optional [from, to) range.
