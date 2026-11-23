@@ -5,16 +5,27 @@
 CREATE OR REPLACE VIEW factory.queue_latest AS
 SELECT
     factory_id,
-    argMax(toInt64OrNull(attrs['infant']), ts) AS infant,
-    argMax(toInt64OrNull(attrs['planned']), ts) AS planned,
-    argMax(toInt64OrNull(attrs['approved_waiting']), ts) AS approved_waiting,
-    argMax(toInt64OrNull(attrs['in_pr']), ts) AS in_pr,
-    argMax(toInt64OrNull(attrs['blocked_pr']), ts) AS blocked_pr,
-    argMax(toInt64OrNull(attrs['needs_info']), ts) AS needs_info,
-    max(ts) AS ts
-FROM factory.events FINAL
-WHERE event = 'factory.queue'
-GROUP BY factory_id;
+    infant,
+    planned,
+    approved_waiting,
+    in_pr,
+    blocked_pr,
+    needs_info,
+    fromUnixTimestamp64Milli(ts_ms, 'UTC') AS ts
+FROM (
+    SELECT
+        factory_id,
+        argMax(toInt64OrNull(attrs['infant']), ts) AS infant,
+        argMax(toInt64OrNull(attrs['planned']), ts) AS planned,
+        argMax(toInt64OrNull(attrs['approved_waiting']), ts) AS approved_waiting,
+        argMax(toInt64OrNull(attrs['in_pr']), ts) AS in_pr,
+        argMax(toInt64OrNull(attrs['blocked_pr']), ts) AS blocked_pr,
+        argMax(toInt64OrNull(attrs['needs_info']), ts) AS needs_info,
+        argMax(toUnixTimestamp64Milli(ts), toUnixTimestamp64Milli(ts)) AS ts_ms
+    FROM factory.events FINAL
+    WHERE event = 'factory.queue'
+    GROUP BY factory_id
+);
 
 -- Pull request outcomes (one row per PR, deduped).
 CREATE OR REPLACE VIEW factory.pr_outcomes AS
