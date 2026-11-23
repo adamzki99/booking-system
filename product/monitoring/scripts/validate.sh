@@ -97,7 +97,11 @@ SQL
     echo "+ clickhouse init $f"
     ok=0
     for attempt in 1 2 3; do
-      if sed -e 's/__TRACES_TTL_DAYS__/7/g' -e 's/__LOGS_TTL_DAYS__/14/g' "$f" | docker exec -i "$CH_CID" clickhouse-client --multiquery; then
+      set +e
+      sed -e 's/__TRACES_TTL_DAYS__/7/g' -e 's/__LOGS_TTL_DAYS__/14/g' "$f" | docker exec -i "$CH_CID" clickhouse-client --multiquery
+      rc=$?
+      set -e
+      if [[ $rc -eq 0 ]]; then
         ok=1
         break
       fi
