@@ -41,13 +41,27 @@ FACTORY_SESSION_TIMEOUT="${FACTORY_SESSION_TIMEOUT:-3600}"
 FACTORY_SESSION_LOG_DIR="${FACTORY_SESSION_LOG_DIR:-/tmp/opencode}"
 FACTORY_LOG_SESSION_OUTPUT="${FACTORY_LOG_SESSION_OUTPUT:-tail}"
 FACTORY_PRESERVE_SESSION_LOGS="${FACTORY_PRESERVE_SESSION_LOGS:-on-failure}" # always|on-failure|never
+FACTORY_ID="${FACTORY_ID:-factory-1}"
+FACTORY_METRICS_DIR="${FACTORY_METRICS_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/metrics}"
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
+
+# repo = owner/name from gh or the git remote (best effort, never fatal).
+FACTORY_REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo unknown)"
 
 umask 077
 mkdir -p "$(dirname "$FACTORY_LOG_FILE")" "$FACTORY_SESSION_LOG_DIR" "$FACTORY_CLAIM_DIR" 2>/dev/null || true
 chmod 700 "$(dirname "$FACTORY_LOG_FILE")" "$FACTORY_SESSION_LOG_DIR" "$FACTORY_CLAIM_DIR" 2>/dev/null || true
 : >> "$FACTORY_LOG_FILE" 2>/dev/null || true
 chmod 600 "$FACTORY_LOG_FILE" 2>/dev/null || true
+
+# Telemetry emission failure counter (F-06). Kept non-fatal; reported on
+# tick_end via telemetry_errors and one warning line per failure to stderr.
+TELEMETRY_ERRORS=0
+
+# Per-tick run counters for the Prometheus metrics file, by kind and outcome.
+RUNS_PLAN_OK=0; RUNS_PLAN_FAILED=0; RUNS_PLAN_SKIPPED=0
+RUNS_BUILD_OK=0; RUNS_BUILD_FAILED=0; RUNS_BUILD_SKIPPED=0
+RUNS_FIX_OK=0; RUNS_FIX_FAILED=0; RUNS_FIX_SKIPPED=0
 
 usage() {
   cat <<'USAGE'
@@ -64,6 +78,7 @@ Environment (key):
   FACTORY_CLAIM_TTL, FACTORY_CLAIM_DIR, FACTORY_GH_RETRIES,
   FACTORY_SESSION_LOG_DIR, FACTORY_LOG_SESSION_OUTPUT (tail|metadata),
   FACTORY_PRESERVE_SESSION_LOGS (on-failure|always|never),
+  FACTORY_ID, FACTORY_METRICS_DIR,
   FACTORY_WORKTREE, FACTORY_CONFIG_TAG, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED,
   FACTORY_LOGIN, FACTORY_GITHUB_APP_ID, FACTORY_GITHUB_APP_PRIVATE_KEY_FILE,
   FACTORY_GITHUB_APP_PRIVATE_KEY, FACTORY_GITHUB_INSTALLATION_ID.
@@ -73,6 +88,20 @@ USAGE
 log() { printf '[factory-tick] %s\n' "$*"; }
 die() { printf '[factory-tick] ERROR: %s\n' "$*" >&2; exit 1; }
 
+# Best-effort structured event emitter. Writes one JSON object to FACTORY_LOG_FILE
+# via factory.py emit (single implementation, covered by validate_event).
+# Emission is non-fatal: failures are counted in TELEMETRY_ERRORS and reported
+# with one warning line to stderr per failure.
+emit_event() {
+  local event="${1:-}"; shift || true
+  if ! python3 "$SCRIPT_DIR/lib/factory.py" emit \
+       "$event" "$FACTORY_LOG_FILE" "$TICK_ID" "$DRY_RUN" "$ON_USAGE_FILLED" \
+       "$FACTORY_ENV" "$HOSTNAME_VAL" "$FACTORY_ID" "$FACTORY_REPO" "$@" 2>/dev/null; then
+    TELEMETRY_ERRORS=$((TELEMETRY_ERRORS + 1))
+    printf '[factory-tick] WARNING: failed to emit telemetry event %s\n' "$event" >&2
+  fi
+}
+
 classify_gh_text() {
   printf '%s' "$1" | python3 "$SCRIPT_DIR/lib/factory.py" classify-gh - 2>/dev/null || echo other
 }
@@ -81,15 +110,13 @@ classify_git_text() {
   printf '%s' "$1" | python3 "$SCRIPT_DIR/lib/factory.py" classify-git - 2>/dev/null || echo other
 }
 
-classify_pr_changes() {
-  printf '%s' "$1" | python3 "$SCRIPT_DIR/lib/factory.py" classify-pr-changes - 2>/dev/null || echo unknown
-}
-
 should_retry_category() {
   local cat="$1"
   [[ "$cat" == "transient" || "$cat" == "rate_limit" ]]
 }
 
+# F-07: gh_op_retry is emitted only when a retry will actually happen.
+# gh_op_failed (with attempt, max_attempts, category) is emitted when it gives up.
 gh_run_capture() {
   # Usage: gh_run_capture <label> <command...>
   # Sets GH_OUT, GH_ERR, GH_RC, GH_CATEGORY. Retries transient/rate_limit.
@@ -121,8 +148,12 @@ gh_run_capture() {
       cat="$(classify_gh_text "$GH_ERR")"
     fi
     GH_CATEGORY="$cat"
-    emit_event gh_op_retry op="$label" attempt="$attempt" max_attempts="$max" exit_code="$rc" category="$cat"
+    # Only emit gh_op_retry when another attempt will actually happen.
+    if [[ $attempt -lt $max ]] && should_retry_category "$cat"; then
+      emit_event gh_op_retry op="$label" attempt="$attempt" max_attempts="$max" exit_code="$rc" category="$cat"
+    fi
     if [[ $attempt -ge $max ]] || ! should_retry_category "$cat"; then
+      emit_event gh_op_failed op="$label" attempt="$attempt" max_attempts="$max" exit_code="$rc" category="$cat"
       return $rc
     fi
     delay=$((attempt*2))
@@ -175,45 +206,6 @@ mint_factory_github_token() {
   export GITHUB_TOKEN="$token"
   log "factory GitHub App token minted (login filter: ${FACTORY_LOGIN:-unset})"
 }
-# Best-effort structured event emitter. Writes one JSON object to FACTORY_LOG_FILE.
-# Never raises; never touches stdout/stderr.
-emit_event() {
-  local event="${1:-}"; shift || true
-  python3 - "$event" "$FACTORY_LOG_FILE" "$TICK_ID" "$DRY_RUN" "$ON_USAGE_FILLED" "$FACTORY_ENV" "$HOSTNAME_VAL" "$@" << 'PYEOF' >/dev/null 2>&1 || true
-import datetime, json, sys
-
-event = sys.argv[1]
-path = sys.argv[2]
-tick_id = sys.argv[3]
-dry_run = sys.argv[4]
-on_usage = sys.argv[5]
-env = sys.argv[6] or "dev"
-host = sys.argv[7]
-pairs = sys.argv[8:]
-
-obj = {}
-obj["schema_version"] = 1
-obj["ts"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-obj["service.name"] = "factory-tick"
-obj["deployment.environment"] = env
-obj["host.name"] = host
-obj["tick_id"] = tick_id
-obj["dry_run"] = (dry_run == "1")
-obj["on_usage_filled"] = on_usage
-obj["event"] = event
-
-for p in pairs:
-    if "=" in p:
-        k, v = p.split("=", 1)
-        obj[k] = v
-
-try:
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
-except Exception:
-    pass
-PYEOF
-}
 
 for arg in "$@"; do
   case "$arg" in
@@ -250,13 +242,12 @@ export FACTORY_LOGIN
 
 TICK_ID="$(python3 -c 'import secrets;print(secrets.token_hex(16))' 2>/dev/null || echo 00000000000000000000000000000000)"
 TICK_START_MS="$(date +%s%3N)"
+TICK_START_SEC="$(date +%s)"
 
 on_exit() {
   local rc=$?
-  local now dur
-  now="$(date +%s%3N 2>/dev/null || echo "$TICK_START_MS")"
-  dur=$((now - TICK_START_MS))
-  emit_event tick_end exit_code="$rc" duration_ms="$dur"
+  write_metrics_file "$rc"
+  emit_event tick_end exit_code="$rc" duration_ms="$(( $(date +%s%3N 2>/dev/null || echo "$TICK_START_MS") - TICK_START_MS ))" telemetry_errors="$TELEMETRY_ERRORS"
   exit "$rc"
 }
 trap on_exit EXIT
@@ -267,6 +258,61 @@ on_signal() {
 }
 trap 'on_signal INT' INT
 trap 'on_signal TERM' TERM
+
+# Write the Prometheus textfile metrics atomically (temp file in same dir, then mv).
+# Runs in the EXIT trap so it also emits on failure.
+write_metrics_file() {
+  local exit_code="${1:-$TICK_RC}"
+  local dir="${FACTORY_METRICS_DIR}"
+  local file="$dir/factory_tick.prom"
+  local tmp now_ts dur success_ts prev_success
+  now_ts="$(date +%s 2>/dev/null || echo 0)"
+  dur=$((now_ts - TICK_START_SEC))
+  mkdir -p "$dir" 2>/dev/null || true
+  tmp="$(mktemp "$dir/.factory_tick.prom.XXXXXX" 2>/dev/null || mktemp 2>/dev/null || echo /tmp/factory_tick.prom.$$)"
+  # Preserve the previous success timestamp unless this tick succeeded.
+  prev_success=""
+  if [[ -f "$file" ]]; then
+    prev_success="$(awk '/^factory_tick_last_success_timestamp_seconds /{print $2}' "$file" 2>/dev/null || true)"
+  fi
+  if [[ "$exit_code" -eq 0 ]]; then
+    success_ts="$now_ts"
+  elif [[ -n "$prev_success" ]]; then
+    success_ts="$prev_success"
+  else
+    success_ts=0
+  fi
+  cat > "$tmp" <<EOF
+# HELP factory_tick_last_run_timestamp_seconds Unix time of the last tick run.
+# TYPE factory_tick_last_run_timestamp_seconds gauge
+factory_tick_last_run_timestamp_seconds $now_ts
+# HELP factory_tick_last_success_timestamp_seconds Unix time of the last successful tick.
+# TYPE factory_tick_last_success_timestamp_seconds gauge
+factory_tick_last_success_timestamp_seconds $success_ts
+# HELP factory_tick_last_duration_seconds Duration of the last tick in seconds.
+# TYPE factory_tick_last_duration_seconds gauge
+factory_tick_last_duration_seconds $dur
+# HELP factory_tick_last_exit_code Exit code of the last tick.
+# TYPE factory_tick_last_exit_code gauge
+factory_tick_last_exit_code $exit_code
+# HELP factory_tick_runs_last Runs in the last tick, by kind and outcome.
+# TYPE factory_tick_runs_last gauge
+factory_tick_runs_last{kind="plan",outcome="ok"} $RUNS_PLAN_OK
+factory_tick_runs_last{kind="plan",outcome="failed"} $RUNS_PLAN_FAILED
+factory_tick_runs_last{kind="plan",outcome="skipped"} $RUNS_PLAN_SKIPPED
+factory_tick_runs_last{kind="build",outcome="ok"} $RUNS_BUILD_OK
+factory_tick_runs_last{kind="build",outcome="failed"} $RUNS_BUILD_FAILED
+factory_tick_runs_last{kind="build",outcome="skipped"} $RUNS_BUILD_SKIPPED
+factory_tick_runs_last{kind="fix",outcome="ok"} $RUNS_FIX_OK
+factory_tick_runs_last{kind="fix",outcome="failed"} $RUNS_FIX_FAILED
+factory_tick_runs_last{kind="fix",outcome="skipped"} $RUNS_FIX_SKIPPED
+# HELP factory_telemetry_errors_last Telemetry emission errors in the last tick.
+# TYPE factory_telemetry_errors_last gauge
+factory_telemetry_errors_last $TELEMETRY_ERRORS
+EOF
+  mv "$tmp" "$file" 2>/dev/null || { cat "$tmp" > "$file" 2>/dev/null || true; }
+  rm -f "$tmp" 2>/dev/null || true
+}
 
 # Do not overlap ticks: a slow session must not pile up followers.
 exec 9>"$(git rev-parse --git-dir)/factory-tick.lock"
@@ -285,7 +331,6 @@ oldest_unlabeled_issue() {
   OLDEST_UNLABELED_ISSUE=""
   if ! gh_run_capture "oldest_unlabeled_issue" gh issue list --state open --limit 200 --json number,labels,createdAt \
     --jq '[.[] | select((.labels | length) == 0)] | sort_by(.createdAt) | .[0].number // empty'; then
-    emit_event gh_op_failed op="oldest_unlabeled_issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     return 1
   fi
@@ -483,7 +528,7 @@ for pr in prs or []:
     if isinstance(rollup, list):
         for item in rollup:
             st = check_state(item)
-            if st in FAIL:
+            if st in FAIL_STATES:
                 reasons.append("failing-checks")
                 break
     rd = (pr.get("reviewDecision") or "").upper()
@@ -509,7 +554,6 @@ has_marker() {
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
   if ! gh_run_capture "has_marker_issue" gh issue view "$1" --json comments \
     --jq "[.comments[].body | contains($marker_json)] | any"; then
-    emit_event gh_op_failed op="has_marker_issue" issue="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     echo "false"
     return 0
@@ -522,7 +566,6 @@ has_pr_marker() {
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
   if ! gh_run_capture "has_pr_marker" gh pr view "$1" --json comments \
     --jq "[.comments[].body | contains($marker_json)] | any"; then
-    emit_event gh_op_failed op="has_pr_marker" pr="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     echo "false"
     return 0
@@ -532,7 +575,6 @@ has_pr_marker() {
 
 issue_labels() {
   if ! gh_run_capture "issue_labels" gh issue view "$1" --json labels --jq '.labels[].name'; then
-    emit_event gh_op_failed op="issue_labels" issue="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     return 1
   fi
@@ -541,57 +583,15 @@ issue_labels() {
 
 open_factory_pr_for_issue() {
   if ! gh_run_capture "open_factory_pr_for_issue" gh pr list --state open --head "factory/issue-$1" --json number --jq '.[0].number // empty'; then
-    emit_event gh_op_failed op="open_factory_pr_for_issue" issue="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     return 1
   fi
   printf '%s\n' "$GH_OUT"
 }
 
-close_if_empty_pr() {
-  # $1 PR number, $2 issue number. Post-session cleanup only: a factory PR
-  # with changedFiles == 0 is closed, never marked ready and never merged.
-  local pr="$1" issue="${2:-}"
-  [[ -n "$pr" ]] || return 0
-  local state changed_files head_branch verdict body
-  if ! gh_run_capture "close_if_empty_pr_view" gh pr view "$pr" \
-      --json number,state,changedFiles,headRefName \
-      --jq '[.number, .state, (.changedFiles | tostring), .headRefName] | @tsv'; then
-    emit_event gh_op_failed op="close_if_empty_pr_view" pr="$pr" issue="$issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
-    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
-    return 0
-  fi
-  IFS=$'\t' read -r _ state changed_files head_branch <<< "${GH_OUT:-}"
-  # Only factory branches are in scope; human PRs are never touched here.
-  [[ "$head_branch" == factory/issue-* ]] || return 0
-  [[ "$state" == "OPEN" ]] || return 0
-  verdict="$(classify_pr_changes "$changed_files")"
-  [[ "$verdict" == "empty" ]] || return 0
-  if [[ "$DRY_RUN" == 1 ]]; then
-    log "dry-run: would close empty PR #$pr (issue #${issue:-unknown}, changed_files=0)"
-    emit_event dry_run kind="empty_pr_close" pr="$pr" issue="$issue" changed_files=0
-    return 0
-  fi
-  body="Factory guard: this PR changed no files, so it is closed without merge. Keep the work for issue #${issue:-unknown} in a single PR with real changes."
-  if ! gh_run_capture "close_if_empty_pr_comment" gh pr comment "$pr" --body "$body"; then
-    emit_event gh_op_failed op="close_if_empty_pr_comment" pr="$pr" issue="$issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
-    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
-    return 0
-  fi
-  if ! gh_run_capture "close_if_empty_pr_close" gh pr close "$pr"; then
-    emit_event gh_op_failed op="close_if_empty_pr_close" pr="$pr" issue="$issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
-    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
-    return 0
-  fi
-  emit_event empty_pr_closed pr="$pr" issue="$issue" changed_files=0
-  log "closed empty PR #$pr (issue #${issue:-unknown})"
-  return 0
-}
-
 model_for_labels() {
   python3 "$SCRIPT_DIR/lib/factory.py" model-for-labels "$MODELS_CONFIG" "$@"
 }
-
 
 is_usage_filled() {
   local out="${1,,}"
@@ -613,8 +613,47 @@ is_usage_filled() {
   return 1
 }
 
+classify_failure() { # $1 text, $2 exit_code
+  printf '%s' "${1:-}" | python3 "$SCRIPT_DIR/lib/factory.py" classify-failure "${2:-1}" - 2>/dev/null || echo exit_nonzero
+}
 
-# prompts unchanged (abbreviated here but included)
+error_fingerprint() { # $1 text
+  printf '%s' "${1:-}" | python3 "$SCRIPT_DIR/lib/factory.py" error-fingerprint - 2>/dev/null || true
+}
+
+# prompt version: sha256 prefix of the rendered prompt template before
+# issue-specific substitution (issue number replaced by 0).
+prompt_version() { # $1 kind, $2 issue/ref number
+  local kind="$1" num="$2" src
+  case "$kind" in
+    plan) src="$(plan_prompt "$num")" ;;
+    build) src="$(build_prompt "$num")" ;;
+    fix) src="$(fix_prompt "$num" "$num" "reasons" "marker")" ;;
+    *) src="" ;;
+  esac
+  src="$(printf '%s' "$src" | sed "s/#$num/#0/g" 2>/dev/null || printf '%s' "$src")"
+  printf '%s' "$src" | sha256sum | cut -c1-12
+}
+
+# agent_version: first 12 hex of sha256 of .opencode/agents/<agent>.md
+agent_version() { # $1 agent_id
+  local agent="$1"
+  [[ -z "$agent" ]] && { printf '%s' ""; return; }
+  python3 - "$agent" << 'PYEOF' 2>/dev/null || echo unknown
+import hashlib, os, sys
+agent = sys.argv[1]
+path = os.path.join(os.getcwd(), ".opencode", "agents", agent + ".md")
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = f.read()
+except OSError:
+    print("unknown")
+    raise SystemExit
+print(hashlib.sha256(data.encode("utf-8")).hexdigest()[:12])
+PYEOF
+}
+
+# prompts (abbreviated here but included)
 plan_prompt() { # $1 issue number
   cat << EOF
 You are the planning agent of this software factory. Turn GitHub issue #$1
@@ -629,8 +668,6 @@ $PLAN_MARKER
 3. Categorize the issue with labels (see gh label list). If the task is
    large, also add the heavy-build-task label. Never add the
    "$APPROVED_LABEL" label - only the repository owner applies it.
-4. If the work is too large for one PR, propose sub-issues in the plan
-   instead of asking the builder to open several PRs for this issue.
 
 Do not modify any code or files.
 
@@ -672,7 +709,7 @@ Apply the skills above conditionally based on the issue; do not force them on
 every issue. If a follow-up issue must be filed, use the
 \`/create-github-issue\` command (see
 \`.opencode/commands/create-github-issue.md\`) rather than ad hoc
-\`gh issue create\`, so the body follows the agentic template and passes
+gh issue create, so the body follows the agentic template and passes
 \`dev-ops/scripts/validate-issue-body.sh\`.
 Factory delivery rules (these override generic skill defaults where they
 conflict):
@@ -693,11 +730,7 @@ conflict):
 6. Draft PR creation: detect an existing PR for the branch first
    (gh pr list --head factory/issue-$1); reuse it. Otherwise create in draft
    mode: gh pr create --draft against the base branch. Include Closes #$1.
-   Do not mark ready for review automatically. Open exactly one PR for this
-   issue. If the work cannot fit in one PR, stop and ask the planner to
-   propose sub-issues rather than opening several PRs. After pushing,
-   self-check with \`gh pr view <pr> --json changedFiles\`; if it is 0,
-   stop and report instead of marking ready or merging.
+   Do not mark ready for review automatically.
 7. CI monitoring: identify checks (gh pr checks), wait (gh pr checks --watch).
    Distinguish success/failed/pending/cancelled/skipped; do not treat pending
    as success. Retrieve logs for failures (gh run view, gh run view --log-failed).
@@ -706,7 +739,7 @@ conflict):
    or fail.
 8. CI remediation: fix root cause in the worktree, add/update tests, run checks
    locally, commit and push, wait for CI. Retry at most 3 cycles. Never disable
-   tests, weaken gates, edit CI config to bypass, or make unrelated changes.
+   tests, weaken gates, edit CI config to bypass failures, or make unrelated changes.
    If unfixable, document root cause and report blocker.
 9. Readiness and merge: verify all required checks passed, acceptance criteria
    met, no blockers/unrelated changes, reviews/protection satisfied, PR
@@ -716,10 +749,10 @@ conflict):
    If blocked, do not bypass; report the blocking condition and leave PR for
    human intervention. Distinguish attempt from successful merge.
 10. On successful merge: remove worktree and branch only after GitHub confirms
-    merge and no uncommitted changes remain. On failure/interruption: retain
-    worktree and report path.
+     merge and no uncommitted changes remain. On failure/interruption: retain
+     worktree and report path.
 11. Post one comment on the issue summarizing what was merged. The comment
-    body must start with this exact marker line:
+     body must start with this exact marker line:
 
 $BUILD_MARKER
 EOF
@@ -763,8 +796,8 @@ changes; conflicts = merge conflicts / not mergeable.)
    gh pr view $1 --json state,mergedAt. Record final status in state file.
    Distinguish attempt from successfully merged PR.
 10. Post one comment on PR #$1 summarizing what you fixed and the merge/result
-    status. The comment body must start with this exact marker line (required
-    for factory idempotency):
+     status. The comment body must start with this exact marker line (required
+     for factory idempotency):
 
 $4
 
@@ -831,15 +864,41 @@ finalize_session_log() { # path, success(0/1)
   esac
 }
 
-start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 prompt
-  local kind="$1" ref="$2" title="$3" model="$4" backup="$5" prompt="$6"
+emit_tool_calls() { # $1 run_id, $2 stream_text
+  local run_id="$1" text="$2"
+  [[ -z "$text" ]] && return 0
+  while IFS=$'\t' read -r tool status duration_ms skill_name; do
+    [[ -z "$tool" ]] && continue
+    local -a extra=(run_id="$run_id" tool="$tool" status="${status:-unknown}")
+    [[ -n "$duration_ms" && "$duration_ms" != "None" && "$duration_ms" != "" ]] && extra+=(duration_ms="$duration_ms")
+    [[ -n "$skill_name" && "$skill_name" != "None" && "$skill_name" != "" ]] && extra+=(skill_name="$skill_name")
+    emit_event agent.tool.called "${extra[@]}"
+  done < <(printf '%s\n' "$text" | PYTHONPATH="$SCRIPT_DIR/lib" python3 -c '
+import sys, json
+sys.path.insert(0, sys.argv[1])
+import factory
+for c in factory.parse_tool_calls(sys.stdin.read()):
+    d = c.get("duration_ms")
+    print("\t".join([str(c.get("tool","")), str(c.get("status","")), "" if d is None else str(d), str(c.get("skill_name","") or "")]))
+' "$SCRIPT_DIR/lib" 2>/dev/null || true)
+}
+
+# start_session # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 backup_model, $7 prompt, $8 tier_label, $9 area_labels
+#
+# Emits v2 agent.run.* lifecycle events. Each opencode invocation is a distinct
+# run (new run_id) and reports its own session_id. Raw session output never
+# enters an event; only the tail is kept in the local session log.
+start_session() { # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 backup_model, $7 prompt, $8 tier_label, $9 area_labels
+  local kind="$1" issue_id="$2" pr_number="$3" title="$4" model="$5" backup="$6" prompt="$7"
+  local tier_label="${8:-default}" area_labels="${9:-}"
+  local ref="${issue_id:-$pr_number}"
   local agent=""
   case "$kind" in
     plan) agent="planner" ;;
     build) agent="builder" ;;
     fix) agent="fixer" ;;
   esac
-  local out status=0 session_start_ms duration tail_out
+  local session_start_ms duration
   session_start_ms="$(date +%s%3N)"
   local logfile="/dev/null"
   if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then
@@ -847,48 +906,137 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
     (umask 077; : > "$logfile")
     chmod 600 "$logfile" 2>/dev/null || true
   fi
-  log "starting $kind session for #$ref (model: ${model:-opencode default}, agent: ${agent:-default})"
-  if [[ "$kind" == "fix" ]]; then
-    emit_event session_start kind="$kind" pr="$ref" model="${model:-}" backup_model="${backup:-}"
-  else
-    emit_event session_start kind="$kind" issue="$ref" model="${model:-}" backup_model="${backup:-}"
-  fi
+  local run_id attempt=1 fallback_level="primary" trace_id
+  run_id="$(python3 -c 'import uuid;print(uuid.uuid4())' 2>/dev/null || echo "${TICK_ID}-${kind}-${ref}")"
+  trace_id="$(python3 "$SCRIPT_DIR/lib/factory.py" trace-id 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4().hex)')"
+  local agent_ver
+  agent_ver="$(agent_version "$agent")"
+  local pv
+  pv="$(prompt_version "$kind" "$ref")"
+  log "starting $kind session for #$ref (model: ${model:-opencode default}, agent: ${agent:-default}, run: $run_id)"
+
+  # Emit agent.run.started for this invocation.
+  emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+    kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+    model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="" \
+    trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+    backup_model="${backup:-}"
+
+  local out status=0
   set +e
   set -o pipefail
   out="$(run_opencode "$title" "$model" "$agent" "$prompt" 2>&1 | tee "$logfile")"
   status=$?
   set +o pipefail
   set -e
-  session_id="$(printf '%s\n' "$out" | python3 -c 'import sys,json\nfor line in sys.stdin:\n try:\n  o=json.loads(line); sid=o.get("sessionID")\n  if sid: print(sid); break\n except Exception: pass' 2>/dev/null | head -1)"
+
+  # Parse session_id and usage/cost from the captured stream before the log
+  # is deleted (Part B). Never put raw output into an event.
+  local session_id
+  session_id="$(printf '%s\n' "$out" | python3 "$SCRIPT_DIR/lib/factory.py" session-id - 2>/dev/null | head -1)"
+  # Extract typed usage fields as shell assignments; missing fields are simply
+  # omitted, never a crash. PYTHONPATH makes `import factory` resolve.
+  eval "$(printf '%s\n' "$out" | PYTHONPATH="$SCRIPT_DIR/lib" python3 -c 'import sys,factory
+text = sys.stdin.read()
+d = factory.parse_opencode_stream(text) if text else {}
+for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
+          "cache_read_tokens", "cache_write_tokens", "tool_calls", "tool_errors",
+          "files_changed", "cost_usd"):
+    if k in d:
+        print(f"{k}={d[k]!r}")
+' 2>/dev/null || true)"
+  local duration= steps= input_tokens= output_tokens= reasoning_tokens= \
+    cache_read_tokens= cache_write_tokens= cost= tool_calls= tool_errors= files_changed=
+  duration=$(( $(date +%s%3N) - session_start_ms ))
+  emit_tool_calls "$run_id" "$out"
+  if [[ -z "$files_changed" ]]; then
+    files_changed="$(git diff --name-only 2>/dev/null | wc -l | tr -d ' ')" || files_changed=""
+    [[ "$files_changed" == "0" ]] && files_changed=""
+  fi
+
   if [[ $status -eq 0 ]]; then
     printf '%s\n' "$out"
-    duration=$(( $(date +%s%3N) - session_start_ms ))
     if [[ "$kind" == "fix" ]]; then
-      emit_event session_ok kind="$kind" pr="$ref" model="${model:-}" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
+      emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+        kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+        model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+        exit_code=0 duration_ms="$duration" outcome="ok" \
+        ${steps:+steps=$steps} ${input_tokens:+input_tokens=$input_tokens} \
+        ${output_tokens:+output_tokens=$output_tokens} ${reasoning_tokens:+reasoning_tokens=$reasoning_tokens} \
+        ${cache_read_tokens:+cache_read_tokens=$cache_read_tokens} ${cache_write_tokens:+cache_write_tokens=$cache_write_tokens} \
+        ${cost:+cost_usd=$cost} ${tool_calls:+tool_calls=$tool_calls} ${tool_errors:+tool_errors=$tool_errors} ${files_changed:+files_changed=$files_changed}
     else
-      emit_event session_ok kind="$kind" issue="$ref" model="${model:-}" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
+      emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+        kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+        model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+        exit_code=0 duration_ms="$duration" outcome="ok" \
+        ${steps:+steps=$steps} ${input_tokens:+input_tokens=$input_tokens} \
+        ${output_tokens:+output_tokens=$output_tokens} ${reasoning_tokens:+reasoning_tokens=$reasoning_tokens} \
+        ${cache_read_tokens:+cache_read_tokens=$cache_read_tokens} ${cache_write_tokens:+cache_write_tokens=$cache_write_tokens} \
+        ${cost:+cost_usd=$cost} ${tool_calls:+tool_calls=$tool_calls} ${tool_errors:+tool_errors=$tool_errors} ${files_changed:+files_changed=$files_changed}
     fi
+    case "$kind" in
+      plan) RUNS_PLAN_OK=$((RUNS_PLAN_OK + 1)) ;;
+      build) RUNS_BUILD_OK=$((RUNS_BUILD_OK + 1)) ;;
+      fix) RUNS_FIX_OK=$((RUNS_FIX_OK + 1)) ;;
+    esac
     finalize_session_log "$logfile" 1
     return 0
   fi
 
+  # Failure path. Classify without raw output.
   printf '%s\n' "$out" >&2
+  local failure_reason error_fp
+  failure_reason="$(classify_failure "$out" "$status")" || failure_reason="exit_nonzero"
+  error_fp="$(error_fingerprint "$out" 2>/dev/null || true)"
+
   if is_usage_filled "$out"; then
     log "session for #$ref failed: usage/quota appears filled (on-usage-filled=$ON_USAGE_FILLED)"
+    duration=$(( $(date +%s%3N) - session_start_ms ))
     if [[ "$kind" == "fix" ]]; then
-      emit_event usage_filled kind="$kind" pr="$ref" model="${model:-}" outcome="usage_filled" session_id="${session_id:-}" reason="$USAGE_FILLED_REASON"
+      emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+        kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+        model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+        exit_code="$status" duration_ms="$duration" outcome="failed" \
+        failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}" ${files_changed:+files_changed=$files_changed}
     else
-      emit_event usage_filled kind="$kind" issue="$ref" model="${model:-}" outcome="usage_filled" session_id="${session_id:-}" reason="$USAGE_FILLED_REASON"
+      emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+        kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+        model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+        exit_code="$status" duration_ms="$duration" outcome="failed" \
+        failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}" ${files_changed:+files_changed=$files_changed}
     fi
+    case "$kind" in
+      plan) RUNS_PLAN_FAILED=$((RUNS_PLAN_FAILED + 1)) ;;
+      build) RUNS_BUILD_FAILED=$((RUNS_BUILD_FAILED + 1)) ;;
+      fix) RUNS_FIX_FAILED=$((RUNS_FIX_FAILED + 1)) ;;
+    esac
     case "$ON_USAGE_FILLED" in
       backup)
         if [[ -n "$backup" && "$backup" != "$model" ]]; then
           local bout bstatus=0
           log "retrying #$ref with backup model: $backup"
+          fallback_level="backup"
+          run_id="$(python3 -c 'import uuid;print(uuid.uuid4())' 2>/dev/null || echo "${TICK_ID}-${kind}-${ref}-backup")"
+          agent_ver="$(agent_version "$agent")"
+          pv="$(prompt_version "$kind" "$ref")"
+          # started event for the backup invocation
           if [[ "$kind" == "fix" ]]; then
-            emit_event backup_retry kind="$kind" pr="$ref" model="$backup"
+            emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+              kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+              model="$backup" pr_number="$ref" session_id="" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+              backup_model="${backup:-}"
           else
-            emit_event backup_retry kind="$kind" issue="$ref" model="$backup"
+            emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+              kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+              model="$backup" issue="$ref" session_id="" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+              backup_model="${backup:-}"
           fi
           set +e
           set -o pipefail
@@ -897,41 +1045,101 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
           set +o pipefail
           set -e
           printf '%s\n' "$bout" >&2
+          emit_tool_calls "$run_id" "$bout"
           if [[ $bstatus -eq 0 ]]; then
             duration=$(( $(date +%s%3N) - session_start_ms ))
+            local bs_id
+            bs_id="$(printf '%s\n' "$bout" | python3 "$SCRIPT_DIR/lib/factory.py" session-id - 2>/dev/null | head -1)"
             if [[ "$kind" == "fix" ]]; then
-              emit_event backup_ok kind="$kind" pr="$ref" model="$backup" exit_code=0 duration_ms="$duration" outcome="backup_ok" session_id="${session_id:-}"
+              emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+                kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+                model="$backup" pr_number="$ref" session_id="${bs_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+                exit_code=0 duration_ms="$duration" outcome="ok"
             else
-              emit_event backup_ok kind="$kind" issue="$ref" model="$backup" exit_code=0 duration_ms="$duration" outcome="backup_ok" session_id="${session_id:-}"
+              emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+                kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+                model="$backup" issue="$ref" session_id="${bs_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+                exit_code=0 duration_ms="$duration" outcome="ok"
             fi
+            case "$kind" in
+              plan) RUNS_PLAN_OK=$((RUNS_PLAN_OK + 1)) ;;
+              build) RUNS_BUILD_OK=$((RUNS_BUILD_OK + 1)) ;;
+              fix) RUNS_FIX_OK=$((RUNS_FIX_OK + 1)) ;;
+            esac
             finalize_session_log "$logfile" 1
             return 0
           fi
           if ! is_usage_filled "$bout"; then
             duration=$(( $(date +%s%3N) - session_start_ms ))
-            tail_out=""
-            if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$bout" | tail -c 16384)" || true; fi
+            local bs_id2 bfail_reason bfp
+            bs_id2="$(printf '%s\n' "$bout" | python3 "$SCRIPT_DIR/lib/factory.py" session-id - 2>/dev/null | head -1)"
+            bfail_reason="$(classify_failure "$bout" "$bstatus")" || bfail_reason="exit_nonzero"
+            bfp="$(error_fingerprint "$bout" 2>/dev/null || true)"
             if [[ "$kind" == "fix" ]]; then
-              emit_event session_failed kind="$kind" pr="$ref" model="$backup" exit_code="$bstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
+              emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+                kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+                model="$backup" pr_number="$ref" session_id="${bs_id2:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+                exit_code="$bstatus" duration_ms="$duration" outcome="failed" \
+                failure_reason="$bfail_reason" "${bfp:+error_fingerprint=$bfp}"
             else
-              emit_event session_failed kind="$kind" issue="$ref" model="$backup" exit_code="$bstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
+              emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+                kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+                model="$backup" issue="$ref" session_id="${bs_id2:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+                exit_code="$bstatus" duration_ms="$duration" outcome="failed" \
+                failure_reason="$bfail_reason" "${bfp:+error_fingerprint=$bfp}"
             fi
+            case "$kind" in
+              plan) RUNS_PLAN_FAILED=$((RUNS_PLAN_FAILED + 1)) ;;
+              build) RUNS_BUILD_FAILED=$((RUNS_BUILD_FAILED + 1)) ;;
+              fix) RUNS_FIX_FAILED=$((RUNS_FIX_FAILED + 1)) ;;
+            esac
             finalize_session_log "$logfile" 0
             return "$bstatus"
           fi
           log "backup model for #$ref also hit usage/quota limit"
           if [[ "$kind" == "fix" ]]; then
-            emit_event usage_filled kind="$kind" pr="$ref" model="$backup" outcome="usage_filled" session_id="${session_id:-}" reason="$USAGE_FILLED_REASON"
+            emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+              kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+              model="$backup" pr_number="$ref" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+              exit_code="$bstatus" duration_ms="$(( $(date +%s%3N) - session_start_ms ))" outcome="failed" \
+              failure_reason="usage_filled"
           else
-            emit_event usage_filled kind="$kind" issue="$ref" model="$backup" outcome="usage_filled" session_id="${session_id:-}" reason="$USAGE_FILLED_REASON"
+            emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+              kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+              model="$backup" issue="$ref" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+              exit_code="$bstatus" duration_ms="$(( $(date +%s%3N) - session_start_ms ))" outcome="failed" \
+              failure_reason="usage_filled"
           fi
+          case "$kind" in
+            plan) RUNS_PLAN_FAILED=$((RUNS_PLAN_FAILED + 1)) ;;
+            build) RUNS_BUILD_FAILED=$((RUNS_BUILD_FAILED + 1)) ;;
+            fix) RUNS_FIX_FAILED=$((RUNS_FIX_FAILED + 1)) ;;
+          esac
         fi
         if [[ "$model" != "$FREE_MODEL" && "$backup" != "$FREE_MODEL" ]]; then
           log "retrying #$ref with free model: $FREE_MODEL"
+          fallback_level="free"
+          run_id="$(python3 -c 'import uuid;print(uuid.uuid4())' 2>/dev/null || echo "${TICK_ID}-${kind}-${ref}-free")"
+          agent_ver="$(agent_version "$agent")"
+          pv="$(prompt_version "$kind" "$ref")"
           if [[ "$kind" == "fix" ]]; then
-            emit_event free_retry kind="$kind" pr="$ref" model="$FREE_MODEL"
+            emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+              kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+              model="$FREE_MODEL" pr_number="$ref" session_id="" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+              backup_model="${backup:-}"
           else
-            emit_event free_retry kind="$kind" issue="$ref" model="$FREE_MODEL"
+            emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+              kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+              model="$FREE_MODEL" issue="$ref" session_id="" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+              backup_model="${backup:-}"
           fi
           set +e
           set -o pipefail
@@ -941,53 +1149,133 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
           set +o pipefail
           set -e
           printf '%s\n' "$fout"
+          emit_tool_calls "$run_id" "$fout"
           if [[ $fstatus -eq 0 ]]; then
             duration=$(( $(date +%s%3N) - session_start_ms ))
+            local fs_id
+            fs_id="$(printf '%s\n' "$fout" | python3 "$SCRIPT_DIR/lib/factory.py" session-id - 2>/dev/null | head -1)"
             if [[ "$kind" == "fix" ]]; then
-              emit_event session_ok kind="$kind" pr="$ref" model="$FREE_MODEL" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
+              emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+                kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+                model="$FREE_MODEL" pr_number="$ref" session_id="${fs_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+                exit_code=0 duration_ms="$duration" outcome="ok"
             else
-              emit_event session_ok kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code=0 duration_ms="$duration" outcome="ok" session_id="${session_id:-}"
+              emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+                kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+                model="$FREE_MODEL" issue="$ref" session_id="${fs_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+                exit_code=0 duration_ms="$duration" outcome="ok"
             fi
+            case "$kind" in
+              plan) RUNS_PLAN_OK=$((RUNS_PLAN_OK + 1)) ;;
+              build) RUNS_BUILD_OK=$((RUNS_BUILD_OK + 1)) ;;
+              fix) RUNS_FIX_OK=$((RUNS_FIX_OK + 1)) ;;
+            esac
             finalize_session_log "$logfile" 1
             return 0
           fi
           duration=$(( $(date +%s%3N) - session_start_ms ))
-          tail_out=""
-          if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$fout" | tail -c 16384)" || true; fi
+          local fs_id2 ffail_reason ffp
+          fs_id2="$(printf '%s\n' "$fout" | python3 "$SCRIPT_DIR/lib/factory.py" session-id - 2>/dev/null | head -1)"
+          ffail_reason="$(classify_failure "$fout" "$fstatus")" || ffail_reason="exit_nonzero"
+          ffp="$(error_fingerprint "$fout" 2>/dev/null || true)"
           if [[ "$kind" == "fix" ]]; then
-            emit_event session_failed kind="$kind" pr="$ref" model="$FREE_MODEL" exit_code="$fstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
+            emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+              kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+              model="$FREE_MODEL" pr_number="$ref" session_id="${fs_id2:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+              exit_code="$fstatus" duration_ms="$duration" outcome="failed" \
+              failure_reason="$ffail_reason" "${ffp:+error_fingerprint=$ffp}"
           else
-            emit_event session_failed kind="$kind" issue="$ref" model="$FREE_MODEL" exit_code="$fstatus" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
+            emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+              kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+              model="$FREE_MODEL" issue="$ref" session_id="${fs_id2:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+              exit_code="$fstatus" duration_ms="$duration" outcome="failed" \
+              failure_reason="$ffail_reason" "${ffp:+error_fingerprint=$ffp}"
           fi
+          case "$kind" in
+            plan) RUNS_PLAN_FAILED=$((RUNS_PLAN_FAILED + 1)) ;;
+            build) RUNS_BUILD_FAILED=$((RUNS_BUILD_FAILED + 1)) ;;
+            fix) RUNS_FIX_FAILED=$((RUNS_FIX_FAILED + 1)) ;;
+          esac
           finalize_session_log "$logfile" 0
           return "$fstatus"
         fi
         log "no distinct free model configured for #$ref; failing"
         duration=$(( $(date +%s%3N) - session_start_ms ))
         if [[ "$kind" == "fix" ]]; then
-          emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}"
+          emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+            kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+            exit_code="$status" duration_ms="$duration" outcome="failed" \
+            failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
         else
-          emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}"
+          emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+            kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+            exit_code="$status" duration_ms="$duration" outcome="failed" \
+            failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
         fi
+        case "$kind" in
+          plan) RUNS_PLAN_FAILED=$((RUNS_PLAN_FAILED + 1)) ;;
+          build) RUNS_BUILD_FAILED=$((RUNS_BUILD_FAILED + 1)) ;;
+          fix) RUNS_FIX_FAILED=$((RUNS_FIX_FAILED + 1)) ;;
+        esac
         finalize_session_log "$logfile" 0
         return "$status"
         ;;
       skip)
         log "skipping #$ref due to filled usage"
+        duration=$(( $(date +%s%3N) - session_start_ms ))
         if [[ "$kind" == "fix" ]]; then
-          emit_event session_skipped_usage kind="$kind" pr="$ref" model="${model:-}" outcome="skipped" session_id="${session_id:-}"
+          emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+            kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+            exit_code=0 duration_ms="$duration" outcome="failed" \
+            failure_reason="usage_filled_skipped"
         else
-          emit_event session_skipped_usage kind="$kind" issue="$ref" model="${model:-}" outcome="skipped" session_id="${session_id:-}"
+          emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+            kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+            exit_code=0 duration_ms="$duration" outcome="failed" \
+            failure_reason="usage_filled_skipped"
         fi
+        case "$kind" in
+          plan) RUNS_PLAN_SKIPPED=$((RUNS_PLAN_SKIPPED + 1)) ;;
+          build) RUNS_BUILD_SKIPPED=$((RUNS_BUILD_SKIPPED + 1)) ;;
+          fix) RUNS_FIX_SKIPPED=$((RUNS_FIX_SKIPPED + 1)) ;;
+        esac
         finalize_session_log "$logfile" 1
         return 0
         ;;
       fail)
+        duration=$(( $(date +%s%3N) - session_start_ms ))
         if [[ "$kind" == "fix" ]]; then
-          emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" outcome="failed" session_id="${session_id:-}"
+          emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+            kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+            exit_code="$status" duration_ms="$duration" outcome="failed" \
+            failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
         else
-          emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" outcome="failed" session_id="${session_id:-}"
+          emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+            kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+            exit_code="$status" duration_ms="$duration" outcome="failed" \
+            failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
         fi
+        case "$kind" in
+          plan) RUNS_PLAN_FAILED=$((RUNS_PLAN_FAILED + 1)) ;;
+          build) RUNS_BUILD_FAILED=$((RUNS_BUILD_FAILED + 1)) ;;
+          fix) RUNS_FIX_FAILED=$((RUNS_FIX_FAILED + 1)) ;;
+        esac
         finalize_session_log "$logfile" 0
         return "$status"
         ;;
@@ -998,11 +1286,26 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   tail_out=""
   if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then tail_out="$(printf '%s' "$out" | tail -c 16384)" || true; fi
   if [[ "$kind" == "fix" ]]; then
-    emit_event session_failed kind="$kind" pr="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
+    emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+      kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+      model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+      exit_code="$status" duration_ms="$duration" outcome="failed" \
+      failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}" ${files_changed:+files_changed=$files_changed}
   else
-    emit_event session_failed kind="$kind" issue="$ref" model="${model:-}" exit_code="$status" duration_ms="$duration" outcome="failed" session_id="${session_id:-}" output_tail="$tail_out"
+    emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+      kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+      model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+      exit_code="$status" duration_ms="$duration" outcome="failed" \
+      failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}" ${files_changed:+files_changed=$files_changed}
   fi
   log "$kind session for #$ref failed (exit $status)"
+  case "$kind" in
+    plan) RUNS_PLAN_FAILED=$((RUNS_PLAN_FAILED + 1)) ;;
+    build) RUNS_BUILD_FAILED=$((RUNS_BUILD_FAILED + 1)) ;;
+    fix) RUNS_FIX_FAILED=$((RUNS_FIX_FAILED + 1)) ;;
+  esac
   finalize_session_log "$logfile" 0
   return "$status"
 }
@@ -1166,21 +1469,20 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       fi
     fi
     mapfile -t labels < <(issue_labels "$issue_number" 2>/dev/null || true)
-    IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
-    emit_event fix_selected pr="$pr_number" issue="$issue_number" reasons="$reasons" model="${model:-}" backup_model="${backup_model:-}"
+    IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels "${labels[@]}")
+    area_labels="$(printf '%s\n' "${labels[@]}" | grep -E '^(backend|frontend|dev-ops)$' | paste -sd, - 2>/dev/null || true)"
+    emit_event fix_selected pr="$pr_number" issue="$issue_number" reasons="$reasons" model="${model:-}" backup_model="${backup_model:-}" tier_label="${tier_label:-default}" area_labels="${area_labels:-}"
     if [[ "$DRY_RUN" == 1 ]]; then
       log "dry-run: would fix PR #$pr_number (issue #$issue_number, reasons: $reasons, model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
       emit_event dry_run kind="fix" pr="$pr_number" issue="$issue_number"
-      close_if_empty_pr "$pr_number" "$issue_number"
       fix_count=$((fix_count + 1))
     else
-      if start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"; then
+      emit_event issue.assigned issue_id="$issue_number" pr_number="$pr_number" kind="fix" agent_id="fixer"
+      if start_session "fix" "$issue_number" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")" "${tier_label:-default}" "${area_labels:-}"; then
         :
       else
         fix_failures=$((fix_failures + 1))
       fi
-      # Check even when the session failed; a half-created PR can still be empty.
-      close_if_empty_pr "$pr_number" "$issue_number"
       release_claim "$claim_dir"
       fix_count=$((fix_count + 1))
     fi
@@ -1237,6 +1539,7 @@ while IFS= read -r candidate; do
 done <<< "$build_candidates_output"
 
 if [[ -n "$build_issue" ]]; then
+  emit_event issue.detected issue_id="$build_issue" kind="build"
   emit_event build_selected issue="$build_issue"
 fi
 
@@ -1253,8 +1556,10 @@ if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
 fi
 
 if [[ -n "$plan_issue" ]]; then
-  IFS=$'\t' read -r model backup_model < <(model_for_labels)
-  emit_event plan_selected issue="$plan_issue" model="${model:-}" backup_model="${backup_model:-}"
+  emit_event issue.detected issue_id="$plan_issue" kind="plan"
+  IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels)
+  area_labels=""
+  emit_event plan_selected issue="$plan_issue" model="${model:-}" backup_model="${backup_model:-}" tier_label="${tier_label:-default}"
   if [[ "$DRY_RUN" == 1 ]]; then
     log "dry-run: would plan issue #$plan_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
     emit_event dry_run kind="plan" issue="$plan_issue"
@@ -1264,7 +1569,8 @@ if [[ -n "$plan_issue" ]]; then
       log "issue #$plan_issue already claimed for planning; skipping"
       emit_event claim_conflict issue="$plan_issue" reason="${plan_claim:-claim-failed}" kind="plan"
     else
-      start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" || TICK_RC=1
+      emit_event issue.assigned issue_id="$plan_issue" kind="plan" agent_id="planner"
+      start_session "plan" "$plan_issue" "" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" "${tier_label:-default}" "${area_labels:-}" || TICK_RC=1
       release_claim "$plan_claim"
     fi
   fi
@@ -1272,7 +1578,8 @@ fi
 
 if [[ -n "$build_issue" ]]; then
   mapfile -t labels < <(issue_labels "$build_issue" 2>/dev/null || true)
-  IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
+  IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels "${labels[@]}")
+  area_labels="$(printf '%s\n' "${labels[@]}" | grep -E '^(backend|frontend|dev-ops)$' | paste -sd, - 2>/dev/null || true)"
   if [[ "$DRY_RUN" == 1 ]]; then
     log "dry-run: would build issue #$build_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
     emit_event dry_run kind="build" issue="$build_issue"
@@ -1282,13 +1589,8 @@ if [[ -n "$build_issue" ]]; then
       log "issue #$build_issue already claimed for build; skipping"
       emit_event claim_conflict issue="$build_issue" reason="${build_claim:-claim-failed}" kind="build"
     else
-      start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" || TICK_RC=1
-      # Resolve the PR the session opened, if any. Check even on session
-      # failure so a half-created empty PR is still caught.
-      built_pr=""
-      if built_pr="$(open_factory_pr_for_issue "$build_issue")" && [[ -n "$built_pr" ]]; then
-        close_if_empty_pr "$built_pr" "$build_issue"
-      fi
+      emit_event issue.assigned issue_id="$build_issue" kind="build" agent_id="builder"
+      start_session "build" "$build_issue" "" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" "${tier_label:-default}" "${area_labels:-}" || TICK_RC=1
       release_claim "$build_claim"
     fi
   fi

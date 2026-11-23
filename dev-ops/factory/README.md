@@ -71,6 +71,8 @@ tick.sh --help
 | `FACTORY_CONFIG_TAG` | `factory-config` | Owner-moved git tag holding the signed-off guardrail snapshot. |
 | `FACTORY_LOG_FILE` | `${XDG_STATE_HOME:-~/.local/state}/factory/tick.jsonl` | JSONL event log. |
 | `FACTORY_ENV` | `dev` | `deployment.environment` field. |
+| `FACTORY_ID` | `factory-1` | `factory_id` field on every event; one scheduler host = one factory id. |
+| `FACTORY_METRICS_DIR` | `${XDG_STATE_HOME:-~/.local/state}/factory/metrics` | Directory for the atomic `factory_tick.prom` Prometheus textfile (written each tick in the EXIT trap). |
 | `FACTORY_SESSION_LOG_DIR` | `/tmp/opencode` | Session logs and prompt temp files. |
 | `FACTORY_LOG_SESSION_OUTPUT` | `tail` | `tail` retains last 16 KiB in failure events and writes session logs; `metadata` suppresses retained output. |
 | `FACTORY_PRESERVE_SESSION_LOGS` | `on-failure` | `on-failure` (delete on success), `always`, `never`. |
@@ -83,7 +85,8 @@ tick.sh --help
 | `MODELS_CONFIG` | `dev-ops/factory/models.yaml` | Label→model config. |
 
 OpenCode invocation uses `opencode run --auto --format json --file <prompt-file>`
-for robust prompt delivery and session ID capture.
+for robust prompt delivery and session ID capture. Each invocation is a
+distinct run (new `run_id`) and reports its own `session_id`.
 
 ## Claims, leases, isolation, and timeouts
 
@@ -183,36 +186,43 @@ guardrail changes owner-reviewed on GitHub.
 `${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl`). Human output on
 stdout/stderr remains separate.
 
-Common event fields: `schema_version` (currently 1), `ts`, `service.name`,
-`deployment.environment`, `host.name`, `tick_id`, `dry_run`, `on_usage_filled`,
-`event`, plus event-specific fields (reason/category, attempt numbers, counts,
-durations, model/agent, `session_id`, PR/issue refs, quota reason, etc.).
+The event model is **schema version 2** (SCHEMA_VERSION = 2 in
+`lib/factory.py`). Every event carries `schema_version`, `event_id` (UUIDv4),
+`event`, `ts` (RFC 3339 UTC with milliseconds), `service.name`, `factory_id`,
+`deployment.environment`, `host.name`, `tick_id`, `dry_run` and
+`on_usage_filled`. `tick_id` identifies one scheduler invocation; it is the
+analysis model's `schedule_id`. `factory_id` identifies one factory host
+(default `factory-1`).
 
-Representative events include `tick_start/end/result/interrupted`,
-`lock_skipped`, `gh_op_retry/gh_op_failed`, `fix_discovery_error`,
-`build_discovery_error`, `discovery_failed`, `project_priority_fallback`,
-`claim_conflict`, `dirty_worktree_skipped_reset`, `git_fetch_failed`,
-`guardrail_drift/guardrail_ok`, `session_*`, `usage_filled`, `backup_retry/ok`,
-`free_retry`, `dry_run`,
-`marker_skip`, `empty_pr_closed`, and `nothing_to_do`.
+Documentation: [`EVENTS.md`](EVENTS.md) is the single source of truth for the
+event model. It lists every event name `tick.sh` can emit, the common and
+run-scoped fields, the lifecycle events (`agent.run.started/completed/failed`
+replace the legacy `session_*` events), usage and cost fields parsed from the
+opencode JSON stream, and a legacy-to-v2 event mapping table.
+
+At the end of every tick (in the EXIT trap, so it also runs on failure),
+tick writes a Prometheus textfile atomically to
+`${FACTORY_METRICS_DIR}/factory_tick.prom` (`factory_tick_last_run_timestamp_seconds`,
+`factory_tick_last_success_timestamp_seconds`, `factory_tick_last_duration_seconds`,
+`factory_tick_last_exit_code`, `factory_tick_runs_last{kind,outcome}` and
+`factory_telemetry_errors_last`). Prompt 03 mounts this directory into a
+node-exporter textfile collector.
+
+Events never contain raw session output, regardless of
+`FACTORY_LOG_SESSION_OUTPUT`. The 16 KiB tail is kept only in the local
+session log file. See `EVENTS.md` for `failure_reason` and
+`error_fingerprint` (sha256 of the normalised last error line, first 12 hex
+chars) used for failure analysis instead of raw output.
+
+Shipping factory tick events to the monitoring stack (ClickHouse, Prometheus,
+Grafana) is handled by the factory monitoring stack (prompt 03), not by
+tick.sh directly. The optional `otel-collector.yaml` is retained for prompt 03
+to replace.
 
 Cron (keep human output separate):
 ```
 0 * * * * /path/to/repo/dev-ops/factory/tick.sh >> "$HOME/.local/state/factory/tick.log" 2>&1
 ```
-
-Ship factory tick events to SigNoz using one of these same-host options:
-
-- **SigNoz collector integration (preferred when SigNoz runs on the same host):**
-  `dev-ops/signoz/otel-collector-config.yaml` includes a `filelog/factory`
-  receiver that tails `/var/log/factory/tick.jsonl` inside the collector
-  container. Set `FACTORY_LOG_DIR` to the directory containing `tick.jsonl`
-  (default `${XDG_STATE_HOME:-$HOME/.local/state}/factory`) when starting
-  `dev-ops/signoz/docker-compose.yml`.
-- **Standalone shipper:** run `otelcol-contrib` as a user systemd unit on the
-  cron host using `dev-ops/factory/otel-collector.yaml` (`filelog` receiver →
-  OTLP/HTTP). Required env: `FACTORY_LOG_FILE`, `SIGNOZ_OTLP_ENDPOINT`, optional
-  `SIGNOZ_INGESTION_KEY`.
 
 ## Security expectations
 
