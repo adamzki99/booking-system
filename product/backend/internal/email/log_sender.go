@@ -3,6 +3,8 @@ package email
 import (
 	"context"
 	"log/slog"
+
+	"github.com/adamzki99/booking-system/product/backend/internal/metrics"
 )
 
 // LogSender is the dev-mode Sender: it logs emails instead of sending them.
@@ -16,7 +18,8 @@ func NewLogSender(logger *slog.Logger) *LogSender {
 }
 
 // Send logs the email; it never touches the network.
-func (s *LogSender) Send(_ context.Context, to, subject, body string) error {
+func (s *LogSender) Send(ctx context.Context, to, subject, body string) error {
 	s.logger.Info("email (log mode, not sent)", "to", to, "subject", subject, "body", body)
+	metrics.EmailSent(ctx, "ok")
 	return nil
 }

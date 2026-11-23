@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/internal/auth"
@@ -21,6 +22,9 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Deps holds the dependencies required by the HTTP server.
@@ -79,7 +83,7 @@ func NewMux(deps Deps) *http.ServeMux {
 	if deps.UserService != nil {
 		feedUsers = deps.UserService
 	}
-	mux.HandleFunc("GET /calendar/", ical.HandleFeed(deps.CalendarTokens, deps.Bookings, ratelimit.NewLimiter(), feedUsers))
+	mux.HandleFunc("GET /calendar/{token}", ical.HandleFeed(deps.CalendarTokens, deps.Bookings, ratelimit.NewLimiter(), feedUsers))
 
 	// Regenerate calendar token (authenticated).
 	mux.Handle("POST /account/calendar-token", protect(deps.Middleware, ical.HandleRegenerateToken(icalServiceFromDeps(deps), deps.UserService, deps.PublicBaseURL)))
@@ -91,9 +95,41 @@ func NewMux(deps Deps) *http.ServeMux {
 
 // New creates an *http.Server wired with sensible timeouts.
 func New(cfg config.Config, logger *slog.Logger, deps Deps) *http.Server {
+	mux := NewMux(deps)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(w, r)
+		route := r.Pattern
+		if route == "" {
+			return
+		}
+		span := trace.SpanFromContext(r.Context())
+		span.SetAttributes(semconv.HTTPRoute(httpRoute(route)))
+		if strings.HasPrefix(route, "GET /calendar/") {
+			// The token is the credential; never record it in span attributes.
+			span.SetAttributes(
+				attribute.String("url.path", "/calendar/{token}"),
+				attribute.String("url.full", "/calendar/{token}"),
+				attribute.String("http.target", "/calendar/{token}"),
+			)
+		}
+	})
+
 	return &http.Server{
-		Addr:         ":" + strconv.Itoa(cfg.Port),
-		Handler:      otelhttp.NewHandler(NewMux(deps), "http"),
+		Addr: ":" + strconv.Itoa(cfg.Port),
+		Handler: otelhttp.NewHandler(handler, "http",
+			otelhttp.WithFilter(func(r *http.Request) bool {
+				return r.URL.Path != "/healthz"
+			}),
+			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+				if route := r.Pattern; route != "" {
+					return route
+				}
+				if r.Method != "" {
+					return r.Method
+				}
+				return "HTTP"
+			}),
+		),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -297,4 +333,11 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+func httpRoute(pattern string) string {
+	if idx := strings.IndexByte(pattern, '/'); idx >= 0 {
+		return pattern[idx:]
+	}
+	return pattern
 }

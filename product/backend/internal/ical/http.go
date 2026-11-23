@@ -12,6 +12,7 @@ import (
 
 	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/booking"
+	"github.com/adamzki99/booking-system/product/backend/internal/metrics"
 	"github.com/adamzki99/booking-system/product/backend/internal/ratelimit"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 )
@@ -47,8 +48,8 @@ func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limite
 		token := r.PathValue("token")
 		if token == "" {
 			token = strings.TrimPrefix(r.URL.Path, "/calendar/")
-			token = strings.TrimSuffix(token, ".ics")
 		}
+		token = strings.TrimSuffix(token, ".ics")
 		if limiter != nil {
 			if !feedAllows(r, token, limiter) {
 				http.Error(w, "rate limited", http.StatusTooManyRequests)
@@ -94,9 +95,11 @@ func HandleFeed(tokens *CalendarTokenProjection, bookings BookingsReader, limite
 // token may proceed. Denied requests are left uncounted for that key.
 func feedAllows(r *http.Request, token string, limiter *ratelimit.Limiter) bool {
 	if !limiter.Allow(feedIPKey(clientIP(r)), feedIPLimit, feedIPWindow) {
+		metrics.RateLimitRejected(r.Context(), "ical_ip")
 		return false
 	}
 	if !limiter.Allow(feedTokenKey(HashToken(token)), feedTokenLimit, feedTokenWindow) {
+		metrics.RateLimitRejected(r.Context(), "ical_token")
 		return false
 	}
 	return true

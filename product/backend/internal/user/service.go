@@ -10,6 +10,7 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/auth"
 	"github.com/adamzki99/booking-system/product/backend/internal/command"
 	"github.com/adamzki99/booking-system/product/backend/internal/email"
+	"github.com/adamzki99/booking-system/product/backend/internal/metrics"
 )
 
 // commandExecutor runs commands against the event store.
@@ -198,6 +199,12 @@ func (s *UserService) RequestEmailChange(ctx context.Context, userID, newEmail, 
 		emailOK := s.limiter.Allow("email-change:email:"+normalized, requestEmailChangeLimit, requestEmailChangeWindow)
 		ipOK := s.limiter.Allow("email-change:ip:"+clientIP, requestEmailChangeIPLimit, requestEmailChangeIPWindow)
 		if !emailOK || !ipOK {
+			if !emailOK {
+				metrics.RateLimitRejected(ctx, "user_email_change_email")
+			}
+			if !ipOK {
+				metrics.RateLimitRejected(ctx, "user_email_change_ip")
+			}
 			return PendingEmailChange{}, ErrEmailChangeRateLimit
 		}
 	}

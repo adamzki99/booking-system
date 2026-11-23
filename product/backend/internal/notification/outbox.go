@@ -70,12 +70,12 @@ type Store interface {
 // install the global meter provider before the first delivery is recorded.
 type metrics struct {
 	enqueued, sent, retried, failed, enqueueFailed metric.Int64Counter
-	pending                                        metric.Int64UpDownCounter
 }
 
 var (
-	metricsOnce sync.Once
-	meterStats  metrics
+	metricsOnce      sync.Once
+	meterStats       metrics
+	pendingGaugeOnce sync.Once
 )
 
 func recordMetrics() *metrics {
@@ -91,25 +91,36 @@ func recordMetrics() *metrics {
 			metric.WithDescription("Notification deliveries permanently failed."))
 		meterStats.enqueueFailed, _ = m.Int64Counter("notifications.enqueue_failed",
 			metric.WithDescription("Failures while storing an intended delivery."))
-		meterStats.pending, _ = m.Int64UpDownCounter("notifications.pending",
-			metric.WithDescription("Notification deliveries currently awaiting delivery."))
 	})
 	return &meterStats
 }
 
-func recordEnqueued(ctx context.Context) {
-	recordMetrics().enqueued.Add(ctx, 1)
-	recordMetrics().pending.Add(ctx, 1)
+// ObservePending registers an observable gauge that reports the current number
+// of pending deliveries. The count function is called by the metric reader; it
+// should be cheap and read-only.
+func ObservePending(count func(context.Context) (int64, error)) {
+	if count == nil {
+		return
+	}
+	pendingGaugeOnce.Do(func() {
+		m := otel.Meter("notification")
+		_, _ = m.Int64ObservableGauge("notifications.pending",
+			metric.WithDescription("Notification deliveries currently awaiting delivery."),
+			metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
+				n, err := count(ctx)
+				if err != nil {
+					return err
+				}
+				o.Observe(n)
+				return nil
+			}))
+	})
 }
-func recordSent(ctx context.Context) {
-	recordMetrics().sent.Add(ctx, 1)
-	recordMetrics().pending.Add(ctx, -1)
-}
-func recordRetried(ctx context.Context) { recordMetrics().retried.Add(ctx, 1) }
-func recordFailed(ctx context.Context) {
-	recordMetrics().failed.Add(ctx, 1)
-	recordMetrics().pending.Add(ctx, -1)
-}
+
+func recordEnqueued(ctx context.Context)       { recordMetrics().enqueued.Add(ctx, 1) }
+func recordSent(ctx context.Context)           { recordMetrics().sent.Add(ctx, 1) }
+func recordRetried(ctx context.Context)        { recordMetrics().retried.Add(ctx, 1) }
+func recordFailed(ctx context.Context)         { recordMetrics().failed.Add(ctx, 1) }
 func recordEnqueueFailure(ctx context.Context) { recordMetrics().enqueueFailed.Add(ctx, 1) }
 
 // ReportEnqueueFailure increments the enqueue-failure counter. Notifiers call
@@ -221,6 +232,18 @@ func (s *MemoryStore) Fail(ctx context.Context, id int64, cause string) error {
 	item.LastError = cause
 	recordFailed(ctx)
 	return nil
+}
+
+func (s *MemoryStore) PendingCount(_ context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int64
+	for _, item := range s.items {
+		if item.Status == StatusPending {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (s *MemoryStore) List(_ context.Context, status string) ([]Item, error) {

@@ -15,6 +15,9 @@ type Config struct {
 	// RedeployTimes lists daily redeploy times in "HH:MM" form. Empty means no
 	// schedule is exposed (e.g. production).
 	RedeployTimes []string
+
+	OTLPEndpoint    string
+	OTELServiceName string
 }
 
 // Load reads configuration from the environment.
@@ -41,5 +44,16 @@ func Load() Config {
 			redeployTimes = append(redeployTimes, t)
 		}
 	}
-	return Config{Port: port, BookingTimezone: tz, Capacity: capacity, RedeployTimes: redeployTimes}
+	serviceName := os.Getenv("OTEL_SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "sauna-sidecar"
+	}
+	return Config{
+		Port:            port,
+		BookingTimezone: tz,
+		Capacity:        capacity,
+		RedeployTimes:   redeployTimes,
+		OTLPEndpoint:    os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		OTELServiceName: serviceName,
+	}
 }
