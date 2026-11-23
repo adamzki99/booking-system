@@ -13,6 +13,11 @@ datasources:
       defaultDatabase: factory
       username: grafana
       secure: false
+      traces:
+        defaultDatabase: otel
+        defaultTable: otel_traces
+        otelEnabled: true
+        otelVersion: latest
     secureJsonData:
       password: $__env{CLICKHOUSE_GRAFANA_PASSWORD}
 

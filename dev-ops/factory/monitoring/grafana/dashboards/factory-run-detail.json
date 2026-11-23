@@ -1,0 +1,618 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Deep dive for one factory run: events, trace waterfall, tool calls, and token/cost per step.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "factory"
+      ],
+      "targetBlank": false,
+      "title": "Factory dashboards",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Selected run from factory.runs.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trace_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open Langfuse trace",
+                    "url": "${langfuse_url}/project/${langfuse_project_id}/traces/${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT\n  run_id, factory_id, tick_id, kind, agent_id, agent_version, prompt_version, model, tier_label,\n  fallback_level, attempt, issue_id, pr_number, repo, session_id, trace_id,\n  started_at, ended_at, outcome, failure_reason, duration_ms,\n  input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens,\n  cost_usd, tool_calls, tool_errors, files_changed, exit_code, error_fingerprint\nFROM factory.runs\nWHERE run_id = ${run_id:singlequote}\nLIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Run summary",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Factory events for the selected run.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT ts, event, status, kind, agent_id, model, session_id, trace_id, duration_ms, failure_reason, error_fingerprint, attrs\nFROM factory.events FINAL\nWHERE run_id = ${run_id:singlequote}\nORDER BY ts ASC\nLIMIT 500",
+          "refId": "A"
+        }
+      ],
+      "title": "Run events",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Trace waterfall from otel.otel_traces for the selected run trace_id. Requires Grafana ClickHouse datasource traces support.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "id": 3,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 3,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "otel",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "traces"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "traces",
+          "rawSql": "SELECT\n  TraceId AS traceID,\n  SpanId AS spanID,\n  ParentSpanId AS parentSpanID,\n  ServiceName AS serviceName,\n  SpanName AS operationName,\n  Timestamp AS startTime,\n  Duration / 1000000 AS duration,\n  arrayMap(k -> map('key', k, 'value', SpanAttributes[k]), mapKeys(SpanAttributes)) AS tags,\n  arrayMap(k -> map('key', k, 'value', ResourceAttributes[k]), mapKeys(ResourceAttributes)) AS serviceTags,\n  if(StatusCode = 'STATUS_CODE_ERROR' OR StatusCode = 'Error' OR StatusCode = '2', 2, 0) AS statusCode\nFROM otel.otel_traces\nWHERE TraceId = ${trace_id:singlequote}\nORDER BY Timestamp ASC\nLIMIT 1000",
+          "refId": "A"
+        }
+      ],
+      "title": "Trace (waterfall)",
+      "type": "traces"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Tool calls emitted by the run.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT ts, tool, status, duration_ms, skill_name, run_id, attrs\nFROM factory.tool_calls\nWHERE run_id = ${run_id:singlequote}\nORDER BY ts ASC\nLIMIT 500",
+          "refId": "A"
+        }
+      ],
+      "title": "Tool calls",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "LLM step spans from otel.otel_traces with GenAI token attributes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT\n  Timestamp AS ts,\n  SpanName AS span,\n  SpanAttributes['gen_ai.request.model'] AS model,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.input_tokens']) AS input_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.output_tokens']) AS output_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.reasoning_tokens']) AS reasoning_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.cache_read_tokens']) AS cache_read_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.cache_write_tokens']) AS cache_write_tokens,\n  toFloat64OrNull(SpanAttributes['gen_ai.usage.cost_usd']) AS cost_usd,\n  Duration / 1000000 AS duration_ms\nFROM otel.otel_traces\nWHERE TraceId = ${trace_id:singlequote}\n  AND SpanName IN ('opencode.llm.step', 'factory.agent.run')\nORDER BY Timestamp ASC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Tokens per step",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "factory",
+    "run-detail",
+    "traces"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT factory_id FROM factory.events WHERE $__timeFilter(ts) AND factory_id != '' ORDER BY factory_id",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Factory",
+        "multi": true,
+        "name": "factory_id",
+        "options": [],
+        "query": "SELECT DISTINCT factory_id FROM factory.events WHERE $__timeFilter(ts) AND factory_id != '' ORDER BY factory_id",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT agent_id FROM factory.events WHERE $__timeFilter(ts) AND agent_id != '' ORDER BY agent_id",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Agent",
+        "multi": true,
+        "name": "agent_id",
+        "options": [],
+        "query": "SELECT DISTINCT agent_id FROM factory.events WHERE $__timeFilter(ts) AND agent_id != '' ORDER BY agent_id",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT model FROM factory.events WHERE $__timeFilter(ts) AND model != '' ORDER BY model",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Model",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "query": "SELECT DISTINCT model FROM factory.events WHERE $__timeFilter(ts) AND model != '' ORDER BY model",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT kind FROM factory.events WHERE $__timeFilter(ts) AND kind != '' ORDER BY kind",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Kind",
+        "multi": true,
+        "name": "kind",
+        "options": [],
+        "query": "SELECT DISTINCT kind FROM factory.events WHERE $__timeFilter(ts) AND kind != '' ORDER BY kind",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT run_id FROM factory.runs WHERE $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 200",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Run ID",
+        "multi": false,
+        "name": "run_id",
+        "options": [],
+        "query": "SELECT run_id FROM factory.runs WHERE $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 200",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT trace_id FROM factory.runs WHERE run_id = ${run_id:singlequote} LIMIT 1",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Trace ID",
+        "multi": false,
+        "name": "trace_id",
+        "options": [],
+        "query": "SELECT trace_id FROM factory.runs WHERE run_id = ${run_id:singlequote} LIMIT 1",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "http://127.0.0.1:3001",
+          "value": "http://127.0.0.1:3001"
+        },
+        "hide": 0,
+        "label": "Langfuse URL",
+        "name": "langfuse_url",
+        "options": [
+          {
+            "selected": true,
+            "text": "http://127.0.0.1:3001",
+            "value": "http://127.0.0.1:3001"
+          }
+        ],
+        "query": "http://127.0.0.1:3001",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "factory-project",
+          "value": "factory-project"
+        },
+        "hide": 0,
+        "label": "Langfuse Project ID",
+        "name": "langfuse_project_id",
+        "options": [
+          {
+            "selected": true,
+            "text": "factory-project",
+            "value": "factory-project"
+          }
+        ],
+        "query": "factory-project",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Factory Run Detail",
+  "uid": "factory-run-detail",
+  "version": 1,
+  "weekStart": ""
+}

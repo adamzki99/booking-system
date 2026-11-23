@@ -988,7 +988,42 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trace_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open run detail",
+                    "url": "/d/factory-run-detail/factory-run-detail?orgId=1&var-run_id=${__data.fields.run_id}&var-trace_id=${__value.raw}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "run_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open run detail",
+                    "url": "/d/factory-run-detail/factory-run-detail?orgId=1&var-run_id=${__value.raw}&var-trace_id=${__data.fields.trace_id}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 7,
@@ -1030,7 +1065,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT run_id, factory_id, kind, agent_id, model, issue_id, pr_number, session_id, started_at, age_seconds\nFROM factory.stuck_runs\nORDER BY age_seconds DESC\nLIMIT 50",
+          "rawSql": "SELECT run_id, factory_id, kind, agent_id, model, issue_id, pr_number, session_id, trace_id, started_at, age_seconds\nFROM factory.stuck_runs\nORDER BY age_seconds DESC\nLIMIT 50",
           "refId": "A"
         }
       ],

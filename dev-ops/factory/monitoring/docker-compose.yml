@@ -67,6 +67,7 @@ services:
       CLICKHOUSE_COLLECTOR_PASSWORD: ${CLICKHOUSE_COLLECTOR_PASSWORD:?set CLICKHOUSE_COLLECTOR_PASSWORD in .env}
       CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?set CLICKHOUSE_GRAFANA_PASSWORD in .env}
       CLICKHOUSE_TTL_DAYS: ${CLICKHOUSE_TTL_DAYS:-400}
+      LANGFUSE_CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-}
     volumes:
       - ./clickhouse/init:/init:ro
       - ./scripts/clickhouse-init.sh:/clickhouse-init.sh:ro
@@ -91,6 +92,8 @@ services:
       FACTORY_LOG_DIR: /var/log/factory
       CLICKHOUSE_ENDPOINT: tcp://clickhouse:9000?dial_timeout=10s
       CLICKHOUSE_COLLECTOR_PASSWORD: ${CLICKHOUSE_COLLECTOR_PASSWORD:?set CLICKHOUSE_COLLECTOR_PASSWORD in .env}
+      LANGFUSE_OTLP_ENDPOINT: ${LANGFUSE_OTLP_ENDPOINT:-http://127.0.0.1:1}
+      LANGFUSE_OTLP_AUTH_HEADER: ${LANGFUSE_OTLP_AUTH_HEADER:-Basic ZGlzYWJsZWQ6ZGlzYWJsZWQ=}
     volumes:
       - ./otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
       - otel-file-storage:/var/lib/otelcol/file_storage
@@ -214,12 +217,247 @@ services:
     networks:
       - factory-monitoring-net
 
+  langfuse-check-env:
+    image: alpine:3.21.3
+    profiles: ["langfuse"]
+    command:
+      - sh
+      - -ec
+      - |
+        [ -n "$${LANGFUSE_NEXTAUTH_SECRET:-}" ] || { echo "missing required secret: LANGFUSE_NEXTAUTH_SECRET" >&2; exit 1; }
+        [ -n "$${LANGFUSE_SALT:-}" ] || { echo "missing required secret: LANGFUSE_SALT" >&2; exit 1; }
+        [ -n "$${LANGFUSE_ENCRYPTION_KEY:-}" ] || { echo "missing required secret: LANGFUSE_ENCRYPTION_KEY" >&2; exit 1; }
+        [ -n "$${LANGFUSE_POSTGRES_PASSWORD:-}" ] || { echo "missing required secret: LANGFUSE_POSTGRES_PASSWORD" >&2; exit 1; }
+        [ -n "$${LANGFUSE_REDIS_AUTH:-}" ] || { echo "missing required secret: LANGFUSE_REDIS_AUTH" >&2; exit 1; }
+        [ -n "$${LANGFUSE_MINIO_ROOT_PASSWORD:-}" ] || { echo "missing required secret: LANGFUSE_MINIO_ROOT_PASSWORD" >&2; exit 1; }
+        [ -n "$${LANGFUSE_CLICKHOUSE_PASSWORD:-}" ] || { echo "missing required secret: LANGFUSE_CLICKHOUSE_PASSWORD" >&2; exit 1; }
+        echo "langfuse env ok"
+    environment:
+      LANGFUSE_NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-}
+      LANGFUSE_SALT: ${LANGFUSE_SALT:-}
+      LANGFUSE_ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-}
+      LANGFUSE_POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD:-}
+      LANGFUSE_REDIS_AUTH: ${LANGFUSE_REDIS_AUTH:-}
+      LANGFUSE_MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_ROOT_PASSWORD:-}
+      LANGFUSE_CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-}
+    restart: "no"
+    networks:
+      - factory-monitoring-net
+
+  langfuse-postgres:
+    image: postgres:17.9
+    profiles: ["langfuse"]
+    restart: unless-stopped
+    depends_on:
+      langfuse-check-env:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD:-}
+      POSTGRES_DB: langfuse
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - langfuse-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks:
+      - factory-monitoring-net
+
+  langfuse-redis:
+    image: redis:7.4.8
+    profiles: ["langfuse"]
+    restart: unless-stopped
+    depends_on:
+      langfuse-check-env:
+        condition: service_completed_successfully
+    command: >
+      --requirepass ${LANGFUSE_REDIS_AUTH:-}
+      --maxmemory-policy noeviction
+    volumes:
+      - langfuse-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${LANGFUSE_REDIS_AUTH:-}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 96m
+    networks:
+      - factory-monitoring-net
+
+  langfuse-minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    profiles: ["langfuse"]
+    restart: unless-stopped
+    depends_on:
+      langfuse-check-env:
+        condition: service_completed_successfully
+    command: server --address ":9000" --console-address ":9001" /data
+    environment:
+      MINIO_ROOT_USER: ${LANGFUSE_MINIO_ROOT_USER:-langfuse}
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_ROOT_PASSWORD:-}
+    volumes:
+      - langfuse-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks:
+      - factory-monitoring-net
+
+  langfuse-minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    profiles: ["langfuse"]
+    restart: "no"
+    depends_on:
+      langfuse-minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -ec "
+      mc alias set local http://langfuse-minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      mc mb -p local/langfuse || true;
+      "
+    environment:
+      MINIO_ROOT_USER: ${LANGFUSE_MINIO_ROOT_USER:-langfuse}
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_ROOT_PASSWORD:-}
+    networks:
+      - factory-monitoring-net
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3.227.1
+    profiles: ["langfuse"]
+    restart: unless-stopped
+    depends_on:
+      langfuse-check-env:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-minio-init:
+        condition: service_completed_successfully
+    environment: &langfuse-env
+      NODE_ENV: production
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD:-}@langfuse-postgres:5432/langfuse
+      SALT: ${LANGFUSE_SALT:-}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:${LANGFUSE_CLICKHOUSE_PASSWORD:-}@clickhouse:9000/langfuse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: ${LANGFUSE_REDIS_AUTH:-}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ROOT_USER:-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_ROOT_PASSWORD:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ROOT_USER:-langfuse}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_ROOT_PASSWORD:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - factory-monitoring-net
+
+  langfuse-web:
+    image: langfuse/langfuse:3.227.1
+    profiles: ["langfuse"]
+    restart: unless-stopped
+    depends_on:
+      langfuse-check-env:
+        condition: service_completed_successfully
+      langfuse-worker:
+        condition: service_started
+      clickhouse:
+        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *langfuse-env
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3001}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-}
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
+    ports:
+      - "127.0.0.1:${LANGFUSE_PORT:-3001}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/public/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - factory-monitoring-net
+
 volumes:
   clickhouse-data:
   clickhouse-logs:
   prometheus-data:
   grafana-data:
   otel-file-storage:
+  langfuse-postgres-data:
+  langfuse-redis-data:
+  langfuse-minio-data:
 
 networks:
   factory-monitoring-net:

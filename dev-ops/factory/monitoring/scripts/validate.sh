@@ -40,10 +40,23 @@ FACTORY_METRICS_DIR=/tmp/factory-metrics
 CLICKHOUSE_TTL_DAYS=400
 PROMETHEUS_RETENTION_TIME=15d
 PROMETHEUS_RETENTION_SIZE=2GB
+LANGFUSE_OTLP_ENDPOINT=http://127.0.0.1:1
+LANGFUSE_OTLP_AUTH_HEADER=Basic ZGlzYWJsZWQ6ZGlzYWJsZWQ=
+LANGFUSE_NEXTAUTH_SECRET=test-nextauth
+LANGFUSE_SALT=test-salt
+LANGFUSE_ENCRYPTION_KEY=00000000000000000000000000000000
+LANGFUSE_POSTGRES_PASSWORD=test-postgres
+LANGFUSE_REDIS_AUTH=test-redis
+LANGFUSE_MINIO_ROOT_USER=langfuse
+LANGFUSE_MINIO_ROOT_PASSWORD=test-minio
+LANGFUSE_CLICKHOUSE_PASSWORD=test-langfuse-clickhouse
+LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-test
+LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-test
 ENV
 
 if have_docker; then
   run docker compose -f dev-ops/factory/monitoring/docker-compose.yml --env-file "$TMP_ENV" config -q
+  run docker compose -f dev-ops/factory/monitoring/docker-compose.yml --env-file "$TMP_ENV" --profile langfuse config -q
 
   # Collector config validation. Provide env vars required by ${env:...}.
   run docker run --rm \
@@ -51,6 +64,8 @@ if have_docker; then
     -e HOST_NAME=test-host \
     -e CLICKHOUSE_ENDPOINT=tcp://clickhouse:9000 \
     -e CLICKHOUSE_COLLECTOR_PASSWORD=test \
+    -e LANGFUSE_OTLP_ENDPOINT=http://127.0.0.1:1 \
+    -e LANGFUSE_OTLP_AUTH_HEADER='Basic ZGlzYWJsZWQ6ZGlzYWJsZWQ=' \
     -v "$REPO_ROOT/dev-ops/factory/monitoring/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro" \
     otel/opentelemetry-collector-contrib:0.165.0 \
     validate --config=/etc/otelcol/config.yaml

@@ -765,7 +765,7 @@ def main(argv):
             "usage: factory.py <validate-models|validate-event|normalize-model|"
             "classify-gh|classify-git|should-retry|is-usage-filled|"
             "model-for-labels|claim-acquire|claim-release|emit|session-id|"
-            "classify-failure|error-fingerprint|trace-id|parse-tool-calls> ...",
+            "classify-failure|error-fingerprint|trace-id|parse-tool-calls|export-trace> ...",
             file=sys.stderr,
         )
         return 2
@@ -878,6 +878,47 @@ def main(argv):
                 return 1
         print(json.dumps(parse_tool_calls(text), ensure_ascii=False))
         return 0
+    if cmd == "export-trace":
+        # export-trace <trace_id> <run_id> <endpoint|-> [k=v ...]
+        # Reads opencode JSON stream from stdin. Metadata as k=v. endpoint "-"
+        # or empty uses FACTORY_OTLP_TRACES_ENDPOINT/OTEL_EXPORTER_OTLP_ENDPOINT.
+        if len(argv) < 4:
+            print(
+                "usage: factory.py export-trace <trace_id> <run_id> <endpoint|-> [k=v ...]",
+                file=sys.stderr,
+            )
+            return 2
+        trace_id = argv[2]
+        run_id = argv[3]
+        endpoint = argv[4] if len(argv) > 4 else "-"
+        if endpoint == "-":
+            endpoint = os.environ.get("FACTORY_OTLP_TRACES_ENDPOINT", "") or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+        metadata = {}
+        for a in argv[5:]:
+            if "=" in a:
+                k, v = a.split("=", 1)
+                metadata[k] = v
+        stream_text = sys.stdin.read()
+        try:
+            from factory_trace import export_run_trace
+        except Exception:
+            # allow running from repo root with lib on path
+            lib_dir = os.path.dirname(os.path.abspath(__file__))
+            if lib_dir not in sys.path:
+                sys.path.insert(0, lib_dir)
+            from factory_trace import export_run_trace
+        ok, msg = export_run_trace(
+            trace_id=trace_id,
+            run_id=run_id,
+            endpoint=endpoint,
+            stream_text=stream_text,
+            metadata=metadata,
+        )
+        if ok:
+            print(f"OK: {msg}")
+            return 0
+        print(f"ERR: {msg}", file=sys.stderr)
+        return 1
     print(f"unknown command: {cmd}", file=sys.stderr)
     return 2
 

@@ -43,7 +43,7 @@ def prom_target(ref_id: str, expr: str, legend: str = "", instant: bool = False)
     }
 
 
-def base_dashboard(uid: str, title: str, description: str, panels, tags=None):
+def base_dashboard(uid: str, title: str, description: str, panels, tags=None, extra_vars=None, time_from="now-24h"):
     return {
         "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": True, "hide": True, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]},
         "editable": False,
@@ -56,8 +56,8 @@ def base_dashboard(uid: str, title: str, description: str, panels, tags=None):
         "refresh": "30s",
         "schemaVersion": 39,
         "tags": ["factory"] + (tags or []),
-        "templating": {"list": templating()},
-        "time": {"from": "now-24h", "to": "now"},
+        "templating": {"list": templating(extra_vars=extra_vars)},
+        "time": {"from": time_from, "to": "now"},
         "timepicker": {},
         "timezone": "utc",
         "title": title,
@@ -68,7 +68,7 @@ def base_dashboard(uid: str, title: str, description: str, panels, tags=None):
     }
 
 
-def templating():
+def templating(extra_vars=None):
     def query_var(name, label, sql, multi=True, include_all=True):
         return {
             "current": {"selected": True, "text": "All" if include_all else "", "value": "$__all" if include_all else ""},
@@ -89,12 +89,15 @@ def templating():
             "type": "query",
         }
 
-    return [
+    vars = [
         query_var("factory_id", "Factory", "SELECT DISTINCT factory_id FROM factory.events WHERE $__timeFilter(ts) AND factory_id != '' ORDER BY factory_id"),
         query_var("agent_id", "Agent", "SELECT DISTINCT agent_id FROM factory.events WHERE $__timeFilter(ts) AND agent_id != '' ORDER BY agent_id"),
         query_var("model", "Model", "SELECT DISTINCT model FROM factory.events WHERE $__timeFilter(ts) AND model != '' ORDER BY model"),
         query_var("kind", "Kind", "SELECT DISTINCT kind FROM factory.events WHERE $__timeFilter(ts) AND kind != '' ORDER BY kind"),
     ]
+    if extra_vars:
+        vars.extend(extra_vars)
+    return vars
 
 
 FILTERS = """
@@ -422,11 +425,14 @@ WHERE $__timeFilter(ts)
 GROUP BY event ORDER BY count DESC
 """, {"h":7,"w":12,"x":0,"y":28}),
         table_panel(12, "Stuck runs detail", "Runs started but not ended after 3900s.", """
-SELECT run_id, factory_id, kind, agent_id, model, issue_id, pr_number, session_id, started_at, age_seconds
+SELECT run_id, factory_id, kind, agent_id, model, issue_id, pr_number, session_id, trace_id, started_at, age_seconds
 FROM factory.stuck_runs
 ORDER BY age_seconds DESC
 LIMIT 50
-""", {"h":7,"w":12,"x":12,"y":28}),
+""", {"h":7,"w":12,"x":12,"y":28}, overrides=[
+            {"matcher":{"id":"byName","options":"trace_id"},"properties":[{"id":"links","value":[{"title":"Open run detail","url":"/d/factory-run-detail/factory-run-detail?orgId=1&var-run_id=${__data.fields.run_id}&var-trace_id=${__value.raw}&${__url_time_range}"}]}]},
+            {"matcher":{"id":"byName","options":"run_id"},"properties":[{"id":"links","value":[{"title":"Open run detail","url":"/d/factory-run-detail/factory-run-detail?orgId=1&var-run_id=${__value.raw}&var-trace_id=${__data.fields.trace_id}&${__url_time_range}"}]}]},
+        ]),
     ]
     return base_dashboard("factory-execution", "Execution Analytics", "Run timing, tools, retries, failures, and operational health.", panels, ["execution"])
 
@@ -573,6 +579,157 @@ LIMIT 50
     return base_dashboard("factory-host", "Factory Host", "Factory host, collector, ClickHouse and Prometheus health.", panels, ["host"])
 
 
+def dashboard_run_detail():
+    run_var = {
+        "current": {"selected": False, "text": "", "value": ""},
+        "datasource": DS_CH,
+        "definition": "SELECT run_id FROM factory.runs WHERE $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 200",
+        "hide": 0,
+        "includeAll": False,
+        "label": "Run ID",
+        "multi": False,
+        "name": "run_id",
+        "options": [],
+        "query": "SELECT run_id FROM factory.runs WHERE $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 200",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": False,
+        "sort": 0,
+        "type": "query",
+    }
+    trace_var = {
+        "current": {"selected": False, "text": "", "value": ""},
+        "datasource": DS_CH,
+        "definition": "SELECT trace_id FROM factory.runs WHERE run_id = ${run_id:singlequote} LIMIT 1",
+        "hide": 2,
+        "includeAll": False,
+        "label": "Trace ID",
+        "multi": False,
+        "name": "trace_id",
+        "options": [],
+        "query": "SELECT trace_id FROM factory.runs WHERE run_id = ${run_id:singlequote} LIMIT 1",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": False,
+        "sort": 0,
+        "type": "query",
+    }
+    langfuse_url_var = {
+        "current": {"selected": True, "text": "http://127.0.0.1:3001", "value": "http://127.0.0.1:3001"},
+        "hide": 0,
+        "label": "Langfuse URL",
+        "name": "langfuse_url",
+        "options": [{"selected": True, "text": "http://127.0.0.1:3001", "value": "http://127.0.0.1:3001"}],
+        "query": "http://127.0.0.1:3001",
+        "skipUrlSync": False,
+        "type": "textbox",
+    }
+    langfuse_project_var = {
+        "current": {"selected": True, "text": "factory-project", "value": "factory-project"},
+        "hide": 0,
+        "label": "Langfuse Project ID",
+        "name": "langfuse_project_id",
+        "options": [{"selected": True, "text": "factory-project", "value": "factory-project"}],
+        "query": "factory-project",
+        "skipUrlSync": False,
+        "type": "textbox",
+    }
+
+    panels = [
+        table_panel(1, "Run summary", "Selected run from factory.runs.", """
+SELECT
+  run_id, factory_id, tick_id, kind, agent_id, agent_version, prompt_version, model, tier_label,
+  fallback_level, attempt, issue_id, pr_number, repo, session_id, trace_id,
+  started_at, ended_at, outcome, failure_reason, duration_ms,
+  input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens,
+  cost_usd, tool_calls, tool_errors, files_changed, exit_code, error_fingerprint
+FROM factory.runs
+WHERE run_id = ${run_id:singlequote}
+LIMIT 1
+""", {"h": 6, "w": 24, "x": 0, "y": 0}, overrides=[
+            {"matcher": {"id": "byName", "options": "trace_id"}, "properties": [{"id": "links", "value": [
+                {"title": "Open Langfuse trace", "url": "${langfuse_url}/project/${langfuse_project_id}/traces/${__value.raw}", "targetBlank": True}
+            ]}]},
+        ]),
+        table_panel(2, "Run events", "Factory events for the selected run.", """
+SELECT ts, event, status, kind, agent_id, model, session_id, trace_id, duration_ms, failure_reason, error_fingerprint, attrs
+FROM factory.events FINAL
+WHERE run_id = ${run_id:singlequote}
+ORDER BY ts ASC
+LIMIT 500
+""", {"h": 8, "w": 24, "x": 0, "y": 6}),
+        {
+            "datasource": DS_CH,
+            "description": "Trace waterfall from otel.otel_traces for the selected run trace_id. Requires Grafana ClickHouse datasource traces support.",
+            "gridPos": {"h": 10, "w": 24, "x": 0, "y": 14},
+            "id": 3,
+            "options": {},
+            "targets": [{
+                "datasource": DS_CH,
+                "editorType": "sql",
+                "format": 3,
+                "meta": {"builderOptions": {"columns": [], "database": "otel", "limit": 1000, "mode": "list", "queryType": "traces"}},
+                "pluginVersion": "4.23.5",
+                "queryType": "traces",
+                "rawSql": """
+SELECT
+  TraceId AS traceID,
+  SpanId AS spanID,
+  ParentSpanId AS parentSpanID,
+  ServiceName AS serviceName,
+  SpanName AS operationName,
+  Timestamp AS startTime,
+  Duration / 1000000 AS duration,
+  arrayMap(k -> map('key', k, 'value', SpanAttributes[k]), mapKeys(SpanAttributes)) AS tags,
+  arrayMap(k -> map('key', k, 'value', ResourceAttributes[k]), mapKeys(ResourceAttributes)) AS serviceTags,
+  if(StatusCode = 'STATUS_CODE_ERROR' OR StatusCode = 'Error' OR StatusCode = '2', 2, 0) AS statusCode
+FROM otel.otel_traces
+WHERE TraceId = ${trace_id:singlequote}
+ORDER BY Timestamp ASC
+LIMIT 1000
+""".strip(),
+                "refId": "A",
+            }],
+            "title": "Trace (waterfall)",
+            "type": "traces",
+        },
+        table_panel(4, "Tool calls", "Tool calls emitted by the run.", """
+SELECT ts, tool, status, duration_ms, skill_name, run_id, attrs
+FROM factory.tool_calls
+WHERE run_id = ${run_id:singlequote}
+ORDER BY ts ASC
+LIMIT 500
+""", {"h": 8, "w": 12, "x": 0, "y": 24}),
+        table_panel(5, "Tokens per step", "LLM step spans from otel.otel_traces with GenAI token attributes.", """
+SELECT
+  Timestamp AS ts,
+  SpanName AS span,
+  SpanAttributes['gen_ai.request.model'] AS model,
+  toInt64OrNull(SpanAttributes['gen_ai.usage.input_tokens']) AS input_tokens,
+  toInt64OrNull(SpanAttributes['gen_ai.usage.output_tokens']) AS output_tokens,
+  toInt64OrNull(SpanAttributes['gen_ai.usage.reasoning_tokens']) AS reasoning_tokens,
+  toInt64OrNull(SpanAttributes['gen_ai.usage.cache_read_tokens']) AS cache_read_tokens,
+  toInt64OrNull(SpanAttributes['gen_ai.usage.cache_write_tokens']) AS cache_write_tokens,
+  toFloat64OrNull(SpanAttributes['gen_ai.usage.cost_usd']) AS cost_usd,
+  Duration / 1000000 AS duration_ms
+FROM otel.otel_traces
+WHERE TraceId = ${trace_id:singlequote}
+  AND SpanName IN ('opencode.llm.step', 'factory.agent.run')
+ORDER BY Timestamp ASC
+LIMIT 200
+""", {"h": 8, "w": 12, "x": 12, "y": 24}),
+    ]
+    return base_dashboard(
+        "factory-run-detail",
+        "Factory Run Detail",
+        "Deep dive for one factory run: events, trace waterfall, tool calls, and token/cost per step.",
+        panels,
+        ["run-detail", "traces"],
+        extra_vars=[run_var, trace_var, langfuse_url_var, langfuse_project_var],
+        time_from="now-7d",
+    )
+
+
 DASHBOARDS = [
     dashboard_overview(),
     dashboard_agents(),
@@ -580,6 +737,7 @@ DASHBOARDS = [
     dashboard_cost(),
     dashboard_quality(),
     dashboard_host(),
+    dashboard_run_detail(),
 ]
 
 
