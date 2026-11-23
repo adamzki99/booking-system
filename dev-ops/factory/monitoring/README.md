@@ -213,12 +213,42 @@ have stable UIDs, include template variables `factory_id`, `agent_id`, `model`,
 | `factory-cost` | Cost and efficiency | Reported cost and tokens by time/model/agent/kind; cost per merged PR and tokens per merged PR (approx); usage-filled/backup/free share. Cost is as reported by OpenCode and may be 0 for subscription models. |
 | `factory-quality` | Quality and outcomes | PR acceptance rate, human intervention proxy, lead time p50/p90, first-pass success, rework/abandonment, CI/check outcomes, review comments. |
 | `factory-host` | Factory host | Host CPU/memory/disk/load, collector records, per-container memory (if cAdvisor metrics present), ClickHouse disk by table (best effort), Prometheus TSDB size. |
+| `factory-run-detail` | Factory run detail | Deep dive for one run: run summary, factory events, trace waterfall (otel_traces), tool calls, tokens/cost per step, and Langfuse trace link when Langfuse profile is enabled. |
 
 Regenerate dashboards:
 
 ```sh
 python3 dev-ops/factory/monitoring/scripts/generate_dashboards.py
 ```
+
+## Langfuse (optional profile, prompt 05)
+
+Langfuse v3 is available as an optional Docker Compose profile for deep agent
+trace diagnosis. It is off by default and does not start with the default profile.
+
+```sh
+# configure .env with LANGFUSE_* secrets, then
+docker compose --profile langfuse up -d
+```
+
+Services (pinned): `langfuse/langfuse-web:3.227.1`,
+`langfuse/langfuse-worker:3.227.1`, `postgres:17.9`, `redis:7.4.8`,
+`minio/minio:RELEASE.2025-09-07T16-13-09Z`, `minio/mc:RELEASE.2025-08-13T08-35-41Z`.
+Langfuse reuses the factory stack ClickHouse server with a separate `langfuse`
+database and `langfuse` user (created by `clickhouse-init` when
+`LANGFUSE_CLICKHOUSE_PASSWORD` is set). This keeps one ClickHouse process;
+verify Langfuse v3 migrations against your pinned version before upgrading.
+
+Security/privacy defaults:
+- UI published on `127.0.0.1:${LANGFUSE_PORT:-3001}` only.
+- All secrets from `.env`; no defaults. `langfuse-check-env` fails startup if required secrets are empty.
+- Langfuse telemetry/phone-home disabled (`TELEMETRY_ENABLED=false`).
+- Factory OTLP trace export sends no prompt/completion/tool content by default. Set `FACTORY_TRACE_CONTENT=1` only for trusted, self-hosted diagnosis. Collector redaction is a second defence.
+- Do not point Langfuse OTLP at Langfuse Cloud by default. If you do, understand that trace metadata and any opted-in content leave the host.
+
+OTLP fan-out: the collector always includes a `otlphttp/langfuse` exporter in the traces pipeline. When the Langfuse profile is not running, exports to that endpoint fail and are dropped after bounded retry; ClickHouse trace export continues. Set `LANGFUSE_OTLP_ENDPOINT` and `LANGFUSE_OTLP_AUTH_HEADER` (Basic base64 of `public_key:secret_key`) in `.env` when enabling Langfuse.
+
+Resource impact (Langfuse profile): postgres 256m, redis 96m, minio 256m, langfuse-worker 512m, langfuse-web 512m, minio-init/check-env one-shot. Total ~1.63 GB. Combined with the base monitoring stack (~1.54 GB), this exceeds the ~3.2 GB dev host budget. Do not run Langfuse alongside all factory/QA workloads on that host unless memory is increased; start it only for targeted diagnosis.
 
 ## Alerts
 

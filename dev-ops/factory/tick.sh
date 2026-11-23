@@ -44,6 +44,10 @@ FACTORY_LOG_SESSION_OUTPUT="${FACTORY_LOG_SESSION_OUTPUT:-tail}"
 FACTORY_PRESERVE_SESSION_LOGS="${FACTORY_PRESERVE_SESSION_LOGS:-on-failure}" # always|on-failure|never
 FACTORY_ID="${FACTORY_ID:-factory-1}"
 FACTORY_METRICS_DIR="${FACTORY_METRICS_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/metrics}"
+# Trace export (monitoring prompt 05, option c: post-run OTLP exporter).
+FACTORY_OTLP_TRACES_ENDPOINT="${FACTORY_OTLP_TRACES_ENDPOINT:-http://127.0.0.1:4318}"
+FACTORY_TRACE_CONTENT="${FACTORY_TRACE_CONTENT:-0}" # 1 includes prompt/completion/tool content; default metadata only
+FACTORY_OTLP_TRACE_TIMEOUT="${FACTORY_OTLP_TRACE_TIMEOUT:-10}"
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 
 # repo = owner/name from gh or the git remote (best effort, never fatal).
@@ -94,6 +98,21 @@ die() { printf '[factory-tick] ERROR: %s\n' "$*" >&2; exit 1; }
 # via factory.py emit (single implementation, covered by validate_event).
 # Emission is non-fatal: failures are counted in TELEMETRY_ERRORS and reported
 # with one warning line to stderr per failure.
+export_run_trace_event() {
+  # Best-effort OTLP trace export for a completed/failed agent run (prompt 05).
+  # Never fatal; never includes raw session output in logs.
+  local trace_id="$1" run_id="$2" stream_text="$3"
+  shift 3 || true
+  [[ -z "$trace_id" || -z "$run_id" ]] && return 0
+  [[ -z "$FACTORY_OTLP_TRACES_ENDPOINT" ]] && return 0
+  if ! printf '%s' "$stream_text" | FACTORY_TRACE_CONTENT="$FACTORY_TRACE_CONTENT" \
+    python3 "$SCRIPT_DIR/lib/factory.py" export-trace "$trace_id" "$run_id" "$FACTORY_OTLP_TRACES_ENDPOINT" "$@" >/dev/null 2>&1; then
+    TELEMETRY_ERRORS=$((TELEMETRY_ERRORS + 1))
+    printf '[factory-tick] WARNING: failed to export trace for run %s\n' "$run_id" >&2
+  fi
+  return 0
+}
+
 emit_event() {
   local event="${1:-}"; shift || true
   if ! python3 "$SCRIPT_DIR/lib/factory.py" emit \
@@ -101,6 +120,35 @@ emit_event() {
        "$FACTORY_ENV" "$HOSTNAME_VAL" "$FACTORY_ID" "$FACTORY_REPO" "$@" 2>/dev/null; then
     TELEMETRY_ERRORS=$((TELEMETRY_ERRORS + 1))
     printf '[factory-tick] WARNING: failed to emit telemetry event %s\n' "$event" >&2
+  fi
+
+  # Prompt 05 option (c): export OTLP trace on terminal agent run events.
+  if [[ "$event" == "agent.run.completed" || "$event" == "agent.run.failed" ]]; then
+    local kv k v trace_id="" run_id="" duration_ms=""
+    local -a trace_args=()
+    for kv in "$@"; do
+      [[ "$kv" == *=* ]] || continue
+      k="${kv%%=*}"
+      v="${kv#*=}"
+      case "$k" in
+        trace_id) trace_id="$v" ;;
+        run_id) run_id="$v" ;;
+        duration_ms) duration_ms="$v"; trace_args+=("$k=$v") ;;
+        session_id|kind|agent_id|model|repo|issue_id|pr_number|attempt|fallback_level|outcome|failure_reason)
+          trace_args+=("$k=$v")
+          ;;
+      esac
+    done
+    if [[ -n "${FACTORY_LAST_RUN_START_MS:-}" ]]; then
+      trace_args+=("start_ns=$((FACTORY_LAST_RUN_START_MS * 1000000))")
+      if [[ -n "$duration_ms" ]]; then
+        trace_args+=("end_ns=$(((FACTORY_LAST_RUN_START_MS + duration_ms) * 1000000))")
+      fi
+    fi
+    trace_args+=("deployment.environment=$FACTORY_ENV")
+    trace_args+=("host.name=$HOSTNAME_VAL")
+    trace_args+=("factory_id=$FACTORY_ID")
+    export_run_trace_event "$trace_id" "$run_id" "${FACTORY_LAST_RUN_STREAM:-}" "${trace_args[@]}"
   fi
 }
 
@@ -909,6 +957,8 @@ start_session() { # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 b
   esac
   local session_start_ms duration
   session_start_ms="$(date +%s%3N)"
+  FACTORY_LAST_RUN_START_MS="$session_start_ms"
+  FACTORY_LAST_RUN_STREAM=""
   local logfile="/dev/null"
   if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then
     logfile="$FACTORY_SESSION_LOG_DIR/factory-${kind}-${ref}.log"
@@ -938,6 +988,7 @@ start_session() { # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 b
   status=$?
   set +o pipefail
   set -e
+  FACTORY_LAST_RUN_STREAM="$out"
 
   # Parse session_id and usage/cost from the captured stream before the log
   # is deleted (Part B). Never put raw output into an event.
@@ -1054,6 +1105,7 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
           bstatus=$?
           set +o pipefail
           set -e
+          FACTORY_LAST_RUN_STREAM="$bout"
           printf '%s\n' "$bout" >&2
           emit_tool_calls "$run_id" "$bout"
           if [[ $bstatus -eq 0 ]]; then
@@ -1158,6 +1210,7 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
           fstatus=$?
           set +o pipefail
           set -e
+          FACTORY_LAST_RUN_STREAM="$fout"
           printf '%s\n' "$fout"
           emit_tool_calls "$run_id" "$fout"
           if [[ $fstatus -eq 0 ]]; then

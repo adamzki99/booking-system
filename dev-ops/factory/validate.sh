@@ -24,7 +24,7 @@ else
 fi
 
 # Python syntax/validation
-run python3 -m py_compile dev-ops/factory/lib/factory.py dev-ops/factory/discover_fix_candidates.py dev-ops/factory/discover_build_candidates.py dev-ops/factory/reconcile_outcomes.py dev-ops/factory/queue_snapshot.py
+run python3 -m py_compile dev-ops/factory/lib/factory.py dev-ops/factory/lib/factory_trace.py dev-ops/factory/discover_fix_candidates.py dev-ops/factory/discover_build_candidates.py dev-ops/factory/reconcile_outcomes.py dev-ops/factory/queue_snapshot.py
 run python3 dev-ops/factory/lib/factory.py validate-models dev-ops/factory/models.yaml
 # minimal event schema smoke check (v2)
 run python3 - <<'PY'

@@ -415,3 +415,82 @@ def test_new_trace_id_format():
     assert len(tid) == 32
     int(tid, 16)  # hex
     assert factory.new_trace_id() != tid
+
+
+# ---------------------------------------------------------------------------
+# trace export (prompt 05, option c)
+# ---------------------------------------------------------------------------
+
+def test_build_run_spans_from_fixture():
+    import factory_trace
+    path = _fixture("opencode-stream-v2.3.2.jsonl")
+    with open(path, "r", encoding="utf-8") as f:
+        stream = f.read()
+    spans = factory_trace.build_run_spans(
+        trace_id="0123456789abcdef0123456789abcdef",
+        run_id="run-1",
+        session_id="ses_sanitized-example",
+        kind="build",
+        agent_id="builder",
+        model="test/model",
+        repo="owner/repo",
+        issue_id=42,
+        pr_number=7,
+        attempt=1,
+        fallback_level="primary",
+        outcome="completed",
+        stream_text=stream,
+        include_content=False,
+    )
+    assert spans, "expected spans"
+    root = spans[0]
+    assert root["name"] == "factory.agent.run"
+    assert root["traceId"] == "0123456789abcdef0123456789abcdef"
+    attrs = {a["key"]: a["value"] for a in root["attributes"]}
+    assert attrs["factory.run_id"]["stringValue"] == "run-1"
+    assert attrs["factory.kind"]["stringValue"] == "build"
+    assert attrs["factory.outcome"]["stringValue"] == "completed"
+    # child spans include LLM steps and tool call
+    names = [s["name"] for s in spans]
+    assert "opencode.llm.step" in names
+    assert any(n.startswith("execute_tool ") for n in names)
+    # all spans share the same trace id
+    assert {s["traceId"] for s in spans} == {"0123456789abcdef0123456789abcdef"}
+    # tool span has tool name but no content by default
+    tool_spans = [s for s in spans if s["name"].startswith("execute_tool ")]
+    assert tool_spans
+    tool_attrs = {a["key"]: a["value"] for a in tool_spans[0]["attributes"]}
+    assert tool_attrs["gen_ai.tool.name"]["stringValue"] == "glob"
+    assert "tool.input" not in tool_attrs
+    assert "tool.output" not in tool_attrs
+
+
+def test_build_run_spans_no_content_by_default(monkeypatch):
+    import factory_trace
+    monkeypatch.delenv("FACTORY_TRACE_CONTENT", raising=False)
+    stream = '{"type":"tool_use","timestamp":1,"sessionID":"s","part":{"tool":"bash","state":{"status":"completed","input":{"command":"echo secret-token"},"output":"secret-token","time":{"start":1,"end":2}}}}\n{"type":"step_finish","timestamp":2,"sessionID":"s","part":{"type":"step-finish","reason":"stop","tokens":{"input":1,"output":1},"cost":0}}\n'
+    spans = factory_trace.build_run_spans(
+        trace_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        run_id="r1",
+        outcome="completed",
+        stream_text=stream,
+    )
+    tool_spans = [s for s in spans if s["name"].startswith("execute_tool ")]
+    tool_attrs = {a["key"]: a["value"] for a in tool_spans[0]["attributes"]}
+    assert "tool.input" not in tool_attrs
+    assert "tool.output" not in tool_attrs
+
+
+def test_build_run_spans_includes_content_when_opted_in(monkeypatch):
+    import factory_trace
+    monkeypatch.setenv("FACTORY_TRACE_CONTENT", "1")
+    stream = '{"type":"text","timestamp":1,"sessionID":"s","part":{"text":"hello","messageID":"m","type":"text"}}\n{"type":"step_finish","timestamp":2,"sessionID":"s","part":{"type":"step-finish","reason":"stop","tokens":{"input":1,"output":1},"cost":0}}\n'
+    spans = factory_trace.build_run_spans(
+        trace_id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        run_id="r2",
+        outcome="completed",
+        stream_text=stream,
+    )
+    llm = [s for s in spans if s["name"] == "opencode.llm.step"][0]
+    attrs = {a["key"]: a["value"] for a in llm["attributes"]}
+    assert attrs["output.value"]["stringValue"] == "hello"

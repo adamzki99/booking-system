@@ -470,6 +470,11 @@ All compose services in this repo define explicit memory limits (`deploy.resourc
 | factory-monitoring | prometheus | 256m |
 | factory-monitoring | otel-collector | 192m |
 | factory-monitoring | node-exporter | 64m |
+| factory-monitoring (profile langfuse) | langfuse-web | 512m |
+| factory-monitoring (profile langfuse) | langfuse-worker | 512m |
+| factory-monitoring (profile langfuse) | langfuse-postgres | 256m |
+| factory-monitoring (profile langfuse) | langfuse-redis | 96m |
+| factory-monitoring (profile langfuse) | langfuse-minio | 256m |
 | sauna | backend | 512m |
 | sauna | postgres | 256m |
 | sauna | sidecar | 256m |
@@ -479,9 +484,12 @@ All compose services in this repo define explicit memory limits (`deploy.resourc
 | sauna | cloudflared | 128m |
 
 The always-on booking baseline plus persistent dev-ops services already targets
-~2.5 GB on the 3.2 GB dev host. The factory monitoring stack adds ~1.54 GB of
-always-on limits if run concurrently, which exceeds that budget on a 3.2 GB host.
-Run it only when capacity is available, reduce retention/scrape frequency, or
-move it to a separate host. Do not start it as a requirement for booking
-environments.
+~2.5 GB on the 3.2 GB dev host. The factory monitoring base stack adds ~1.54 GB
+of always-on limits if run concurrently, which exceeds that budget on a 3.2 GB
+host. The optional Langfuse profile adds ~1.63 GB more (web+worker+postgres+
+redis+minio), so base+Langfuse is ~3.17 GB by itself and cannot fit alongside
+booking/QA workloads on the same 3.2 GB host. Run monitoring only when capacity
+is available, keep Langfuse off by default for targeted diagnosis only, reduce
+retention/scrape frequency, or move monitoring to a separate host. Do not start
+any monitoring stack as a requirement for booking environments.
 

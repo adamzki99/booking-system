@@ -40,6 +40,7 @@ wait_ready
 TTL_DAYS="${CLICKHOUSE_TTL_DAYS:-400}"
 COLLECTOR_PW="$(sql_escape "${CLICKHOUSE_COLLECTOR_PASSWORD:-}")"
 GRAFANA_PW="$(sql_escape "${CLICKHOUSE_GRAFANA_PASSWORD:-}")"
+LANGFUSE_PW="$(sql_escape "${LANGFUSE_CLICKHOUSE_PASSWORD:-}")"
 
 if [ -z "${CLICKHOUSE_COLLECTOR_PASSWORD:-}" ] || [ -z "${CLICKHOUSE_GRAFANA_PASSWORD:-}" ]; then
   echo "[clickhouse-init] missing CLICKHOUSE_COLLECTOR_PASSWORD or CLICKHOUSE_GRAFANA_PASSWORD" >&2
@@ -64,6 +65,27 @@ done
 if [ "$users_ok" -ne 1 ]; then
   echo "[clickhouse-init] failed to create users" >&2
   exit 1
+fi
+
+if [ -n "${LANGFUSE_CLICKHOUSE_PASSWORD:-}" ]; then
+  echo "[clickhouse-init] creating langfuse database and user..."
+  langfuse_ok=0
+  for _ in $(seq 1 30); do
+    if ch --multiquery <<SQL
+CREATE DATABASE IF NOT EXISTS langfuse;
+CREATE USER IF NOT EXISTS langfuse IDENTIFIED WITH plaintext_password BY '${LANGFUSE_PW}';
+GRANT ALL ON langfuse.* TO langfuse;
+SQL
+    then
+      langfuse_ok=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "$langfuse_ok" -ne 1 ]; then
+    echo "[clickhouse-init] failed to create langfuse database/user" >&2
+    exit 1
+  fi
 fi
 
 echo "[clickhouse-init] applying init SQL (TTL_DAYS=$TTL_DAYS)..."

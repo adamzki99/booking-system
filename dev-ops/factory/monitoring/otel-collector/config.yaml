@@ -118,6 +118,21 @@ exporters:
       max_interval: 30s
       max_elapsed_time: 300s
 
+  otlphttp/langfuse:
+    endpoint: ${env:LANGFUSE_OTLP_ENDPOINT}
+    headers:
+      Authorization: ${env:LANGFUSE_OTLP_AUTH_HEADER}
+    timeout: 10s
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      queue_size: 256
+    retry_on_failure:
+      enabled: true
+      initial_interval: 10s
+      max_interval: 30s
+      max_elapsed_time: 60s
+
 service:
   telemetry:
     metrics:
@@ -140,4 +155,4 @@ service:
     traces/otlp:
       receivers: [otlp]
       processors: [memory_limiter, transform/resource, batch]
-      exporters: [clickhouse/traces]
+      exporters: [clickhouse/traces, otlphttp/langfuse]

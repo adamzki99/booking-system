@@ -130,6 +130,7 @@ SELECT
     r.issue_id,
     r.pr_number,
     r.session_id,
+    r.trace_id,
     r.started_at,
     dateDiff('second', r.started_at, now64(3, 'UTC')) AS age_seconds
 FROM factory.runs r
