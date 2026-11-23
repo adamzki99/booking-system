@@ -195,29 +195,44 @@ analysis model's `schedule_id`. `factory_id` identifies one factory host
 (default `factory-1`).
 
 Documentation: [`EVENTS.md`](EVENTS.md) is the single source of truth for the
-event model. It lists every event name `tick.sh` can emit, the common and
-run-scoped fields, the lifecycle events (`agent.run.started/completed/failed`
-replace the legacy `session_*` events), usage and cost fields parsed from the
-opencode JSON stream, and a legacy-to-v2 event mapping table.
+event model. It lists every event name `tick.sh` can emit, common and
+run-scoped fields, lifecycle events, usage/cost fields parsed from the
+opencode JSON stream, reconciled GitHub outcome events, deploy events, and a
+legacy-to-v2 mapping.
 
 At the end of every tick (in the EXIT trap, so it also runs on failure),
 tick writes a Prometheus textfile atomically to
 `${FACTORY_METRICS_DIR}/factory_tick.prom` (`factory_tick_last_run_timestamp_seconds`,
 `factory_tick_last_success_timestamp_seconds`, `factory_tick_last_duration_seconds`,
 `factory_tick_last_exit_code`, `factory_tick_runs_last{kind,outcome}` and
-`factory_telemetry_errors_last`). Prompt 03 mounts this directory into a
-node-exporter textfile collector.
+`factory_telemetry_errors_last`). Mount this directory into a node-exporter
+textfile collector.
 
 Events never contain raw session output, regardless of
 `FACTORY_LOG_SESSION_OUTPUT`. The 16 KiB tail is kept only in the local
 session log file. See `EVENTS.md` for `failure_reason` and
 `error_fingerprint` (sha256 of the normalised last error line, first 12 hex
-chars) used for failure analysis instead of raw output.
+chars).
 
-Shipping factory tick events to the monitoring stack (ClickHouse, Prometheus,
-Grafana) is handled by the factory monitoring stack (prompt 03), not by
-tick.sh directly. The optional `otel-collector.yaml` is retained for prompt 03
-to replace.
+### Factory monitoring stack
+
+The persistent factory monitoring stack lives in
+[`monitoring/`](monitoring/README.md). It runs ClickHouse, Prometheus, Grafana,
+node-exporter, and an OpenTelemetry Collector that tails factory JSONL and
+exports logs/traces to ClickHouse. Start it on the factory host with:
+
+```sh
+cd dev-ops/factory/monitoring
+cp .env.example .env
+# fill required secrets and paths
+docker compose up -d
+```
+
+How events reach it:
+- Same host: bind-mount `FACTORY_LOG_DIR` read-only into the collector.
+- Other host: run the optional remote shipper config in
+  [`otel-collector.yaml`](otel-collector.yaml), which tails the same JSONL with
+  `file_storage` and exports OTLP/HTTP to `FACTORY_OTLP_ENDPOINT`.
 
 Cron (keep human output separate):
 ```
