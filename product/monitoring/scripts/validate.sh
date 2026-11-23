@@ -81,6 +81,7 @@ if have_docker; then
     -v "$REPO_ROOT/product/monitoring/clickhouse/config.d:/etc/clickhouse-server/config.d:ro" \
     -v "$REPO_ROOT/product/monitoring/clickhouse/users.d/users.xml:/etc/clickhouse-server/users.d/users.xml:ro" \
     clickhouse/clickhouse-server:26.9.36.3)"
+  set +e
   echo "[product-monitoring-validate] waiting for throwaway ClickHouse..."
   for _ in $(seq 1 60); do
     if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then break; fi
@@ -147,19 +148,20 @@ SQL
     fi
   done
   if [[ "$fail" -eq 0 ]]; then
-    docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
+    docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL' || fail=1
 GRANT INSERT ON otel.otel_logs TO collector;
 GRANT INSERT ON otel.otel_traces TO collector;
 GRANT SELECT ON otel.otel_logs TO grafana;
 GRANT SELECT ON otel.otel_traces TO grafana;
 SQL
-    docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_logs" | grep -q 1
-    docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_traces" | grep -q 1
+    docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_logs" | grep -q 1 || fail=1
+    docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_traces" | grep -q 1 || fail=1
   fi
   fi
   ch_cleanup
   CH_CID=""
   trap cleanup EXIT
+  set -e
 else
   warn "docker not available; skipped compose/collector/promtool/clickhouse checks"
 fi
