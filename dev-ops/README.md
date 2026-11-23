@@ -254,6 +254,27 @@ dev-ops/scripts/monitoring.sh sauna down           # preserves volumes
 dev-ops/scripts/monitoring.sh sauna down --volumes --yes
 ```
 
+### Migrating from the old SigNoz stack
+
+SigNoz was removed from the repository. On an existing host that still runs the
+old stack, stop it manually:
+
+```sh
+docker compose -p signoz down
+```
+
+This leaves the old Docker volumes (`signoz-clickhouse-data`, `signoz-sqlite`,
+`signoz-zookeeper-data`, `signoz-user-scripts`) and the `signoz-net` network in
+place. Remove them manually only after you are sure the data is not needed:
+
+```sh
+docker volume rm signoz-clickhouse-data signoz-sqlite signoz-zookeeper-data signoz-user-scripts
+docker network rm signoz-net
+```
+
+Do not run destructive volume removal as routine cleanup. Back up or confirm you
+do not need historical telemetry before removing volumes.
+
 ## Agentic issue creation
 
 Use the OpenCode command `/create-github-issue`
@@ -503,11 +524,19 @@ All compose services in this repo define explicit memory limits (`deploy.resourc
 The always-on booking baseline plus persistent dev-ops services already targets
 roughly ~1.7 GB for a single sauna deployment, before any monitoring stack. The
 factory monitoring base stack adds ~1.54 GB of always-on limits, and one product
-monitoring instance adds another ~1.47 GB (base services only). Running booking,
-factory monitoring, and a product monitoring instance concurrently exceeds the
-3.2 GB dev host budget; adding optional Langfuse (~1.63 GB more) makes it far
-worse. Run at most one monitoring stack at a time on the 3.2 GB host, keep
-Langfuse off by default, reduce retention/scrape frequency, or move monitoring to
-a separate host. Do not start any monitoring stack as a requirement for booking
-environments.
+monitoring instance adds another ~1.47 GB (base services only). That means a
+booking deployment plus one monitoring stack is already near or above the ~2.5 GB
+always-on budget on the 3.2 GB dev host, and running booking, factory monitoring,
+and a product monitoring instance concurrently does not fit. Adding optional
+Langfuse (~1.63 GB more) makes it far worse.
+
+Options if the budget is exceeded:
+- Run only the product monitoring instance where the product runs, and keep the
+  factory monitoring stack off on the same host.
+- Keep the `langfuse` profile off by default and start it only for targeted
+  diagnosis.
+- Reduce retention, scrape frequency, or service limits after measuring real load.
+- Move monitoring to a larger or separate host.
+
+Do not start any monitoring stack as a requirement for booking environments.
 

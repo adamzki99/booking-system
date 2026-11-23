@@ -33,7 +33,7 @@ No dedicated frontend lint/format script is defined for this deployment director
 
 ## Canonical references
 
-- [`README.md`](README.md): roles, flows, E2E/smoke guidance, SigNoz/telemetry, sidecar overview, running/provisioning, Cloudflare tunnel and TLS notes.
+- [`README.md`](README.md): roles, flows, E2E/smoke guidance, telemetry/monitoring, sidecar overview, running/provisioning, Cloudflare tunnel and TLS notes.
 - [`docs/mocks/`](docs/mocks/): supplied sauna UI mockups (normal-user desktop and mobile).
 - [`sidecar/README.md`](sidecar/README.md): sidecar endpoints and configuration.
 - [`docker-compose.yml`](docker-compose.yml), [`docker-compose.cloudflare-tunnel.yml`](docker-compose.cloudflare-tunnel.yml), [`.env.example`](.env.example), [`config/`](config/): deployment runtime configuration.

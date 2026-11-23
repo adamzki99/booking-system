@@ -129,18 +129,6 @@ updates:
           - patch
 
   - package-ecosystem: docker-compose
-    directory: /dev-ops/signoz
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-    groups:
-      minor-and-patch:
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: docker-compose
     directory: /dev-ops/factory/monitoring
     schedule:
       interval: weekly
