@@ -24,7 +24,7 @@ else
 fi
 
 # Python syntax/validation
-run python3 -m py_compile dev-ops/factory/lib/factory.py dev-ops/factory/discover_fix_candidates.py dev-ops/factory/discover_build_candidates.py
+run python3 -m py_compile dev-ops/factory/lib/factory.py dev-ops/factory/discover_fix_candidates.py dev-ops/factory/discover_build_candidates.py dev-ops/factory/reconcile_outcomes.py dev-ops/factory/queue_snapshot.py
 run python3 dev-ops/factory/lib/factory.py validate-models dev-ops/factory/models.yaml
 # minimal event schema smoke check (v2)
 run python3 - <<'PY'
@@ -45,9 +45,9 @@ PY
 
 # Unit tests (factory lib)
 if command -v pytest >/dev/null 2>&1; then
-  run pytest -q dev-ops/scripts/tests/test-factory-lib.py
+  run pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-reconcile-outcomes.py
 elif python3 -m pytest --version >/dev/null 2>&1; then
-  run python3 -m pytest -q dev-ops/scripts/tests/test-factory-lib.py
+  run python3 -m pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-reconcile-outcomes.py
 else
   echo "[factory-validate] WARN: pytest not installed; skipped factory unit tests"
   fail=1
