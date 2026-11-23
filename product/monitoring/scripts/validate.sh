@@ -101,15 +101,13 @@ if have_docker; then
   else
     ch_sql_ok=0
     for attempt in 1 2 3; do
-      set +e
-      docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
+      rc=0
+      docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL' || rc=$?
 CREATE USER IF NOT EXISTS collector IDENTIFIED WITH plaintext_password BY 'test-collector';
 CREATE USER IF NOT EXISTS grafana IDENTIFIED WITH plaintext_password BY 'test-grafana';
 ALTER USER collector SETTINGS PROFILE 'collector_profile';
 ALTER USER grafana SETTINGS PROFILE 'grafana_profile';
 SQL
-      rc=$?
-      set -e
       if [[ $rc -eq 0 ]]; then
         ch_sql_ok=1
         break
@@ -127,10 +125,8 @@ SQL
     echo "+ clickhouse init $f"
     ok=0
     for attempt in 1 2 3; do
-      set +e
-      sed -e 's/__TRACES_TTL_DAYS__/7/g' -e 's/__LOGS_TTL_DAYS__/14/g' "$f" | docker exec -i "$CH_CID" clickhouse-client --multiquery
-      rc=$?
-      set -e
+      rc=0
+      sed -e 's/__TRACES_TTL_DAYS__/7/g' -e 's/__LOGS_TTL_DAYS__/14/g' "$f" | docker exec -i "$CH_CID" clickhouse-client --multiquery || rc=$?
       if [[ $rc -eq 0 ]]; then
         ok=1
         break
@@ -150,14 +146,16 @@ SQL
       break
     fi
   done
-  docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
+  if [[ "$fail" -eq 0 ]]; then
+    docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
 GRANT INSERT ON otel.otel_logs TO collector;
 GRANT INSERT ON otel.otel_traces TO collector;
 GRANT SELECT ON otel.otel_logs TO grafana;
 GRANT SELECT ON otel.otel_traces TO grafana;
 SQL
-  docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_logs" | grep -q 1
-  docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_traces" | grep -q 1
+    docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_logs" | grep -q 1
+    docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_traces" | grep -q 1
+  fi
   fi
   ch_cleanup
   CH_CID=""
