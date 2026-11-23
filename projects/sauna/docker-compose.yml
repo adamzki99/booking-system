@@ -1,9 +1,9 @@
 # Sauna Booking System - deployment compose file.
 #
 # Combines the generic booking product (../../product) with the sauna-specific
-# sidecar and configuration. SigNoz (APM) runs as a persistent dev-ops service
-# (see ../../dev-ops/signoz/); the backend exports OTLP telemetry to its
-# collector when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+# sidecar and configuration. OpenTelemetry export is optional; when the sauna
+# monitoring instance is running, deploy-environment.sh adds
+# docker-compose.monitoring.yml to attach the backend to the monitoring network.
 
 services:
   caddy:
@@ -66,11 +66,6 @@ services:
       SIDECAR_URL: ${SIDECAR_URL:-http://sidecar:8081}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-booking-backend}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - default
-      - signoz
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,6 +132,3 @@ volumes:
 
 networks:
   default: {}
-  signoz:
-    external: true
-    name: signoz-net

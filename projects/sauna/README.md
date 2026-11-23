@@ -112,29 +112,42 @@ generated URL works without an auth header. To smoke-check a deployed stack:
    event must appear and then disappear. Invalid tokens must return a
    non-calendar error.
 
-## SigNoz / telemetry
+## Telemetry / project monitoring
 
-The backend exports traces and metrics via OTLP/HTTP. SigNoz (APM) runs as a
-**persistent dev-ops service** under `dev-ops/signoz/` (separate compose
-project, independent of `booking-*` environments). Bring it up once on the dev
-machine:
+The backend exports traces, metrics, and logs via OTLP/HTTP when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set. Leaving it empty disables export; the
+backend logs a warning and runs with no-op providers. No monitoring stack is
+required for the booking stack to start.
+
+Sauna uses its own monitoring instance built from the generic base in
+[`../../product/monitoring/`](../../product/monitoring/README.md). The instance
+config lives in [`monitoring/`](monitoring/) and has its own compose project
+(`sauna-monitoring`), network (`sauna-monitoring-net`), volumes, ports, and
+`.env`.
+
+Start monitoring:
 
 ```sh
-docker compose -f dev-ops/signoz/docker-compose.yml up -d
+cd monitoring
+cp .env.example .env
+# fill required secrets and ports (defaults: Grafana 3001, OTLP 4328/4327)
+docker compose up -d
 ```
 
-Configure the collector endpoint with `OTEL_EXPORTER_OTLP_ENDPOINT` (OTLP/HTTP,
-port 4318). For booking stacks running in Docker on the same host, the default
-`http://host.docker.internal:4318` reaches the host-published collector (the
-backend service includes `host.docker.internal:host-gateway`). Use
-`http://<signoz-host>:4318` when the collector runs elsewhere. Set
-`OTEL_SERVICE_NAME` to override the service name (defaults to
-`booking-backend`). Leaving `OTEL_EXPORTER_OTLP_ENDPOINT` empty disables
-export; the backend logs a warning and runs with no-op providers.
+To attach a locally started booking stack to the running monitoring instance:
 
-SigNoz UI: `http://<host>:3301` (override with `SIGNOZ_UI_PORT`). Data persists
-in named volumes across restarts and host reboots. Stop SigNoz with
-`docker compose -f dev-ops/signoz/docker-compose.yml down` (keeps volumes).
+```sh
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+```
+
+`dev-ops/scripts/deploy-environment.sh` detects `sauna-monitoring-net`: when the
+network exists it adds `docker-compose.monitoring.yml` automatically; when it is
+absent it deploys without monitoring and logs one line. Deploys never fail
+because monitoring is down.
+
+Grafana is bound to `127.0.0.1:${GRAFANA_PORT:-3001}`. Use an SSH tunnel for
+remote access. See [`../../product/monitoring/README.md`](../../product/monitoring/README.md)
+for validation, retention, and security details.
 
 ## Sidecar
 
@@ -144,9 +157,9 @@ It is stateless and called by the backend over REST.
 ## Running
 
 Everything is packaged in `docker-compose.yml` (Caddy, frontend, backend,
-sidecar, PostgreSQL; Authelia is opt-in via the `authelia` profile). SigNoz
-(APM) is provisioned separately as a persistent dev-ops service; see
-[SigNoz / telemetry](#signoz--telemetry) and `dev-ops/signoz/`.
+sidecar, PostgreSQL; Authelia is opt-in via the `authelia` profile). Project
+monitoring is optional and runs as a separate compose stack; see
+[Telemetry / project monitoring](#telemetry--project-monitoring).
 
 ### Prerequisites
 

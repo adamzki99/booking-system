@@ -29,6 +29,15 @@ cat > "$stubs/docker" <<'EOF'
 # Controlled docker compose stub. Fixtures let a test feed realistic compose
 # output, including the log lines that must never reach a public issue.
 args=" $* "
+if [[ -n "${DOCKER_ARGS_LOG:-}" ]]; then
+  printf '%s\n' "$*" >> "$DOCKER_ARGS_LOG"
+fi
+if [[ "$args" == *" network inspect "* ]]; then
+  if [[ -n "${MONITORING_NETWORK_EXISTS:-}" ]]; then
+    exit 0
+  fi
+  exit 1
+fi
 if [[ "$args" == *" up "* && -n "${FAIL_COMPOSE_UP:-}" ]]; then
   exit 1
 fi
@@ -62,7 +71,11 @@ make_deploy_checkout() {
   # gather the host-local log tail and ps status.
   mkdir -p "$checkout/projects/sauna"
   echo "services: {}" > "$checkout/projects/sauna/docker-compose.yml"
+  echo "services: {}" > "$checkout/projects/sauna/docker-compose.monitoring.yml"
   echo "# deploy fixture" > "$checkout/README.md"
+  cat > "$checkout/.gitignore" <<'GITIGNORE'
+.env
+GITIGNORE
   "$git_bin" -C "$checkout" add -A
   "$git_bin" -C "$checkout" commit -qm "test: fixture checkout"
   "$git_bin" -C "$checkout" branch -M main
@@ -601,6 +614,129 @@ assert f["failed_step"]
 print("ok")
 PY
 [[ $? -eq 0 ]] && pass || fail "deploy.failed event fields valid"
+
+# F-11: OTEL endpoint absent -> filled in with empty default; explicit empty kept.
+otel_origin="$tmp/otel-origin.git"
+otel_fixture="$tmp/otel-fixture"
+otel_deploy="$tmp/otel-deploy"
+make_deploy_checkout "$otel_origin" "$otel_fixture"
+"$git_bin" clone -q "$otel_origin" "$otel_deploy"
+cat > "$otel_deploy/projects/sauna/.env" <<'ENV'
+QA_MODE=false
+SOME_OTHER=value
+ENV
+out="$tmp/out-otel-absent.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$otel_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/otel.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  pass
+else
+  fail "deploy with absent OTEL endpoint should succeed"
+fi
+grep -q '^OTEL_EXPORTER_OTLP_ENDPOINT=$' "$otel_deploy/projects/sauna/.env" \
+  && pass || fail "absent OTEL endpoint filled in with empty default"
+grep -q '^QA_MODE=true$' "$otel_deploy/projects/sauna/.env" \
+  && pass || fail "QA_MODE set for qa env"
+
+# Explicit empty OTEL endpoint must be kept empty (operator disables export).
+cat > "$otel_deploy/projects/sauna/.env" <<'ENV'
+OTEL_EXPORTER_OTLP_ENDPOINT=
+QA_MODE=false
+ENV
+out="$tmp/out-otel-empty.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$otel_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/otel-empty.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  pass
+else
+  fail "deploy with explicit empty OTEL endpoint should succeed"
+fi
+grep -q '^OTEL_EXPORTER_OTLP_ENDPOINT=$' "$otel_deploy/projects/sauna/.env" \
+  && pass || fail "explicit empty OTEL endpoint kept empty"
+if grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318' "$otel_deploy/projects/sauna/.env"; then
+  fail "explicit empty OTEL endpoint must not be rewritten to signoz"
+else
+  pass
+fi
+
+# Explicit non-empty operator value must be preserved.
+cat > "$otel_deploy/projects/sauna/.env" <<'ENV'
+OTEL_EXPORTER_OTLP_ENDPOINT=http://my-collector.example:4318
+QA_MODE=false
+ENV
+out="$tmp/out-otel-custom.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$otel_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/otel-custom.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    TMPDIR="$tmp/tmp" \
+    -- qa; then
+  pass
+else
+  fail "deploy with custom OTEL endpoint should succeed"
+fi
+grep -q '^OTEL_EXPORTER_OTLP_ENDPOINT=http://my-collector.example:4318$' "$otel_deploy/projects/sauna/.env" \
+  && pass || fail "custom OTEL endpoint preserved"
+
+# Monitoring network present -> override used.
+mon_origin="$tmp/mon-origin.git"
+mon_fixture="$tmp/mon-fixture"
+mon_deploy="$tmp/mon-deploy"
+make_deploy_checkout "$mon_origin" "$mon_fixture"
+"$git_bin" clone -q "$mon_origin" "$mon_deploy"
+docker_args_log="$tmp/docker-args.log"
+: > "$docker_args_log"
+out="$tmp/out-mon-present.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$mon_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/mon-present.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    TMPDIR="$tmp/tmp" \
+    MONITORING_NETWORK_EXISTS=1 \
+    DOCKER_ARGS_LOG="$docker_args_log" \
+    -- qa; then
+  pass
+else
+  fail "deploy with monitoring network present should succeed"
+fi
+grep -q 'docker-compose.monitoring.yml' "$docker_args_log" \
+  && pass || fail "monitoring override used when network present"
+grep -q 'monitoring network sauna-monitoring-net detected' "$out" \
+  && pass || fail "monitoring detected log message present"
+
+# Monitoring network absent -> deploy proceeds without override.
+mon2_origin="$tmp/mon2-origin.git"
+mon2_fixture="$tmp/mon2-fixture"
+mon2_deploy="$tmp/mon2-deploy"
+make_deploy_checkout "$mon2_origin" "$mon2_fixture"
+"$git_bin" clone -q "$mon2_origin" "$mon2_deploy"
+docker_args_log="$tmp/docker-args-absent.log"
+: > "$docker_args_log"
+out="$tmp/out-mon-absent.log"
+if run_deploy "$out" \
+    DEPLOY_DIR="$mon2_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/mon-absent.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    TMPDIR="$tmp/tmp" \
+    DOCKER_ARGS_LOG="$docker_args_log" \
+    -- qa; then
+  pass
+else
+  fail "deploy with monitoring network absent should succeed"
+fi
+if grep -q 'docker-compose.monitoring.yml' "$docker_args_log"; then
+  fail "monitoring override must not be used when network absent"
+else
+  pass
+fi
+grep -q 'monitoring network sauna-monitoring-net not detected; deploying without monitoring override' "$out" \
+  && pass || fail "monitoring absent log message present"
 
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

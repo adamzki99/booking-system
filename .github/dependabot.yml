@@ -151,3 +151,27 @@ updates:
         update-types:
           - minor
           - patch
+
+  - package-ecosystem: docker-compose
+    directory: /product/monitoring
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker-compose
+    directory: /projects/sauna/monitoring
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
