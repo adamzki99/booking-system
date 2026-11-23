@@ -95,7 +95,26 @@ ALTER USER grafana SETTINGS PROFILE 'grafana_profile';
 SQL
   for f in product/monitoring/clickhouse/init/*.sql; do
     echo "+ clickhouse init $f"
-    sed -e 's/__TRACES_TTL_DAYS__/7/g' -e 's/__LOGS_TTL_DAYS__/14/g' "$f" | docker exec -i "$CH_CID" clickhouse-client --multiquery
+    ok=0
+    for attempt in 1 2 3; do
+      if sed -e 's/__TRACES_TTL_DAYS__/7/g' -e 's/__LOGS_TTL_DAYS__/14/g' "$f" | docker exec -i "$CH_CID" clickhouse-client --multiquery; then
+        ok=1
+        break
+      fi
+      echo "[product-monitoring-validate] clickhouse init attempt $attempt failed for $f, retrying..." >&2
+      docker logs --tail 40 "$CH_CID" >&2 || true
+      for _ in $(seq 1 30); do
+        if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then break; fi
+        sleep 1
+      done
+      sleep 2
+    done
+    if [[ "$ok" -ne 1 ]]; then
+      echo "[product-monitoring-validate] FAILED: clickhouse init $f" >&2
+      docker logs --tail 80 "$CH_CID" >&2 || true
+      fail=1
+      break
+    fi
   done
   docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
 GRANT INSERT ON otel.otel_logs TO collector;
