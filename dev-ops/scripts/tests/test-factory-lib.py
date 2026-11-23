@@ -46,9 +46,26 @@ def test_usage_filled():
 
 def test_make_event_schema():
     e = factory.make_event("tick_start", "abc", False, "backup", "dev", "host", foo="bar")
-    assert e["schema_version"] == 1
+    assert e["schema_version"] == 2
     assert e["event"] == "tick_start"
+    assert e["event_id"]
+    assert e["factory_id"] == "factory-1"
     assert e["foo"] == "bar"
+
+
+def test_make_event_typed_coercion():
+    e = factory.make_event("tick_end", "abc", True, "backup", "prod", "host",
+                           exit_code="1", duration_ms="42",
+                           cost_usd="1.5", attempt="3", skills_loaded="a,b",
+                           area_labels='["x","y"]')
+    assert e["schema_version"] == 2
+    assert e["exit_code"] == 1
+    assert e["duration_ms"] == 42
+    assert e["dry_run"] is True
+    assert e["cost_usd"] == 1.5
+    assert e["attempt"] == 3
+    assert e["skills_loaded"] == ["a", "b"]
+    assert e["area_labels"] == ["x", "y"]
 
 
 def test_validate_invalid_missing_model():
@@ -96,9 +113,38 @@ def test_classify_git_and_permission():
 
 def test_event_schema_and_fields():
     e = factory.make_event("tick_result", "t", False, "backup", "dev", "host", result="ok", fix_failures=0)
-    assert e["schema_version"] == 1
+    assert e["schema_version"] == 2
+    assert e["event_id"]
     assert e["result"] == "ok"
     assert e["fix_failures"] == 0
+
+
+def test_validate_event_v2_and_rejects_v3():
+    e = factory.make_event("x", "tick1", True, "skip", "prod", "h", attempt=2)
+    assert factory.validate_event(e) is True
+    assert e["schema_version"] == factory.SCHEMA_VERSION
+    assert e["dry_run"] is True
+    assert e["attempt"] == 2
+    try:
+        factory.validate_event({"event": "x"})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for missing fields")
+    # v3 must be rejected
+    try:
+        factory.validate_event(dict(e, schema_version=3))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for schema_version 3")
+    # non-int schema_version rejected
+    try:
+        factory.validate_event(dict(e, schema_version="2"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for string schema_version")
 
 def test_usage_filled_reason():
     filled, reason = factory.is_usage_filled("quota exceeded now")
@@ -215,3 +261,118 @@ def test_claim_dead_pid_treated_stale_within_ttl():
         now = int(time.time())
         ok, state, _ = factory.acquire_claim(claim, 7200, now, "888", pid_alive_fn=lambda p: False)
         assert ok and state == "acquired"
+
+
+# ---------------------------------------------------------------------------
+# session-id parsing (F-01)
+# ---------------------------------------------------------------------------
+
+FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
+
+
+def _fixture(name):
+    return os.path.join(FIXTURE_DIR, name)
+
+
+def test_session_id_from_fixture():
+    path = _fixture("opencode-stream-v2.3.2.jsonl")
+    assert os.path.isfile(path), f"fixture not found: {path}"
+    with open(path, "r", encoding="utf-8") as f:
+        sid = factory.session_id_from_stream(f.read())
+    assert sid == "ses_sanitized-example"
+
+
+def test_session_id_from_stream_malformed_tolerant():
+    bad = 'not json at all\n{"type":"step_start","sessionID":"ses_abc"}\n{broken\n'
+    assert factory.session_id_from_stream(bad) == "ses_abc"
+    assert factory.session_id_from_stream("garbage only") is None
+    assert factory.session_id_from_stream("") is None
+
+
+def test_session_id_cli(tmp_path):
+    p = tmp_path / "stream.jsonl"
+    p.write_text('{"type":"step_start","sessionID":"ses_cli-1"}\n', encoding="utf-8")
+    import subprocess, sys
+    script = os.path.join(os.path.dirname(__file__), "..", "..", "factory", "lib", "factory.py")
+    out = subprocess.check_output([sys.executable, script, "session-id", str(p)], text=True).strip()
+    assert out == "ses_cli-1"
+
+
+# ---------------------------------------------------------------------------
+# usage / tool parsing (fixture plus malformed stream)
+# ---------------------------------------------------------------------------
+
+def test_parse_opencode_stream_from_fixture():
+    path = _fixture("opencode-stream-v2.3.2.jsonl")
+    with open(path, "r", encoding="utf-8") as f:
+        d = factory.parse_opencode_stream(f.read())
+    assert d["session_id"] == "ses_sanitized-example"
+    assert d["steps"] == 2
+    assert d["tool_calls"] == 1
+    assert d["input_tokens"] == 2937  # 25 + 2912
+    assert d["output_tokens"] == 44   # 25 + 19
+    assert d["reasoning_tokens"] == 48  # 27 + 21
+    assert d["cache_read_tokens"] == 6656  # 4736 + 1920
+    assert d.get("cost_usd", 0.0) == 0.0
+
+
+def test_parse_opencode_stream_malformed_never_crashes():
+    assert factory.parse_opencode_stream("garbage\n{not json\n") == {}
+    assert factory.parse_opencode_stream("") == {}
+    assert factory.parse_opencode_stream(None) == {}
+
+
+def test_parse_opencode_stream_tool_error_and_skills():
+    text = (
+        '{"type":"tool_use","part":{"type":"tool","state":{"status":"error"},"error":"boom"}}\n'
+        '{"type":"text","text":"loading the implement skill now"}\n'
+        '{"type":"step_finish","part":{"tokens":{"input":1,"output":2,"reasoning":3,"cache":{"read":4,"write":5}},"cost":0.5}}\n'
+    )
+    d = factory.parse_opencode_stream(text)
+    assert d["tool_calls"] == 1
+    assert d["tool_errors"] == 1
+    assert d["skills_loaded"] == ["implement"]
+    assert d["steps"] == 1
+    assert d["input_tokens"] == 1
+    assert d["cost_usd"] == 0.5
+
+
+# ---------------------------------------------------------------------------
+# failure_reason classification (F-08)
+# ---------------------------------------------------------------------------
+
+def test_classify_failure_matrix():
+    assert factory.classify_failure("timed out after 3600s", 124) == "timeout"
+    assert factory.classify_failure("usage limit reached", 1) == "usage_filled"
+    assert factory.classify_failure("some error", 1) == "exit_nonzero"
+    assert factory.classify_failure("interrupted by user", 130) == "interrupted"
+    assert factory.classify_failure("opencode panic: boom", 1) == "opencode_error"
+    assert factory.classify_failure("opencode error: failed", 255) == "opencode_error"
+
+
+def test_error_fingerprint_deterministic_and_short():
+    fp = factory.error_fingerprint("Error: something went wrong here\n")
+    assert fp is not None
+    assert len(fp) == 12
+    assert factory.error_fingerprint("Error: something went wrong here\n") == fp
+    assert factory.error_fingerprint("") is None
+    assert factory.error_fingerprint(None) is None
+
+
+# ---------------------------------------------------------------------------
+# deterministic agent_version hashing
+# ---------------------------------------------------------------------------
+
+def test_agent_version_deterministic(tmp_path, monkeypatch):
+    import os as _os
+    agents = tmp_path / ".opencode" / "agents"
+    agents.mkdir(parents=True)
+    (agents / "planner.md").write_text("prompt v1 content", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    v1 = factory.agent_version_for("planner")
+    assert v1 is not None and len(v1) == 12
+    assert factory.agent_version_for("planner") == v1
+    # different content -> different version
+    (agents / "planner.md").write_text("prompt v2 content", encoding="utf-8")
+    assert factory.agent_version_for("planner") != v1
+    assert factory.agent_version_for("missing-agent") is None

@@ -1,13 +1,40 @@
 """Factory orchestration helpers (testable, no network)."""
 
+import datetime
+import hashlib
 import json
 import math
 import os
 import re
 import shutil
 import sys
+import uuid
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# JSON type coercion for well-known event fields. tick.sh passes every field
+# as a k=v string, so the library coerces the typed ones here so the emitted
+# JSONL carries real JSON types (ints, bools, floats, arrays).
+_INT_FIELDS = {
+    "schema_version",
+    "exit_code",
+    "duration_ms",
+    "attempt",
+    "pr_number",
+    "issue_id",
+    "tool_calls",
+    "tool_errors",
+    "files_changed",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "steps",
+}
+_FLOAT_FIELDS = {"cost_usd"}
+_BOOL_FIELDS = {"dry_run"}
+_ARRAY_FIELDS = {"skills_loaded", "area_labels"}
 
 
 def normalize_model(model):
@@ -156,14 +183,16 @@ def is_usage_filled(text):
 
 REQUIRED_EVENT_FIELDS = [
     "schema_version",
+    "event_id",
+    "event",
     "ts",
     "service.name",
+    "factory_id",
     "deployment.environment",
     "host.name",
     "tick_id",
     "dry_run",
     "on_usage_filled",
-    "event",
 ]
 
 
@@ -173,8 +202,11 @@ def validate_event(obj):
     for key in REQUIRED_EVENT_FIELDS:
         if key not in obj:
             raise ValueError(f"event missing required field: {key}")
-    if obj.get("schema_version") != SCHEMA_VERSION:
-        raise ValueError(f"unsupported schema_version: {obj.get('schema_version')}")
+    version = obj.get("schema_version")
+    if not isinstance(version, int) or version != SCHEMA_VERSION:
+        raise ValueError(f"unsupported schema_version: {version!r}")
+    if not isinstance(obj.get("event_id"), str) or not obj["event_id"]:
+        raise ValueError("event_id must be a non-empty string")
     if not isinstance(obj.get("event"), str) or not obj["event"]:
         raise ValueError("event name must be a non-empty string")
     if not isinstance(obj.get("tick_id"), str):
@@ -184,23 +216,58 @@ def validate_event(obj):
     return True
 
 
-def make_event(event, tick_id, dry_run, on_usage_filled, env, host, **fields):
-    import datetime
+def _coerce_value(key, value):
+    if key in _INT_FIELDS:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return value
+    if key in _FLOAT_FIELDS:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return value
+    if key in _BOOL_FIELDS:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(value)
+    if key in _ARRAY_FIELDS:
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            try:
+                loaded = json.loads(value)
+                if isinstance(loaded, list):
+                    return loaded
+            except (TypeError, ValueError):
+                pass
+            return [v.strip() for v in value.split(",") if v.strip()]
+        return value
+    return value
+
+
+def make_event(event, tick_id, dry_run, on_usage_filled, env, host,
+               factory_id="factory-1", repo="", **fields):
     obj = {}
     obj["schema_version"] = SCHEMA_VERSION
+    obj["event_id"] = fields.pop("event_id", None) or str(uuid.uuid4())
     obj["ts"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     obj["service.name"] = "factory-tick"
+    obj["factory_id"] = factory_id or "factory-1"
     obj["deployment.environment"] = env or "dev"
     obj["host.name"] = host or "unknown"
     obj["tick_id"] = tick_id
     obj["dry_run"] = bool(dry_run)
     obj["on_usage_filled"] = on_usage_filled
     obj["event"] = event
+    if repo:
+        obj["repo"] = repo
     for k, v in fields.items():
-        obj[k] = v
+        obj[k] = _coerce_value(k, v)
     validate_event(obj)
     return obj
-
 
 
 FAIL_STATES = {"FAILURE", "FAILED", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"}
@@ -329,6 +396,7 @@ def release_claim(claim_dir):
     except Exception:
         return False
 
+
 def _pid_alive(pid):
     try:
         os.kill(int(pid), 0)
@@ -337,11 +405,277 @@ def _pid_alive(pid):
         return False
 
 
+# ---------------------------------------------------------------------------
+# Session id parsing (F-01)
+# ---------------------------------------------------------------------------
+
+SESSION_ID_RE = re.compile(r'"sessionID"\s*:\s*"([^"]+)"')
+
+
+def session_id_from_stream(text):
+    """Return the first sessionID found in an opencode JSON stream, or None.
+
+    Tolerates malformed lines: each line is parsed independently and a line
+    that fails to parse is skipped (never a crash).
+    """
+    if not text:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = SESSION_ID_RE.search(line)
+        if m:
+            return m.group(1)
+        try:
+            obj = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict):
+            sid = obj.get("sessionID") or obj.get("session_id")
+            if isinstance(sid, str) and sid:
+                return sid
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Opencode stream parsing (Part B usage/cost)
+# ---------------------------------------------------------------------------
+
+SKILL_LOAD_RE = re.compile(r"(?:loading|load|using|loaded)\s+(?:the\s+)?(?:skill\s+)?['\"]?([A-Za-z0-9_.\-]+)['\"]?", re.IGNORECASE)
+
+
+def parse_opencode_stream(text):
+    """Parse an opencode run --format json stream into a typed summary dict.
+
+    Missing fields are simply absent from the result; a malformed stream never
+    raises. Returns keys: session_id, steps, input_tokens, output_tokens,
+    reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
+    tool_calls, tool_errors, skills_loaded.
+    """
+    result = {}
+    if not text:
+        return result
+    session_id = None
+    steps = 0
+    input_tokens = 0
+    output_tokens = 0
+    reasoning_tokens = 0
+    cache_read_tokens = 0
+    cache_write_tokens = 0
+    cost_usd = 0.0
+    tool_calls = 0
+    tool_errors = 0
+    skills_loaded = []
+    seen_skills = set()
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except (ValueError, TypeError):
+            # try regex fallback for session id on raw line
+            if session_id is None:
+                m = SESSION_ID_RE.search(line)
+                if m:
+                    session_id = m.group(1)
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if session_id is None:
+            sid = obj.get("sessionID") or obj.get("session_id")
+            if isinstance(sid, str) and sid:
+                session_id = sid
+        otype = obj.get("type")
+        part = obj.get("part") or {}
+        if otype == "step_finish":
+            steps += 1
+            tokens = part.get("tokens") or {}
+            if isinstance(tokens, dict):
+                input_tokens += int(tokens.get("input") or 0)
+                output_tokens += int(tokens.get("output") or 0)
+                reasoning_tokens += int(tokens.get("reasoning") or 0)
+                cache = tokens.get("cache") or {}
+                if isinstance(cache, dict):
+                    cache_read_tokens += int(cache.get("read") or 0)
+                    cache_write_tokens += int(cache.get("write") or 0)
+            c = part.get("cost")
+            if isinstance(c, (int, float)):
+                cost_usd += float(c)
+        if otype in ("tool_use", "tool"):
+            tool_calls += 1
+            state = part.get("state") or {}
+            status = (state.get("status") or "") if isinstance(state, dict) else ""
+            err = part.get("error") or state.get("error") if isinstance(state, dict) else None
+            if status == "error" or err:
+                tool_errors += 1
+        text_blob = obj.get("text") or ""
+        if isinstance(text_blob, str):
+            for m in SKILL_LOAD_RE.finditer(text_blob):
+                name = m.group(1)
+                if name not in seen_skills:
+                    seen_skills.add(name)
+                    skills_loaded.append(name)
+
+    if session_id:
+        result["session_id"] = session_id
+    if steps:
+        result["steps"] = steps
+    if input_tokens:
+        result["input_tokens"] = input_tokens
+    if output_tokens:
+        result["output_tokens"] = output_tokens
+    if reasoning_tokens:
+        result["reasoning_tokens"] = reasoning_tokens
+    if cache_read_tokens:
+        result["cache_read_tokens"] = cache_read_tokens
+    if cache_write_tokens:
+        result["cache_write_tokens"] = cache_write_tokens
+    if cost_usd:
+        result["cost_usd"] = cost_usd
+    if tool_calls:
+        result["tool_calls"] = tool_calls
+    if tool_errors:
+        result["tool_errors"] = tool_errors
+    if skills_loaded:
+        result["skills_loaded"] = skills_loaded
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Failure classification (F-08)
+# ---------------------------------------------------------------------------
+
+def classify_failure(text, exit_code):
+    """Classify a failed session into a short failure_reason string.
+
+    Returns one of: timeout, usage_filled, exit_nonzero, opencode_error,
+    interrupted.
+    """
+    try:
+        code = int(exit_code)
+    except (TypeError, ValueError):
+        code = 1
+    if code in (124, 137, 143) or "timed out" in (text or "").lower():
+        return "timeout"
+    if is_usage_filled(text)[0]:
+        return "usage_filled"
+    low = (text or "").lower()
+    if "opencode" in low and ("error" in low or "failed" in low or "panic" in low):
+        return "opencode_error"
+    if code in (130, 143) or "interrupt" in low or "signal" in low:
+        return "interrupted"
+    return "exit_nonzero"
+
+
+def error_fingerprint(text):
+    """sha256 of the normalised last error line, first 12 hex chars.
+
+    Returns None when there is no usable error line.
+    """
+    if not text:
+        return None
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return None
+    last = lines[-1]
+    # normalise: drop leading "Error:"/"error:" prefixes and surrounding punctuation
+    norm = re.sub(r"^(error|error:)\s*", "", last, flags=re.IGNORECASE).strip()
+    norm = re.sub(r"\s+", " ", norm).strip(" .,:;!\"'")
+    if not norm:
+        return None
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:12]
+
+
+# ---------------------------------------------------------------------------
+# Agent version hashing (Part B run-scoped fields)
+# ---------------------------------------------------------------------------
+
+def agent_version_for(agent_id, agents_dir=None):
+    """First 12 hex chars of sha256 of .opencode/agents/<agent>.md.
+
+    Returns None when the file cannot be read. Deterministic per file content.
+    """
+    if not agent_id:
+        return None
+    base = agents_dir or os.path.join(os.getcwd(), ".opencode", "agents")
+    path = os.path.join(base, f"{agent_id}.md")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = f.read()
+    except (OSError, IOError):
+        return None
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:12]
+
+
+# ---------------------------------------------------------------------------
+# CLI subcommands
+# ---------------------------------------------------------------------------
+
+def _emit_cli(argv):
+    # factory.py emit <event> <logfile> <tick_id> <dry_run> <on_usage_filled>
+    #   <env> <host> <factory_id> <repo> [k=v ...]
+    if len(argv) < 10:
+        print("usage: factory.py emit <event> <logfile> <tick_id> <dry_run> "
+              "<on_usage_filled> <env> <host> <factory_id> <repo> [k=v ...]",
+              file=sys.stderr)
+        return 2
+    event = argv[2]
+    logfile = argv[3]
+    tick_id = argv[4]
+    dry_run = argv[5] == "1"
+    on_usage_filled = argv[6]
+    env = argv[7]
+    host = argv[8]
+    factory_id = argv[9]
+    repo = argv[10] if len(argv) > 10 else ""
+    fields = {}
+    for a in argv[11:]:
+        if "=" in a:
+            k, v = a.split("=", 1)
+            fields[k] = v
+    obj = make_event(event, tick_id, dry_run, on_usage_filled, env, host,
+                     factory_id, repo, **fields)
+    line = json.dumps(obj, ensure_ascii=False)
+    try:
+        with open(logfile, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        # emission must never be fatal
+        return 0
+    return 0
+
+
+def _session_id_cli(argv):
+    # factory.py session-id <file|->
+    if len(argv) < 3:
+        print("usage: factory.py session-id <file|->", file=sys.stderr)
+        return 2
+    path = argv[2]
+    if path == "-":
+        text = sys.stdin.read()
+    else:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            return 1
+    sid = session_id_from_stream(text)
+    if sid is None:
+        return 1
+    print(sid)
+    return 0
+
+
 def main(argv):
     # CLI subcommands for shell integration
     if len(argv) < 2:
         print(
-            "usage: factory.py <validate-models|validate-event|normalize-model|classify-gh|classify-git|classify-pr-changes|should-retry|is-usage-filled|model-for-labels|claim-acquire|claim-release> ...",
+            "usage: factory.py <validate-models|validate-event|normalize-model|"
+            "classify-gh|classify-git|should-retry|is-usage-filled|"
+            "model-for-labels|claim-acquire|claim-release|emit|session-id> ...",
             file=sys.stderr,
         )
         return 2
@@ -374,19 +708,19 @@ def main(argv):
         text = sys.stdin.read() if arg == "-" else arg
         print(classify_git_error(text))
         return 0
-    if cmd == "classify-pr-changes":
-        arg = argv[2] if len(argv) > 2 else "-"
-        raw = sys.stdin.read() if arg == "-" else arg
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            value = raw
-        print(classify_pr_changes(value))
-        return 0
     if cmd == "should-retry":
         arg = argv[2] if len(argv) > 2 else "-"
         cat = sys.stdin.read().strip() if arg == "-" else arg.strip()
         print("true" if should_retry_category(cat) else "false")
+        return 0
+    if cmd == "classify-pr-changes":
+        value = argv[2] if len(argv) > 2 else ""
+        # parse int when possible
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = value
+        print(classify_pr_changes(parsed))
         return 0
     if cmd == "is-usage-filled":
         arg = argv[2] if len(argv) > 2 else "-"
@@ -416,6 +750,10 @@ def main(argv):
         ok = release_claim(argv[2])
         print("released" if ok else "missing")
         return 0
+    if cmd == "emit":
+        return _emit_cli(argv)
+    if cmd == "session-id":
+        return _session_id_cli(argv)
     print(f"unknown command: {cmd}", file=sys.stderr)
     return 2
 
