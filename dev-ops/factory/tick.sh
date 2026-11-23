@@ -331,7 +331,6 @@ oldest_unlabeled_issue() {
   OLDEST_UNLABELED_ISSUE=""
   if ! gh_run_capture "oldest_unlabeled_issue" gh issue list --state open --limit 200 --json number,labels,createdAt \
     --jq '[.[] | select((.labels | length) == 0)] | sort_by(.createdAt) | .[0].number // empty'; then
-    emit_event gh_op_failed op="oldest_unlabeled_issue" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     return 1
   fi
@@ -555,7 +554,6 @@ has_marker() {
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
   if ! gh_run_capture "has_marker_issue" gh issue view "$1" --json comments \
     --jq "[.comments[].body | contains($marker_json)] | any"; then
-    emit_event gh_op_failed op="has_marker_issue" issue="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     echo "false"
     return 0
@@ -568,7 +566,6 @@ has_pr_marker() {
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
   if ! gh_run_capture "has_pr_marker" gh pr view "$1" --json comments \
     --jq "[.comments[].body | contains($marker_json)] | any"; then
-    emit_event gh_op_failed op="has_pr_marker" pr="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     echo "false"
     return 0
@@ -578,7 +575,6 @@ has_pr_marker() {
 
 issue_labels() {
   if ! gh_run_capture "issue_labels" gh issue view "$1" --json labels --jq '.labels[].name'; then
-    emit_event gh_op_failed op="issue_labels" issue="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     return 1
   fi
@@ -587,7 +583,6 @@ issue_labels() {
 
 open_factory_pr_for_issue() {
   if ! gh_run_capture "open_factory_pr_for_issue" gh pr list --state open --head "factory/issue-$1" --json number --jq '.[0].number // empty'; then
-    emit_event gh_op_failed op="open_factory_pr_for_issue" issue="$1" category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     return 1
   fi
@@ -616,6 +611,14 @@ is_usage_filled() {
   if [[ "$out" == *"usage"* && "$out" == *"exceed"* ]]; then USAGE_FILLED_REASON="usage exceeded"; return 0; fi
   USAGE_FILLED_REASON=""
   return 1
+}
+
+classify_failure() { # $1 text, $2 exit_code
+  printf '%s' "${1:-}" | python3 "$SCRIPT_DIR/lib/factory.py" classify-failure "${2:-1}" - 2>/dev/null || echo exit_nonzero
+}
+
+error_fingerprint() { # $1 text
+  printf '%s' "${1:-}" | python3 "$SCRIPT_DIR/lib/factory.py" error-fingerprint - 2>/dev/null || true
 }
 
 # prompt version: sha256 prefix of the rendered prompt template before
@@ -861,20 +864,41 @@ finalize_session_log() { # path, success(0/1)
   esac
 }
 
-# start_session # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 prompt
+emit_tool_calls() { # $1 run_id, $2 stream_text
+  local run_id="$1" text="$2"
+  [[ -z "$text" ]] && return 0
+  while IFS=$'\t' read -r tool status duration_ms skill_name; do
+    [[ -z "$tool" ]] && continue
+    local -a extra=(run_id="$run_id" tool="$tool" status="${status:-unknown}")
+    [[ -n "$duration_ms" && "$duration_ms" != "None" && "$duration_ms" != "" ]] && extra+=(duration_ms="$duration_ms")
+    [[ -n "$skill_name" && "$skill_name" != "None" && "$skill_name" != "" ]] && extra+=(skill_name="$skill_name")
+    emit_event agent.tool.called "${extra[@]}"
+  done < <(printf '%s\n' "$text" | PYTHONPATH="$SCRIPT_DIR/lib" python3 -c '
+import sys, json
+sys.path.insert(0, sys.argv[1])
+import factory
+for c in factory.parse_tool_calls(sys.stdin.read()):
+    d = c.get("duration_ms")
+    print("\t".join([str(c.get("tool","")), str(c.get("status","")), "" if d is None else str(d), str(c.get("skill_name","") or "")]))
+' "$SCRIPT_DIR/lib" 2>/dev/null || true)
+}
+
+# start_session # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 backup_model, $7 prompt, $8 tier_label, $9 area_labels
 #
 # Emits v2 agent.run.* lifecycle events. Each opencode invocation is a distinct
 # run (new run_id) and reports its own session_id. Raw session output never
 # enters an event; only the tail is kept in the local session log.
-start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 prompt
-  local kind="$1" ref="$2" title="$3" model="$4" backup="$5" prompt="$6"
+start_session() { # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 backup_model, $7 prompt, $8 tier_label, $9 area_labels
+  local kind="$1" issue_id="$2" pr_number="$3" title="$4" model="$5" backup="$6" prompt="$7"
+  local tier_label="${8:-default}" area_labels="${9:-}"
+  local ref="${issue_id:-$pr_number}"
   local agent=""
   case "$kind" in
     plan) agent="planner" ;;
     build) agent="builder" ;;
     fix) agent="fixer" ;;
   esac
-  local session_start_ms duration tail_out
+  local session_start_ms duration
   session_start_ms="$(date +%s%3N)"
   local logfile="/dev/null"
   if [[ "$FACTORY_LOG_SESSION_OUTPUT" != "metadata" ]]; then
@@ -882,8 +906,9 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
     (umask 077; : > "$logfile")
     chmod 600 "$logfile" 2>/dev/null || true
   fi
-  local run_id attempt=1 fallback_level="primary"
+  local run_id attempt=1 fallback_level="primary" trace_id
   run_id="$(python3 -c 'import uuid;print(uuid.uuid4())' 2>/dev/null || echo "${TICK_ID}-${kind}-${ref}")"
+  trace_id="$(python3 "$SCRIPT_DIR/lib/factory.py" trace-id 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4().hex)')"
   local agent_ver
   agent_ver="$(agent_version "$agent")"
   local pv
@@ -891,17 +916,11 @@ start_session() { # $1 kind, $2 ref, $3 title, $4 model, $5 backup_model, $6 pro
   log "starting $kind session for #$ref (model: ${model:-opencode default}, agent: ${agent:-default}, run: $run_id)"
 
   # Emit agent.run.started for this invocation.
-  if [[ "$kind" == "fix" ]]; then
-    emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
-      kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-      model="${model:-}" pr_number="$ref" session_id="" \
-      backup_model="${backup:-}"
-  else
-    emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
-      kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-      model="${model:-}" issue="$ref" session_id="" \
-      backup_model="${backup:-}"
-  fi
+  emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
+    kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
+    model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="" \
+    trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
+    backup_model="${backup:-}"
 
   local out status=0
   set +e
@@ -927,29 +946,36 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
         print(f"{k}={d[k]!r}")
 ' 2>/dev/null || true)"
   local duration= steps= input_tokens= output_tokens= reasoning_tokens= \
-    cache_read_tokens= cache_write_tokens= cost= tool_calls= tool_errors=
+    cache_read_tokens= cache_write_tokens= cost= tool_calls= tool_errors= files_changed=
   duration=$(( $(date +%s%3N) - session_start_ms ))
+  emit_tool_calls "$run_id" "$out"
+  if [[ -z "$files_changed" ]]; then
+    files_changed="$(git diff --name-only 2>/dev/null | wc -l | tr -d ' ')" || files_changed=""
+    [[ "$files_changed" == "0" ]] && files_changed=""
+  fi
 
   if [[ $status -eq 0 ]]; then
     printf '%s\n' "$out"
     if [[ "$kind" == "fix" ]]; then
       emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
         kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-        model="${model:-}" pr_number="$ref" session_id="${session_id:-}" \
+        model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
         exit_code=0 duration_ms="$duration" outcome="ok" \
         ${steps:+steps=$steps} ${input_tokens:+input_tokens=$input_tokens} \
         ${output_tokens:+output_tokens=$output_tokens} ${reasoning_tokens:+reasoning_tokens=$reasoning_tokens} \
         ${cache_read_tokens:+cache_read_tokens=$cache_read_tokens} ${cache_write_tokens:+cache_write_tokens=$cache_write_tokens} \
-        ${cost:+cost_usd=$cost} ${tool_calls:+tool_calls=$tool_calls} ${tool_errors:+tool_errors=$tool_errors}
+        ${cost:+cost_usd=$cost} ${tool_calls:+tool_calls=$tool_calls} ${tool_errors:+tool_errors=$tool_errors} ${files_changed:+files_changed=$files_changed}
     else
       emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
         kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-        model="${model:-}" issue="$ref" session_id="${session_id:-}" \
+        model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
         exit_code=0 duration_ms="$duration" outcome="ok" \
         ${steps:+steps=$steps} ${input_tokens:+input_tokens=$input_tokens} \
         ${output_tokens:+output_tokens=$output_tokens} ${reasoning_tokens:+reasoning_tokens=$reasoning_tokens} \
         ${cache_read_tokens:+cache_read_tokens=$cache_read_tokens} ${cache_write_tokens:+cache_write_tokens=$cache_write_tokens} \
-        ${cost:+cost_usd=$cost} ${tool_calls:+tool_calls=$tool_calls} ${tool_errors:+tool_errors=$tool_errors}
+        ${cost:+cost_usd=$cost} ${tool_calls:+tool_calls=$tool_calls} ${tool_errors:+tool_errors=$tool_errors} ${files_changed:+files_changed=$files_changed}
     fi
     case "$kind" in
       plan) RUNS_PLAN_OK=$((RUNS_PLAN_OK + 1)) ;;
@@ -972,15 +998,17 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
     if [[ "$kind" == "fix" ]]; then
       emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
         kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-        model="${model:-}" pr_number="$ref" session_id="${session_id:-}" \
+        model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
         exit_code="$status" duration_ms="$duration" outcome="failed" \
-        failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
+        failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}" ${files_changed:+files_changed=$files_changed}
     else
       emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
         kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-        model="${model:-}" issue="$ref" session_id="${session_id:-}" \
+        model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
         exit_code="$status" duration_ms="$duration" outcome="failed" \
-        failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
+        failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}" ${files_changed:+files_changed=$files_changed}
     fi
     case "$kind" in
       plan) RUNS_PLAN_FAILED=$((RUNS_PLAN_FAILED + 1)) ;;
@@ -1001,11 +1029,13 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
             emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
               kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
               model="$backup" pr_number="$ref" session_id="" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               backup_model="${backup:-}"
           else
             emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
               kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
               model="$backup" issue="$ref" session_id="" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               backup_model="${backup:-}"
           fi
           set +e
@@ -1015,6 +1045,7 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
           set +o pipefail
           set -e
           printf '%s\n' "$bout" >&2
+          emit_tool_calls "$run_id" "$bout"
           if [[ $bstatus -eq 0 ]]; then
             duration=$(( $(date +%s%3N) - session_start_ms ))
             local bs_id
@@ -1023,11 +1054,13 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
               emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
                 kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
                 model="$backup" pr_number="$ref" session_id="${bs_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
                 exit_code=0 duration_ms="$duration" outcome="ok"
             else
               emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
                 kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
                 model="$backup" issue="$ref" session_id="${bs_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
                 exit_code=0 duration_ms="$duration" outcome="ok"
             fi
             case "$kind" in
@@ -1048,12 +1081,14 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
               emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
                 kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
                 model="$backup" pr_number="$ref" session_id="${bs_id2:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
                 exit_code="$bstatus" duration_ms="$duration" outcome="failed" \
                 failure_reason="$bfail_reason" "${bfp:+error_fingerprint=$bfp}"
             else
               emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
                 kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
                 model="$backup" issue="$ref" session_id="${bs_id2:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
                 exit_code="$bstatus" duration_ms="$duration" outcome="failed" \
                 failure_reason="$bfail_reason" "${bfp:+error_fingerprint=$bfp}"
             fi
@@ -1070,12 +1105,14 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
             emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
               kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
               model="$backup" pr_number="$ref" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               exit_code="$bstatus" duration_ms="$(( $(date +%s%3N) - session_start_ms ))" outcome="failed" \
               failure_reason="usage_filled"
           else
             emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
               kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
               model="$backup" issue="$ref" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               exit_code="$bstatus" duration_ms="$(( $(date +%s%3N) - session_start_ms ))" outcome="failed" \
               failure_reason="usage_filled"
           fi
@@ -1095,11 +1132,13 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
             emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
               kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
               model="$FREE_MODEL" pr_number="$ref" session_id="" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               backup_model="${backup:-}"
           else
             emit_event agent.run.started run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
               kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
               model="$FREE_MODEL" issue="$ref" session_id="" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               backup_model="${backup:-}"
           fi
           set +e
@@ -1110,6 +1149,7 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
           set +o pipefail
           set -e
           printf '%s\n' "$fout"
+          emit_tool_calls "$run_id" "$fout"
           if [[ $fstatus -eq 0 ]]; then
             duration=$(( $(date +%s%3N) - session_start_ms ))
             local fs_id
@@ -1118,11 +1158,13 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
               emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
                 kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
                 model="$FREE_MODEL" pr_number="$ref" session_id="${fs_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
                 exit_code=0 duration_ms="$duration" outcome="ok"
             else
               emit_event agent.run.completed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
                 kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
                 model="$FREE_MODEL" issue="$ref" session_id="${fs_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
                 exit_code=0 duration_ms="$duration" outcome="ok"
             fi
             case "$kind" in
@@ -1142,12 +1184,14 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
             emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
               kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
               model="$FREE_MODEL" pr_number="$ref" session_id="${fs_id2:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               exit_code="$fstatus" duration_ms="$duration" outcome="failed" \
               failure_reason="$ffail_reason" "${ffp:+error_fingerprint=$ffp}"
           else
             emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
               kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
               model="$FREE_MODEL" issue="$ref" session_id="${fs_id2:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               exit_code="$fstatus" duration_ms="$duration" outcome="failed" \
               failure_reason="$ffail_reason" "${ffp:+error_fingerprint=$ffp}"
           fi
@@ -1164,13 +1208,15 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
         if [[ "$kind" == "fix" ]]; then
           emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
             kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-            model="${model:-}" pr_number="$ref" session_id="${session_id:-}" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
             exit_code="$status" duration_ms="$duration" outcome="failed" \
             failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
         else
           emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
             kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-            model="${model:-}" issue="$ref" session_id="${session_id:-}" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
             exit_code="$status" duration_ms="$duration" outcome="failed" \
             failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
         fi
@@ -1188,13 +1234,15 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
         if [[ "$kind" == "fix" ]]; then
           emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
             kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-            model="${model:-}" pr_number="$ref" session_id="${session_id:-}" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
             exit_code=0 duration_ms="$duration" outcome="failed" \
             failure_reason="usage_filled_skipped"
         else
           emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
             kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-            model="${model:-}" issue="$ref" session_id="${session_id:-}" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
             exit_code=0 duration_ms="$duration" outcome="failed" \
             failure_reason="usage_filled_skipped"
         fi
@@ -1211,13 +1259,15 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
         if [[ "$kind" == "fix" ]]; then
           emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
             kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-            model="${model:-}" pr_number="$ref" session_id="${session_id:-}" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
             exit_code="$status" duration_ms="$duration" outcome="failed" \
             failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
         else
           emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
             kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-            model="${model:-}" issue="$ref" session_id="${session_id:-}" \
+            model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
             exit_code="$status" duration_ms="$duration" outcome="failed" \
             failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
         fi
@@ -1238,15 +1288,17 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
   if [[ "$kind" == "fix" ]]; then
     emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
       kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-      model="${model:-}" pr_number="$ref" session_id="${session_id:-}" \
+      model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
       exit_code="$status" duration_ms="$duration" outcome="failed" \
-      failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
+      failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}" ${files_changed:+files_changed=$files_changed}
   else
     emit_event agent.run.failed run_id="$run_id" attempt="$attempt" fallback_level="$fallback_level" \
       kind="$kind" agent_id="$agent" agent_version="$agent_ver" prompt_version="$pv" \
-      model="${model:-}" issue="$ref" session_id="${session_id:-}" \
+      model="${model:-}" issue_id="${issue_id:-}" pr_number="${pr_number:-}" session_id="${session_id:-}" \
+      trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
       exit_code="$status" duration_ms="$duration" outcome="failed" \
-      failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}"
+      failure_reason="$failure_reason" "${error_fp:+error_fingerprint=$error_fp}" ${files_changed:+files_changed=$files_changed}
   fi
   log "$kind session for #$ref failed (exit $status)"
   case "$kind" in
@@ -1417,14 +1469,16 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       fi
     fi
     mapfile -t labels < <(issue_labels "$issue_number" 2>/dev/null || true)
-    IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
-    emit_event fix_selected pr="$pr_number" issue="$issue_number" reasons="$reasons" model="${model:-}" backup_model="${backup_model:-}"
+    IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels "${labels[@]}")
+    area_labels="$(printf '%s\n' "${labels[@]}" | grep -E '^(backend|frontend|dev-ops)$' | paste -sd, - 2>/dev/null || true)"
+    emit_event fix_selected pr="$pr_number" issue="$issue_number" reasons="$reasons" model="${model:-}" backup_model="${backup_model:-}" tier_label="${tier_label:-default}" area_labels="${area_labels:-}"
     if [[ "$DRY_RUN" == 1 ]]; then
       log "dry-run: would fix PR #$pr_number (issue #$issue_number, reasons: $reasons, model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
       emit_event dry_run kind="fix" pr="$pr_number" issue="$issue_number"
       fix_count=$((fix_count + 1))
     else
-      if start_session "fix" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"; then
+      emit_event issue.assigned issue_id="$issue_number" pr_number="$pr_number" kind="fix" agent_id="fixer"
+      if start_session "fix" "$issue_number" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")" "${tier_label:-default}" "${area_labels:-}"; then
         :
       else
         fix_failures=$((fix_failures + 1))
@@ -1485,7 +1539,7 @@ while IFS= read -r candidate; do
 done <<< "$build_candidates_output"
 
 if [[ -n "$build_issue" ]]; then
-  emit_event issue.detected issue="$build_issue"
+  emit_event issue.detected issue_id="$build_issue" kind="build"
   emit_event build_selected issue="$build_issue"
 fi
 
@@ -1502,9 +1556,10 @@ if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
 fi
 
 if [[ -n "$plan_issue" ]]; then
-  IFS=$'\t' read -r model backup_model < <(model_for_labels)
-  emit_event issue.assigned issue="$plan_issue" kind="plan" agent_id="planner"
-  emit_event plan_selected issue="$plan_issue" model="${model:-}" backup_model="${backup_model:-}"
+  emit_event issue.detected issue_id="$plan_issue" kind="plan"
+  IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels)
+  area_labels=""
+  emit_event plan_selected issue="$plan_issue" model="${model:-}" backup_model="${backup_model:-}" tier_label="${tier_label:-default}"
   if [[ "$DRY_RUN" == 1 ]]; then
     log "dry-run: would plan issue #$plan_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
     emit_event dry_run kind="plan" issue="$plan_issue"
@@ -1514,7 +1569,8 @@ if [[ -n "$plan_issue" ]]; then
       log "issue #$plan_issue already claimed for planning; skipping"
       emit_event claim_conflict issue="$plan_issue" reason="${plan_claim:-claim-failed}" kind="plan"
     else
-      start_session "plan" "$plan_issue" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" || TICK_RC=1
+      emit_event issue.assigned issue_id="$plan_issue" kind="plan" agent_id="planner"
+      start_session "plan" "$plan_issue" "" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" "${tier_label:-default}" "${area_labels:-}" || TICK_RC=1
       release_claim "$plan_claim"
     fi
   fi
@@ -1522,8 +1578,8 @@ fi
 
 if [[ -n "$build_issue" ]]; then
   mapfile -t labels < <(issue_labels "$build_issue" 2>/dev/null || true)
-  IFS=$'\t' read -r model backup_model < <(model_for_labels "${labels[@]}")
-  emit_event issue.assigned issue="$build_issue" kind="build" agent_id="builder"
+  IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels "${labels[@]}")
+  area_labels="$(printf '%s\n' "${labels[@]}" | grep -E '^(backend|frontend|dev-ops)$' | paste -sd, - 2>/dev/null || true)"
   if [[ "$DRY_RUN" == 1 ]]; then
     log "dry-run: would build issue #$build_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
     emit_event dry_run kind="build" issue="$build_issue"
@@ -1533,7 +1589,8 @@ if [[ -n "$build_issue" ]]; then
       log "issue #$build_issue already claimed for build; skipping"
       emit_event claim_conflict issue="$build_issue" reason="${build_claim:-claim-failed}" kind="build"
     else
-      start_session "build" "$build_issue" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" || TICK_RC=1
+      emit_event issue.assigned issue_id="$build_issue" kind="build" agent_id="builder"
+      start_session "build" "$build_issue" "" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" "${tier_label:-default}" "${area_labels:-}" || TICK_RC=1
       release_claim "$build_claim"
     fi
   fi

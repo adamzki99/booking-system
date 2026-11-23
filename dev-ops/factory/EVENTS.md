@@ -135,12 +135,12 @@ with one warning line to stderr per failure, and surfaced on the final
 ## Events emitted by tick.sh (authoritative list)
 
 `agent.run.completed`, `agent.run.failed`, `agent.run.started`,
-`build_discovery_error`, `build_selected`, `claim_conflict`,
-`container_mode`, `dirty_worktree_skipped_reset`, `discovery_failed`,
-`dry_run`, `fix_discovery_error`, `fix_selected`, `gh_op_failed`,
-`gh_op_retry`, `git_fetch_failed`, `guardrail_drift`, `guardrail_ok`,
-`issue.assigned`, `issue.detected`, `lock_skipped`, `marker_skip`,
-`nothing_to_do`, `plan_selected`, `plan_skipped`,
+`agent.tool.called`, `build_discovery_error`, `build_selected`,
+`claim_conflict`, `container_mode`, `dirty_worktree_skipped_reset`,
+`discovery_failed`, `dry_run`, `fix_discovery_error`, `fix_selected`,
+`gh_op_failed`, `gh_op_retry`, `git_fetch_failed`, `guardrail_drift`,
+`guardrail_ok`, `issue.assigned`, `issue.detected`, `lock_skipped`,
+`marker_skip`, `nothing_to_do`, `plan_selected`, `plan_skipped`,
 `project_priority_fallback`, `tick_end`, `tick_interrupted`, `tick_result`,
 `tick_start`.
 

@@ -24,13 +24,16 @@ def test_model_for_labels_priority():
         "light-build-task": {"model": "light", "backup_model": "lb"},
         "default": {"model": "def", "backup_model": "db"},
     }
-    m, b = factory.model_for_labels(entries, ["light-build-task", "heavy-build-task"])
+    m, b, t = factory.model_for_labels(entries, ["light-build-task", "heavy-build-task"])
     # first in insertion order wins only if present; heavy first in dict order
     assert m == "heavy"
-    m2, b2 = factory.model_for_labels(entries, ["light-build-task"])
+    assert t == "heavy-build-task"
+    m2, b2, t2 = factory.model_for_labels(entries, ["light-build-task"])
     assert m2 == "light"
-    m3, b3 = factory.model_for_labels(entries, [])
+    assert t2 == "light-build-task"
+    m3, b3, t3 = factory.model_for_labels(entries, [])
     assert m3 == "def"
+    assert t3 == "default"
 
 def test_classify_gh():
     assert factory.classify_gh_error("HTTP 401 Unauthorized") == "auth"
@@ -376,3 +379,39 @@ def test_agent_version_deterministic(tmp_path, monkeypatch):
     (agents / "planner.md").write_text("prompt v2 content", encoding="utf-8")
     assert factory.agent_version_for("planner") != v1
     assert factory.agent_version_for("missing-agent") is None
+
+
+# ---------------------------------------------------------------------------
+# tool call parsing and trace id (event model v2)
+# ---------------------------------------------------------------------------
+
+def test_parse_tool_calls_from_fixture():
+    path = _fixture("opencode-stream-v2.3.2.jsonl")
+    with open(path, "r", encoding="utf-8") as f:
+        calls = factory.parse_tool_calls(f.read())
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "glob"
+    assert calls[0]["status"] == "completed"
+    assert calls[0]["duration_ms"] == 138
+
+
+def test_parse_tool_calls_malformed_and_skill():
+    text = (
+        'garbage\n'
+        '{"type":"tool_use","part":{"tool":"skill","state":{"status":"completed","input":{"name":"tdd"}},"time":{"start":1,"end":2}}}\n'
+        '{"type":"tool_use","part":{"tool":"bash","state":{"status":"error"},"error":"boom"}}\n'
+    )
+    calls = factory.parse_tool_calls(text)
+    assert len(calls) == 2
+    assert calls[0]["tool"] == "skill"
+    assert calls[0]["skill_name"] == "tdd"
+    assert calls[1]["tool"] == "bash"
+    assert calls[1]["status"] == "error"
+
+
+def test_new_trace_id_format():
+    tid = factory.new_trace_id()
+    assert isinstance(tid, str)
+    assert len(tid) == 32
+    int(tid, 16)  # hex
+    assert factory.new_trace_id() != tid

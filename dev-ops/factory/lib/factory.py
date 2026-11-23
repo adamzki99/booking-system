@@ -31,6 +31,8 @@ _INT_FIELDS = {
     "cache_read_tokens",
     "cache_write_tokens",
     "steps",
+    "telemetry_errors",
+    "fix_failures",
 }
 _FLOAT_FIELDS = {"cost_usd"}
 _BOOL_FIELDS = {"dry_run"}
@@ -80,25 +82,28 @@ def validate_models(config):
 
 
 def model_for_labels(entries, have):
-    """Return (model, backup) for a set of labels."""
+    """Return (model, backup, tier_label) for a set of labels."""
     have = set(have or [])
     model = ""
     backup = ""
+    tier_label = "default"
     # preserve insertion order (YAML order) for priority
     for name, cfg in (entries or {}).items():
         if name != "default" and name in have and isinstance(cfg, dict):
             model = cfg.get("model") or ""
             backup = cfg.get("backup_model") or cfg.get("backup") or ""
             if model:
+                tier_label = name
                 break
     if not model:
         default = (entries or {}).get("default") or {}
         model = default.get("model") or ""
         backup = backup or default.get("backup_model") or default.get("backup") or ""
+        tier_label = "default"
     if not backup:
         default = (entries or {}).get("default") or {}
         backup = default.get("backup_model") or default.get("backup") or ""
-    return model, backup
+    return model, backup, tier_label
 
 
 def classify_gh_error(text):
@@ -265,6 +270,8 @@ def make_event(event, tick_id, dry_run, on_usage_filled, env, host,
     if repo:
         obj["repo"] = repo
     for k, v in fields.items():
+        if isinstance(v, str) and v == "" and k in (_INT_FIELDS | _FLOAT_FIELDS):
+            continue
         obj[k] = _coerce_value(k, v)
     validate_event(obj)
     return obj
@@ -544,6 +551,75 @@ def parse_opencode_stream(text):
     return result
 
 
+def parse_tool_calls(text):
+    """Return a list of tool-call dicts from an opencode JSON stream.
+
+    Each dict has: tool, status, and optionally duration_ms, skill_name.
+    Skill loads are represented as tool="skill" with skill_name when a skill
+    name can be determined. Malformed lines are skipped; never raises.
+    """
+    calls = []
+    if not text:
+        return calls
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        otype = obj.get("type")
+        if otype not in ("tool_use", "tool"):
+            continue
+        part = obj.get("part") or {}
+        tool = part.get("tool") or obj.get("tool") or "unknown"
+        state = part.get("state") or {}
+        status = ""
+        duration_ms = None
+        if isinstance(state, dict):
+            status = state.get("status") or ""
+            t = state.get("time") or {}
+            if isinstance(t, dict):
+                start = t.get("start")
+                end = t.get("end")
+                try:
+                    if start is not None and end is not None:
+                        duration_ms = int(end) - int(start)
+                except (TypeError, ValueError):
+                    duration_ms = None
+        err = part.get("error")
+        if err and not status:
+            status = "error"
+        rec = {"tool": str(tool), "status": str(status or "unknown")}
+        if duration_ms is not None and duration_ms >= 0:
+            rec["duration_ms"] = duration_ms
+        # Skill loads: tool name "skill" or input contains skill/name.
+        inp = {}
+        if isinstance(state, dict):
+            inp = state.get("input") or {}
+        if not isinstance(inp, dict):
+            inp = {}
+        skill_name = inp.get("name") or inp.get("skill") or inp.get("skill_name")
+        if str(tool).lower() in ("skill", "opencode_skill", "load_skill"):
+            rec["tool"] = "skill"
+            if skill_name:
+                rec["skill_name"] = str(skill_name)
+        elif skill_name and str(tool).lower().endswith("skill"):
+            rec["tool"] = "skill"
+            rec["skill_name"] = str(skill_name)
+        calls.append(rec)
+    return calls
+
+
+def new_trace_id():
+    """Return a 32-hex-char W3C trace id."""
+    return uuid.uuid4().hex
+
+
+
 # ---------------------------------------------------------------------------
 # Failure classification (F-08)
 # ---------------------------------------------------------------------------
@@ -675,7 +751,8 @@ def main(argv):
         print(
             "usage: factory.py <validate-models|validate-event|normalize-model|"
             "classify-gh|classify-git|should-retry|is-usage-filled|"
-            "model-for-labels|claim-acquire|claim-release|emit|session-id> ...",
+            "model-for-labels|claim-acquire|claim-release|emit|session-id|"
+            "classify-failure|error-fingerprint|trace-id|parse-tool-calls> ...",
             file=sys.stderr,
         )
         return 2
@@ -734,8 +811,8 @@ def main(argv):
         with open(argv[2]) as f:
             cfg = yaml.safe_load(f)
         entries = (cfg or {}).get("labels") or {}
-        model, backup = model_for_labels(entries, argv[3:])
-        print(f"{model}\t{backup}")
+        model, backup, tier_label = model_for_labels(entries, argv[3:])
+        print(f"{model}\t{backup}\t{tier_label}")
         return 0
     if cmd == "claim-acquire":
         # claim-acquire <claim_dir> <ttl> <now_ts> <pid>
@@ -754,6 +831,40 @@ def main(argv):
         return _emit_cli(argv)
     if cmd == "session-id":
         return _session_id_cli(argv)
+    if cmd == "classify-failure":
+        # classify-failure <exit_code> [text|-]; text from stdin when "-" or omitted
+        if len(argv) < 3:
+            print("usage: factory.py classify-failure <exit_code> [text|-]", file=sys.stderr)
+            return 2
+        exit_code = argv[2]
+        arg = argv[3] if len(argv) > 3 else "-"
+        text = sys.stdin.read() if arg == "-" else arg
+        print(classify_failure(text, exit_code))
+        return 0
+    if cmd == "error-fingerprint":
+        arg = argv[2] if len(argv) > 2 else "-"
+        text = sys.stdin.read() if arg == "-" else arg
+        fp = error_fingerprint(text)
+        if fp:
+            print(fp)
+        return 0
+    if cmd == "trace-id":
+        print(new_trace_id())
+        return 0
+    if cmd == "parse-tool-calls":
+        # parse-tool-calls <file|->  -> JSON array of tool call dicts
+        path = argv[2] if len(argv) > 2 else "-"
+        if path == "-":
+            text = sys.stdin.read()
+        else:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except OSError:
+                print("[]")
+                return 1
+        print(json.dumps(parse_tool_calls(text), ensure_ascii=False))
+        return 0
     print(f"unknown command: {cmd}", file=sys.stderr)
     return 2
 
