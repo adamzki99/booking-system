@@ -15,6 +15,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from typing import Any
@@ -477,13 +478,16 @@ def export_otlp_http(
     url = endpoint.rstrip("/")
     if not url.endswith("/v1/traces"):
         url = url + "/v1/traces"
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False, f"unsupported url scheme: {parsed.scheme!r}"
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
     for k, v in (headers or {}).items():
         req.add_header(k, v)
     try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             body = resp.read().decode("utf-8", errors="replace")
             return 200 <= resp.status < 300, f"http {resp.status}: {body[:200]}"
     except urllib.error.HTTPError as e:
