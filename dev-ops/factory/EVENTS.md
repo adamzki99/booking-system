@@ -68,8 +68,52 @@ summary.
 | `agent.run.completed` | opencode exited 0 |
 | `agent.run.failed` | non-zero exit, timeout, interruption or usage-filled (`failure_reason`, `exit_code`) |
 
-`pr.created`, `pr.merged`, `pr.closed`, `issue.closed` and friends come from
-GitHub reconciliation in prompt 02. They are not faked here.
+## Reconciled GitHub outcome events
+
+Emitted by `dev-ops/factory/reconcile_outcomes.py` at the end of every
+non-dry-run tick (best-effort; failure emits `reconcile_failed` and never
+changes the tick exit code) and standalone for backfill. These events describe
+GitHub facts that may be observed many times.
+
+**Deterministic id rule:** `event_id` is the first 32 hex chars of
+`sha256("<event>|<repo>|<github node id or number>|<state-defining field>")`.
+Re-running the reconciler produces identical ids so ClickHouse
+(`ReplacingMergeTree(event_id)`, prompt 03) deduplicates them.
+
+**Timestamps:** use GitHub timestamps (`merged_at`, `closed_at`, ...) as `ts`
+for these events, not the time of observation. Add `observed_at` (RFC 3339 UTC)
+for when the reconciler saw the fact.
+
+**No free text:** numbers, ids, states, timestamps and label names only. PR/issue
+titles, bodies and comments are treated as untrusted and never copied into events.
+
+| Event | Fields (in addition to common fields) |
+|---|---|
+| `pr.created` | `pr_number` (int), `issue_id` (int), `created_at` (string), `head_branch` (string), `draft` (bool) |
+| `pr.review` | `pr_number` (int), `review_id` (string), `state` (`approved`\|`changes_requested`\|`commented`), `reviewer_is_owner` (bool), `submitted_at` (string) |
+| `pr.checks` | `pr_number` (int), `head_sha` (string), `conclusion` (`success`\|`failure`\|`pending`\|`mixed`), `failed_checks` (array of check names) for the PR head when it changes |
+| `pr.merged` | `pr_number` (int), `issue_id` (int), `merged_at` (string), `commits` (int), `additions` (int), `deletions` (int), `changed_files` (int), `review_comments` (int), `human_commits` (int, commits not authored by `FACTORY_LOGIN`; a proxy for human intervention) |
+| `pr.closed` | `pr_number` (int), `issue_id` (int), `closed_at` (string, closed without merge) |
+| `issue.approved` | `issue_id` (int), `approved_at` (string, time the `owner approved` label was added, from the issue timeline) |
+| `issue.closed` | `issue_id` (int), `closed_at` (string), `state_reason` (string, when present) |
+| `issue.reopened` | `issue_id` (int), `reopened_at` (string) |
+
+## Deploy events
+
+Emitted by `dev-ops/scripts/deploy-environment.sh` via `factory.py emit` (the
+same emitter). Deploys may run in a different systemd unit than tick; they use
+`FACTORY_LOG_FILE` with the same default so both land in one file. Concurrent
+appends are safe because each event is a single `write()` of one JSON line in
+append mode.
+
+| Event | Fields (in addition to common fields) |
+|---|---|
+| `deploy.started` | `env_name` (string), `branch` (string), `commit` (string), `previous_commit` (string) |
+| `deploy.completed` | `env_name` (string), `commit` (string), `duration_ms` (int), `health` (string, health check result) |
+| `deploy.failed` | `env_name` (string), `commit` (string), `duration_ms` (int), `failed_step` (string) |
+
+The deploy script exports `DEPLOY_COMMIT` and `ENV_NAME` so prompt 06 can pass
+them to the backend as `service.version` and `deployment.environment`.
 
 ## Operational events
 
@@ -80,7 +124,14 @@ Kept with their current names, now typed: `tick_start`, `tick_end`,
 `empty_pr_closed`, `nothing_to_do`, `discovery_failed`, `fix_discovery_error`,
 `build_discovery_error`, `project_priority_fallback`, `plan_skipped`,
 `fix_selected`, `build_selected`, `plan_selected`, `container_mode`,
-`git_fetch_failed`, `dirty_worktree_skipped_reset`.
+`git_fetch_failed`, `dirty_worktree_skipped_reset`, `factory.queue`,
+`reconcile_failed`.
+
+`factory.queue` is emitted once per tick (also in dry-run) with integer counts:
+`infant` (open, no labels), `planned` (has plan marker, not approved),
+`approved_waiting` (approved, no factory PR), `in_pr` (open factory PR),
+`blocked_pr` (open factory PR that discovery would consider for fixing),
+`needs_info` (omitted when no such label exists in the label taxonomy).
 
 A skipped-for-usage session is `agent.run.failed` with
 `failure_reason=usage_filled_skipped`.
@@ -115,16 +166,19 @@ The 16 KiB output tail remains only in the local session log file
 
 ## Typed fields
 
-All `k=v` fields passed from `tick.sh` are coerced to real JSON types in
-`factory.py`:
+All `k=v` fields passed from `tick.sh` or `factory.py emit` are coerced to
+real JSON types in `factory.py`:
 
 - ints: `schema_version`, `exit_code`, `duration_ms`, `attempt`,
   `pr_number`, `issue_id`, `tool_calls`, `tool_errors`, `files_changed`,
   `input_tokens`, `output_tokens`, `reasoning_tokens`, `cache_read_tokens`,
-  `cache_write_tokens`, `steps`.
+  `cache_write_tokens`, `steps`, `telemetry_errors`, `fix_failures`,
+  `commits`, `additions`, `deletions`, `changed_files`, `review_comments`,
+  `human_commits`, `infant`, `planned`, `approved_waiting`, `in_pr`,
+  `blocked_pr`, `needs_info`.
 - floats: `cost_usd`.
-- bools: `dry_run`.
-- arrays: `skills_loaded`, `area_labels` (comma-separated or JSON array).
+- bools: `dry_run`, `draft`, `reviewer_is_owner`.
+- arrays: `skills_loaded`, `area_labels`, `failed_checks` (comma-separated or JSON array).
 
 ## Telemetry errors
 
@@ -137,11 +191,43 @@ with one warning line to stderr per failure, and surfaced on the final
 `agent.run.completed`, `agent.run.failed`, `agent.run.started`,
 `agent.tool.called`, `build_discovery_error`, `build_selected`,
 `claim_conflict`, `container_mode`, `dirty_worktree_skipped_reset`,
-`discovery_failed`, `dry_run`, `fix_discovery_error`, `fix_selected`,
-`gh_op_failed`, `gh_op_retry`, `git_fetch_failed`, `guardrail_drift`,
-`guardrail_ok`, `issue.assigned`, `issue.detected`, `lock_skipped`,
-`marker_skip`, `nothing_to_do`, `plan_selected`, `plan_skipped`,
-`project_priority_fallback`, `tick_end`, `tick_interrupted`, `tick_result`,
-`tick_start`.
+`discovery_failed`, `dry_run`, `factory.queue`, `fix_discovery_error`,
+`fix_selected`, `gh_op_failed`, `gh_op_retry`, `git_fetch_failed`,
+`guardrail_drift`, `guardrail_ok`, `issue.assigned`, `issue.detected`,
+`lock_skipped`, `marker_skip`, `nothing_to_do`, `plan_selected`,
+`plan_skipped`, `project_priority_fallback`, `reconcile_failed`,
+`tick_end`, `tick_interrupted`, `tick_result`, `tick_start`.
 
 This list must stay in sync with `grep -o 'emit_event [a-z_.]*' dev-ops/factory/tick.sh | sort -u`.
+
+## State-defining fields for reconciled events
+
+| Event | GitHub node id or number | State-defining field |
+|---|---|---|
+| `pr.created` | PR node id (or PR number) | `created_at` |
+| `pr.review` | review id | mapped `state` (`approved`\|`changes_requested`\|`commented`) |
+| `pr.checks` | PR number | `head_sha:conclusion` |
+| `pr.merged` | PR node id (or PR number) | `merged_at` |
+| `pr.closed` | PR node id (or PR number) | `closed_at` |
+| `issue.approved` | timeline event id (or fallback) | `approved_at` |
+| `issue.closed` | timeline event id (or fallback) | `closed_at` |
+| `issue.reopened` | timeline event id (or fallback) | `reopened_at` |
+
+## Derived metrics
+
+Defined in words and as field arithmetic. Prompt 03/04 build these from
+ClickHouse/Grafana.
+
+| Metric | Definition |
+|---|---|
+| Issue throughput | `issue.closed` with a merged factory PR, per day |
+| First-pass success | issues whose first factory PR merged with no `kind=fix` run / all completed issues |
+| Agent efficiency | merged PRs / sum of `agent.run.*` `duration_ms` in hours |
+| Cost efficiency | sum `cost_usd` of all runs for an issue / merged PRs |
+| Rework rate | completed issues that needed more than one build/fix run / completed issues |
+| Lead time | `issue.approved.approved_at` (or first `agent.run.started`) to `pr.merged.merged_at` |
+| Pickup to merge | first `agent.run.started` for the issue to `pr.merged` |
+| PR acceptance rate | `pr.merged` / (`pr.merged` + `pr.closed`) |
+| Human intervention rate | merged PRs with `human_commits > 0` or an owner `changes_requested` review / merged PRs |
+| Factory utilisation | sum of run `duration_ms` / available time (tick interval times concurrent session slots, a Grafana variable) |
+| Abandoned issues | issues with at least one run, no open PR and no activity for N days, or whose PR was closed unmerged |

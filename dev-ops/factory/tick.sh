@@ -18,6 +18,7 @@ APPROVED_LABEL="owner approved"
 PLAN_MARKER='<!-- factory:plan -->'
 BUILD_MARKER='<!-- factory:build -->'
 DRY_RUN=0
+RECONCILE_IN_DRY_RUN=0
 TICK_RC=0
 INFRA_FAILURE=0
 USAGE_FILLED_REASON=""
@@ -65,10 +66,11 @@ RUNS_FIX_OK=0; RUNS_FIX_FAILED=0; RUNS_FIX_SKIPPED=0
 
 usage() {
   cat <<'USAGE'
-Usage: tick.sh [--dry-run] [--on-usage-filled=backup|skip|fail] [--max-fix-sessions=N]
+Usage: tick.sh [--dry-run] [--on-usage-filled=backup|skip|fail] [--max-fix-sessions=N] [--reconcile-in-dry-run]
 
 Options:
   --dry-run                 Select and log actions without starting sessions.
+  --reconcile-in-dry-run    Run outcome reconciler in dry-run (read-only).
   --on-usage-filled=MODE    backup|skip|fail when model usage/quota is filled.
   --max-fix-sessions=N      Maximum fix sessions per tick (default: 1).
   -h, --help                Show this help.
@@ -210,6 +212,7 @@ mint_factory_github_token() {
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
+    --reconcile-in-dry-run) RECONCILE_IN_DRY_RUN=1 ;;
     --on-usage-filled=*) ON_USAGE_FILLED="${arg#*=}" ;;
     --max-fix-sessions=*) MAX_FIX_SESSIONS="${arg#*=}" ;;
     -h|--help) usage; exit 0 ;;
@@ -325,17 +328,20 @@ fi
 
 # Print the number of the oldest open issue with no labels, or nothing.
 # Distinguishes "no candidates" (success, empty output) from infra/auth failures.
-# Sets OLDEST_UNLABELED_ISSUE on success.
+# Sets OLDEST_UNLABELED_ISSUE and OLDEST_UNLABELED_COUNT on success.
 OLDEST_UNLABELED_ISSUE=""
+OLDEST_UNLABELED_COUNT=0
 oldest_unlabeled_issue() {
   OLDEST_UNLABELED_ISSUE=""
+  OLDEST_UNLABELED_COUNT=0
   if ! gh_run_capture "oldest_unlabeled_issue" gh issue list --state open --limit 200 --json number,labels,createdAt \
-    --jq '[.[] | select((.labels | length) == 0)] | sort_by(.createdAt) | .[0].number // empty'; then
+    --jq '[.[] | select((.labels | length) == 0)] | {count:length, oldest:(sort_by(.createdAt) | .[0].number // empty)}'; then
     case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
     return 1
   fi
-  OLDEST_UNLABELED_ISSUE="$GH_OUT"
-  printf '%s\n' "$GH_OUT"
+  OLDEST_UNLABELED_COUNT="$(printf '%s' "${GH_OUT:-}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)"
+  OLDEST_UNLABELED_ISSUE="$(printf '%s' "${GH_OUT:-}" | python3 -c 'import json,sys; v=json.load(sys.stdin).get("oldest",""); print("" if v is None else v)' 2>/dev/null || echo "")"
+  printf '%s\n' "$OLDEST_UNLABELED_ISSUE"
 }
 
 # Legacy inline discovery helpers retained for reference; active paths use
@@ -1543,15 +1549,57 @@ if [[ -n "$build_issue" ]]; then
   emit_event build_selected issue="$build_issue"
 fi
 
+emit_factory_queue() {
+  local qjson=""
+  if qjson="$(python3 "$SCRIPT_DIR/queue_snapshot.py" 2>/dev/null)"; then
+    :
+  else
+    qjson='{"infant":0,"planned":0,"approved_waiting":0,"in_pr":0,"blocked_pr":0}'
+  fi
+  local infant planned approved_waiting in_pr blocked_pr needs_info
+  infant="$(printf '%s' "$qjson" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("infant",0))' 2>/dev/null || echo 0)"
+  planned="$(printf '%s' "$qjson" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("planned",0))' 2>/dev/null || echo 0)"
+  approved_waiting="$(printf '%s' "$qjson" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("approved_waiting",0))' 2>/dev/null || echo 0)"
+  in_pr="$(printf '%s' "$qjson" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("in_pr",0))' 2>/dev/null || echo 0)"
+  blocked_pr="$(printf '%s' "$qjson" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("blocked_pr",0))' 2>/dev/null || echo 0)"
+  needs_info="$(printf '%s' "$qjson" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["needs_info"]) if "needs_info" in d else print("")' 2>/dev/null || echo "")"
+  if [[ -n "$needs_info" ]]; then
+    emit_event factory.queue infant="$infant" planned="$planned" approved_waiting="$approved_waiting" in_pr="$in_pr" blocked_pr="$blocked_pr" needs_info="$needs_info"
+  else
+    emit_event factory.queue infant="$infant" planned="$planned" approved_waiting="$approved_waiting" in_pr="$in_pr" blocked_pr="$blocked_pr"
+  fi
+}
+
+run_factory_reconcile() {
+  if [[ "$DRY_RUN" == 1 && "$RECONCILE_IN_DRY_RUN" != 1 ]]; then
+    return 0
+  fi
+  local args=()
+  if [[ "$DRY_RUN" == 1 && "$RECONCILE_IN_DRY_RUN" == 1 ]]; then
+    args+=(--dry-run)
+  fi
+  if ! python3 "$SCRIPT_DIR/reconcile_outcomes.py" "${args[@]}" >/dev/null 2>&1; then
+    emit_event reconcile_failed error="reconcile_outcomes.py failed"
+  fi
+}
+
+finish_tick() {
+  local result="$1"; shift
+  emit_factory_queue
+  run_factory_reconcile
+  emit_event tick_result "$@" result="$result"
+}
+
 if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
   if [[ "$INFRA_FAILURE" -eq 1 ]]; then
     log "discovery failed due to infrastructure/auth/rate-limit/transient issues; not reporting nothing_to_do"
     emit_event discovery_failed infra_failure=1
-    emit_event tick_result result="failure" reason="discovery_failed"
+    finish_tick "failure" reason="discovery_failed"
     exit 1
   fi
   log "nothing to do"
   emit_event nothing_to_do
+  finish_tick "ok" reason="nothing_to_do"
   exit 0
 fi
 
@@ -1598,7 +1646,7 @@ fi
 
 if [[ "${fix_failures:-0}" -gt 0 ]]; then TICK_RC=1; fi
 if [[ "${TICK_RC:-0}" -ne 0 ]]; then
-  emit_event tick_result result="failure" fix_failures="$fix_failures"
+  finish_tick "failure" fix_failures="$fix_failures"
   exit "$TICK_RC"
 fi
-emit_event tick_result result="ok" fix_failures="$fix_failures"
+finish_tick "ok" fix_failures="$fix_failures"

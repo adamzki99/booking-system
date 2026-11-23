@@ -33,10 +33,23 @@ _INT_FIELDS = {
     "steps",
     "telemetry_errors",
     "fix_failures",
+    # reconcile/queue/deploy outcome fields
+    "commits",
+    "additions",
+    "deletions",
+    "changed_files",
+    "review_comments",
+    "human_commits",
+    "infant",
+    "planned",
+    "approved_waiting",
+    "in_pr",
+    "blocked_pr",
+    "needs_info",
 }
 _FLOAT_FIELDS = {"cost_usd"}
-_BOOL_FIELDS = {"dry_run"}
-_ARRAY_FIELDS = {"skills_loaded", "area_labels"}
+_BOOL_FIELDS = {"dry_run", "draft", "reviewer_is_owner"}
+_ARRAY_FIELDS = {"skills_loaded", "area_labels", "failed_checks"}
 
 
 def normalize_model(model):
@@ -258,7 +271,7 @@ def make_event(event, tick_id, dry_run, on_usage_filled, env, host,
     obj = {}
     obj["schema_version"] = SCHEMA_VERSION
     obj["event_id"] = fields.pop("event_id", None) or str(uuid.uuid4())
-    obj["ts"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    obj["ts"] = fields.pop("ts", None) or datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     obj["service.name"] = "factory-tick"
     obj["factory_id"] = factory_id or "factory-1"
     obj["deployment.environment"] = env or "dev"

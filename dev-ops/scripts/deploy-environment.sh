@@ -20,8 +20,31 @@ for arg in "$@"; do
   esac
 done
 
+export ENV_NAME
+
+FACTORY_LOG_FILE="${FACTORY_LOG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl}"
+FACTORY_ENV="${FACTORY_ENV:-dev}"
+FACTORY_ID="${FACTORY_ID:-factory-1}"
+HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
+DEPLOY_START_MS="$(date +%s%3N 2>/dev/null || echo 0)"
+DEPLOY_COMMIT=""
+export DEPLOY_COMMIT
+
 log() { printf '[deploy-%s] %s\n' "$ENV_NAME" "$*"; }
 die() { trap - ERR 2>/dev/null || true; printf '[deploy-%s] ERROR: %s\n' "$ENV_NAME" "$*" >&2; exit 1; }
+
+deploy_emit() {
+  local event="${1:-}"; shift || true
+  local factory_py="$SCRIPT_DIR/../factory/lib/factory.py"
+  [[ -f "$factory_py" ]] || return 0
+  local repo=""
+  repo="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/](.+/.+?)(\.git)?$#\1#' || true)"
+  [[ -n "$repo" ]] || repo="unknown"
+  mkdir -p "$(dirname "$FACTORY_LOG_FILE")" 2>/dev/null || true
+  python3 "$factory_py" emit \
+    "$event" "$FACTORY_LOG_FILE" "deploy-${ENV_NAME}-${DEPLOY_START_MS}" "$DRY_RUN" "backup" \
+    "$FACTORY_ENV" "$HOSTNAME_VAL" "$FACTORY_ID" "$repo" "$@" >/dev/null 2>&1 || true
+}
 
 command -v python3 >/dev/null || die "python3 is required"
 [[ -f "$ENV_FILE" ]] || die "environments.yaml not found: $ENV_FILE"
@@ -217,6 +240,12 @@ on_error() {
     update_yaml "failed" "$sha" "" 2>/dev/null || true
   fi
 
+  local now_ms duration_ms
+  now_ms="$(date +%s%3N 2>/dev/null || echo 0)"
+  duration_ms=$(( now_ms - DEPLOY_START_MS ))
+  [[ "$duration_ms" -ge 0 ]] 2>/dev/null || duration_ms=0
+  deploy_emit "deploy.failed" env_name="$ENV_NAME" commit="$sha" duration_ms="$duration_ms" failed_step="$cmd"
+
   surface_failure "$sha" "$cmd" 2>/dev/null || true
   exit "$exit_code"
 }
@@ -283,6 +312,10 @@ acquire_lock() {
 
 if ! acquire_lock; then
   lock_error="could not open a deploy lock as $(id -un); tried: ${LOCK_CANDIDATES[*]}"
+  now_ms="$(date +%s%3N 2>/dev/null || echo 0)"
+  duration_ms=$(( now_ms - DEPLOY_START_MS ))
+  [[ "$duration_ms" -ge 0 ]] 2>/dev/null || duration_ms=0
+  deploy_emit "deploy.failed" env_name="$ENV_NAME" commit="unknown" duration_ms="$duration_ms" failed_step="lock acquisition"
   surface_failure "unknown" "lock acquisition"
   die "$lock_error"
 fi
@@ -346,6 +379,8 @@ if [[ -n "$unexpected_changes" ]]; then
   die "deploy checkout has unexpected local changes"
 fi
 
+PREVIOUS_COMMIT="$(git -C "$DEPLOY_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+
 log "fetching $BRANCH"
 git -C "$DEPLOY_DIR" fetch --prune origin "$BRANCH"
 
@@ -354,7 +389,10 @@ git -C "$DEPLOY_DIR" fetch --prune origin "$BRANCH"
 git -C "$DEPLOY_DIR" checkout -B "$BRANCH" "origin/$BRANCH"
 
 DEPLOYED_SHA="$(git -C "$DEPLOY_DIR" rev-parse "origin/$BRANCH")"
+DEPLOY_COMMIT="$DEPLOYED_SHA"
+export DEPLOY_COMMIT
 log "deploying $DEPLOYED_SHA"
+deploy_emit "deploy.started" env_name="$ENV_NAME" branch="$BRANCH" commit="$DEPLOYED_SHA" previous_commit="$PREVIOUS_COMMIT"
 
 UPDATE_FILE="$DEPLOY_DIR/dev-ops/environments.yaml"
 
@@ -406,6 +444,10 @@ export COMPOSE_PROJECT_NAME="booking-${ENV_NAME}"
 log "starting compose"
 if ! docker compose -f "$COMPOSE_FILE" up -d --build --remove-orphans; then
   trap - ERR 2>/dev/null || true
+  now_ms="$(date +%s%3N 2>/dev/null || echo 0)"
+  duration_ms=$(( now_ms - DEPLOY_START_MS ))
+  [[ "$duration_ms" -ge 0 ]] 2>/dev/null || duration_ms=0
+  deploy_emit "deploy.failed" env_name="$ENV_NAME" commit="$DEPLOYED_SHA" duration_ms="$duration_ms" failed_step="docker compose up"
   update_yaml "failed" "$DEPLOYED_SHA" ""
   surface_failure "$DEPLOYED_SHA" "docker compose -f $COMPOSE_FILE up -d --build --remove-orphans"
   die "docker compose up failed"
@@ -423,6 +465,10 @@ done
 
 if [[ "$healthy" -ne 1 ]]; then
   trap - ERR 2>/dev/null || true
+  now_ms="$(date +%s%3N 2>/dev/null || echo 0)"
+  duration_ms=$(( now_ms - DEPLOY_START_MS ))
+  [[ "$duration_ms" -ge 0 ]] 2>/dev/null || duration_ms=0
+  deploy_emit "deploy.failed" env_name="$ENV_NAME" commit="$DEPLOYED_SHA" duration_ms="$duration_ms" failed_step="health check"
   update_yaml "failed" "$DEPLOYED_SHA" ""
   surface_failure "$DEPLOYED_SHA" "curl healthz"
   die "health check failed on port ${PORT}"
@@ -432,6 +478,10 @@ log "health check passed"
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 update_yaml "success" "$DEPLOYED_SHA" "$TS"
+now_ms="$(date +%s%3N 2>/dev/null || echo 0)"
+duration_ms=$(( now_ms - DEPLOY_START_MS ))
+[[ "$duration_ms" -ge 0 ]] 2>/dev/null || duration_ms=0
+deploy_emit "deploy.completed" env_name="$ENV_NAME" commit="$DEPLOYED_SHA" duration_ms="$duration_ms" health="healthy"
 
 cd "$DEPLOY_DIR"
 if [[ -n "$(git status --porcelain -- dev-ops/environments.yaml)" ]]; then
