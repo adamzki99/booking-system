@@ -29,8 +29,9 @@ node-exporter + factory textfile metrics -> Prometheus -> Grafana
 collector/clickhouse/grafana/prometheus self-metrics -> Prometheus
 ```
 
-Dashboards and alert rules are added by prompt 04. Langfuse is added by prompt 05.
-SigNoz removal is handled by prompt 09; this stack does not depend on SigNoz.
+Grafana dashboards and alert rules are provisioned from git (prompt 04). Langfuse
+is added by prompt 05. SigNoz removal is handled by prompt 09; this stack does not
+depend on SigNoz.
 
 ## Pinned versions
 
@@ -197,6 +198,58 @@ Total always-on monitoring budget: ~1.54 GB. Update `dev-ops/README.md` with rea
 numbers after observing load. If totals exceed host budget, state it honestly and
 reduce retention/scrape frequency before adding services.
 
+## Dashboards
+
+Provisioned from `grafana/dashboards/*.json` (generated from
+`scripts/generate_dashboards.py`). All dashboards are in Grafana folder `Factory`,
+have stable UIDs, include template variables `factory_id`, `agent_id`, `model`,
+`kind`, and a time range, and use bounded ClickHouse queries with `$__timeFilter(...)`.
+
+| UID | Dashboard | Answers |
+|---|---|---|
+| `factory-overview` | Factory overview | Issues processed/completed, run success rate, active agents, avg pickup-to-merge, tokens/cost, throughput over time, last tick age, current queue snapshot, recent merged PRs. |
+| `factory-agents` | Agent performance | Per agent/version/model: runs, success rate, duration, cost/successful issue, fallback share, PR touch count; prompt version breakdown; leaderboard by merged PRs per run hour (EVENTS.md agent efficiency). |
+| `factory-execution` | Execution analytics | Runs/hour, duration p50/p90, top tools, skill loads, failures by reason/fingerprint, issues with most runs, retries/fallbacks/operational events, stuck runs. |
+| `factory-cost` | Cost and efficiency | Reported cost and tokens by time/model/agent/kind; cost per merged PR and tokens per merged PR (approx); usage-filled/backup/free share. Cost is as reported by OpenCode and may be 0 for subscription models. |
+| `factory-quality` | Quality and outcomes | PR acceptance rate, human intervention proxy, lead time p50/p90, first-pass success, rework/abandonment, CI/check outcomes, review comments. |
+| `factory-host` | Factory host | Host CPU/memory/disk/load, collector records, per-container memory (if cAdvisor metrics present), ClickHouse disk by table (best effort), Prometheus TSDB size. |
+
+Regenerate dashboards:
+
+```sh
+python3 dev-ops/factory/monitoring/scripts/generate_dashboards.py
+```
+
+## Alerts
+
+Grafana-managed alerts are provisioned from `grafana/provisioning/alerting/`.
+Contact point: `factory-default` (webhook + email receivers), configured via env.
+If no real contact is configured, alerts still evaluate and appear in Grafana;
+delivery may fail to the default no-op endpoints. Notification policy groups by
+`alertname` and repeats at most every 4 hours.
+
+| Alert | Condition (default) | Severity | Runbook |
+|---|---|---|---|
+| Factory silent | No successful tick for 2h (`time() - factory_tick_last_success_timestamp_seconds > 7200`) | critical | Check factory timer/service, tick logs, and textfile metric freshness in `FACTORY_METRICS_DIR`. Confirm deploy/tick jobs are running. |
+| Factory failing | Run failure rate > 50% over 6h with >=3 runs, or any `discovery_failed` | critical | Inspect Execution Analytics, failed runs, `discovery_failed`, `gh_op_failed`, auth/quota/rate-limit errors. Do not weaken gates. |
+| Factory guardrail drift | Any `guardrail_drift` in last 2h | critical | Stop and inspect guardrail drift event. Diff `AGENTS.md`, `opencode.jsonc`, `.opencode/agents/` against `factory-config` tag before any merge. |
+| Factory stuck run | Any row in `factory.stuck_runs` (>3900s started, no end) | warning | Inspect stuck run details, session logs, OpenCode process, host load. Diagnose before killing processes; preserve logs. |
+| Factory issue looping | Same issue has >3 runs in 24h | warning | Inspect issue runs/failures/PR feedback. May need human clarification, issue split, or factory fix; do not blindly retry. |
+| Factory quota pressure | Any `usage_filled`, or more than 2 `free_retry` in 24h | warning | Check Cost & Efficiency and Execution dashboards. Confirm OpenCode quota, fallback behavior, and whether backup/free models are acceptable. |
+| Factory deploy failed/stale | Any `deploy.failed` in 26h, or QA deploy started but no `deploy.completed` in 26h | critical | Check deploy logs, QA timer, `deploy-environment.sh` output, and QA deployment GitHub issue. Fix cause before rerun. |
+| Factory telemetry broken | `telemetry_errors > 0` on latest tick_end in 24h, or no factory events ingested for 2h while ticks run | warning | Check collector logs, ClickHouse ingestion, filelog offsets, `FACTORY_LOG_DIR` mount, and tick_end telemetry_errors. |
+| Factory host memory high | Host memory > 90% for 10m | warning | Check host dashboard and container memory. Reduce retention/scrape or stop nonessential services; do not start optional monitoring on an exhausted host. |
+| Factory host disk high | Any filesystem > 85% for 10m | warning | Check disk dashboard, ClickHouse/Prometheus volumes, Docker logs/artifacts. Clean safely; preserve evidence. |
+
+## Alert contact env vars
+
+Set in `.env` (optional):
+
+- `ALERT_EMAIL_TO`: e-mail recipient(s), comma-separated. Requires `GF_SMTP_*`.
+- `ALERT_WEBHOOK_URL`: webhook endpoint (ntfy/Slack/Discord/custom).
+- `GF_SMTP_ENABLED`, `GF_SMTP_HOST`, `GF_SMTP_USER`, `GF_SMTP_PASSWORD`,
+  `GF_SMTP_FROM_ADDRESS`, `GF_SMTP_FROM_NAME`.
+
 ## Validation and smoke
 
 ```sh
@@ -206,6 +259,12 @@ dev-ops/factory/monitoring/scripts/validate.sh
 # end-to-end smoke (docker required; creates and tears down its own temp project)
 dev-ops/factory/monitoring/scripts/smoke.sh
 ```
+
+`validate.sh` also checks that generated dashboard JSON is up to date and that
+alert provisioning contains the required rule titles. `smoke.sh` boots a
+temporary stack, ingests fixture events, checks datasources, verifies
+provisioned dashboards and alert rules, and asserts one key ClickHouse query per
+dashboard returns rows.
 
 ## Troubleshooting
 

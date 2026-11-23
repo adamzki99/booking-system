@@ -1,0 +1,1087 @@
+apiVersion: 1
+groups:
+- orgId: 1
+  name: factory-alerts
+  folder: Factory
+  interval: 1m
+  rules:
+  - uid: factory-silent
+    title: Factory silent
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 7200
+        to: 0
+      datasourceUid: prometheus-factory
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-factory
+        editorMode: code
+        expr: time() - factory_tick_last_success_timestamp_seconds
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 7200
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: No successful factory tick for more than 2 hours.
+      runbook: Check factory timer/service, tick logs, and FACTORY_METRICS_DIR textfile freshness. Confirm factory_tick_last_success_timestamp_seconds
+        is being updated.
+    labels:
+      severity: critical
+      service: factory
+    isPaused: false
+  - uid: factory-failing
+    title: Factory failing
+    condition: F
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 21600
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: 'SELECT if(count() >= 3 AND countIf(outcome=''failed'') * 100.0 / count() > 50, 1, 0) AS value
+
+          FROM factory.runs
+
+          WHERE started_at >= now() - INTERVAL 6 HOUR'
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 21600
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: SELECT if(count() > 0, 1, 0) AS value FROM factory.events FINAL WHERE ts >= now() - INTERVAL 6 HOUR AND event='discovery_failed'
+        refId: B
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: C
+        type: reduce
+    - refId: D
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: D
+        type: reduce
+    - refId: E
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: $C + $D
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: E
+        type: math
+    - refId: F
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: E
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: F
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - E
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 15m
+    annotations:
+      summary: Factory run failure rate > 50% over 6h with >=3 runs, or discovery_failed occurred.
+      runbook: Inspect Execution Analytics dashboard, recent failed runs, discovery_failed events, gh_op_failed, and factory
+        logs. Check GitHub/API auth and quota.
+    labels:
+      severity: critical
+      service: factory
+    isPaused: false
+  - uid: factory-guardrail-drift
+    title: Factory guardrail drift
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 7200
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: SELECT if(count() > 0, 1, 0) AS value FROM factory.events FINAL WHERE ts >= now() - INTERVAL 2 HOUR AND event='guardrail_drift'
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 0m
+    annotations:
+      summary: Guardrail drift detected in the last tick/window.
+      runbook: Stop automated merges if needed. Inspect guardrail_drift event payload and diff AGENTS.md/opencode.jsonc/.opencode/agents
+        against factory-config tag.
+    labels:
+      severity: critical
+      service: factory
+    isPaused: false
+  - uid: factory-stuck-run
+    title: Factory stuck run
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 7200
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: SELECT if(count() > 0, 1, 0) AS value FROM factory.stuck_runs
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    annotations:
+      summary: A factory run has been started but not ended for more than 3900s.
+      runbook: Check factory.stuck_runs view, session logs, opencode process on host, and whether tick was interrupted. Do
+        not delete logs before diagnosis.
+    labels:
+      severity: warning
+      service: factory
+    isPaused: false
+  - uid: factory-issue-looping
+    title: Factory issue looping
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 86400
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: "SELECT if(max(runs) > 3, 1, 0) AS value FROM (\n  SELECT issue_id, count() AS runs\n  FROM factory.runs\n\
+          \  WHERE started_at >= now() - INTERVAL 24 HOUR AND issue_id IS NOT NULL\n  GROUP BY issue_id\n)"
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: An issue has more than 3 factory runs in 24h.
+      runbook: Inspect Execution Analytics for the issue, failure reasons, PR feedback, and whether the issue needs human
+        clarification or owner intervention.
+    labels:
+      severity: warning
+      service: factory
+    isPaused: false
+  - uid: factory-quota-pressure
+    title: Factory quota pressure
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 86400
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: 'SELECT if(countIf(event=''usage_filled'') > 0 OR countIf(event=''free_retry'') > 2, 1, 0) AS value
+
+          FROM factory.events FINAL
+
+          WHERE ts >= now() - INTERVAL 24 HOUR AND event IN (''usage_filled'',''free_retry'')'
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 0m
+    annotations:
+      summary: Usage filled or excessive free retries detected in 24h.
+      runbook: Check Cost & Efficiency and Execution dashboards for usage_filled/free_retry events, model fallback share,
+        and OpenCode quota state.
+    labels:
+      severity: warning
+      service: factory
+    isPaused: false
+  - uid: factory-deploy-failed
+    title: Factory deploy failed/stale
+    condition: F
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 93600
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: SELECT if(count() > 0, 1, 0) AS value FROM factory.events FINAL WHERE ts >= now() - INTERVAL 26 HOUR AND event='deploy.failed'
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 93600
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: SELECT if(countIf(event='deploy.completed') = 0 AND countIf(event='deploy.started') > 0, 1, 0) AS value FROM
+          factory.events FINAL WHERE ts >= now() - INTERVAL 26 HOUR AND (event='deploy.completed' OR event='deploy.started')
+          AND (deployment_environment='qa' OR attrs['env_name']='qa')
+        refId: B
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: C
+        type: reduce
+    - refId: D
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: D
+        type: reduce
+    - refId: E
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: $C + $D
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: E
+        type: math
+    - refId: F
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: E
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: F
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - E
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: Deploy failed, or QA deploy started but no deploy.completed in 26h.
+      runbook: Check deploy-environment logs, deploy.failed events, QA timer/service, and recent QA deploy GitHub issue status.
+    labels:
+      severity: critical
+      service: factory
+    isPaused: false
+  - uid: factory-telemetry-broken
+    title: Factory telemetry broken
+    condition: F
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 86400
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: SELECT if(argMaxIf(toInt64OrNull(attrs['telemetry_errors']), ts, event='tick_end') > 0, 1, 0) AS value FROM
+          factory.events FINAL WHERE ts >= now() - INTERVAL 24 HOUR AND event='tick_end'
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 7200
+        to: 0
+      datasourceUid: clickhouse-factory
+      model:
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: clickhouse-factory
+        editorType: sql
+        format: 1
+        intervalMs: 1000
+        maxDataPoints: 43200
+        pluginVersion: 4.23.5
+        queryType: table
+        rawSql: "SELECT if(\n  countIf(event='tick_end' AND ts >= now() - INTERVAL 2 HOUR) > 0\n  AND countIf(ts >= now()\
+          \ - INTERVAL 2 HOUR) = countIf(event='tick_end' AND ts >= now() - INTERVAL 2 HOUR),\n  1, 0) AS value\nFROM factory.events\
+          \ FINAL WHERE ts >= now() - INTERVAL 2 HOUR"
+        refId: B
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: C
+        type: reduce
+    - refId: D
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: D
+        type: reduce
+    - refId: E
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: $C + $D
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: E
+        type: math
+    - refId: F
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: E
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: F
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - E
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 15m
+    annotations:
+      summary: Telemetry errors reported by tick_end, or no factory events ingested for 2h while ticks run.
+      runbook: Check collector logs, filelog offsets, ClickHouse ingestion, and tick_end telemetry_errors. Validate FACTORY_LOG_DIR
+        mount and collector health.
+    labels:
+      severity: warning
+      service: factory
+    isPaused: false
+  - uid: factory-host-memory
+    title: Factory host memory high
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 1200
+        to: 0
+      datasourceUid: prometheus-factory
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-factory
+        editorMode: code
+        expr: 100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 90
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: Host memory above 90% for 10 minutes.
+      runbook: Check host dashboard, top containers, ClickHouse memory, OpenCode/factory processes. Reduce retention/scrape
+        or stop nonessential services.
+    labels:
+      severity: warning
+      service: factory
+    isPaused: false
+  - uid: factory-host-disk
+    title: Factory host disk high
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 1200
+        to: 0
+      datasourceUid: prometheus-factory
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-factory
+        editorMode: code
+        expr: 100 * (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: max
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: max
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+        conditions:
+        - evaluator:
+            params:
+            - 85
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: Any filesystem above 85% usage.
+      runbook: Check host disk dashboard, ClickHouse disk, Prometheus TSDB, Docker volumes, and old logs/artifacts. Clean
+        up safely; do not delete active volumes blindly.
+    labels:
+      severity: warning
+      service: factory
+    isPaused: false

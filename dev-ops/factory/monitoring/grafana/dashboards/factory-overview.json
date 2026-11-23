@@ -1,0 +1,1348 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Factory throughput, success rate, queue, and recent delivery outcomes.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "factory"
+      ],
+      "targetBlank": false,
+      "title": "Factory dashboards",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Distinct issues with a run started in the selected window.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT uniqExact(issue_id) AS value\nFROM factory.runs\nWHERE $__timeFilter(started_at) AND issue_id IS NOT NULL\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Issues processed (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Issues with a merged PR in the selected window (EVENTS.md: merged factory PR).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT uniqExact(issue_id) AS value\nFROM factory.events FINAL\nWHERE $__timeFilter(ts) AND event = 'pr.merged' AND issue_id IS NOT NULL\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Issues completed (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Completed runs / all terminal runs in window.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "green",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT round(countIf(outcome='completed') * 100.0 / nullIf(countIf(outcome IN ('completed','failed')), 0), 1) AS value\nFROM factory.runs\nWHERE $__timeFilter(started_at)\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Run success rate",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Distinct agents with runs started in window.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT uniqExact(agent_id) AS value\nFROM factory.runs\nWHERE $__timeFilter(started_at) AND agent_id != ''\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Active agents",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Average seconds from first run start for issue to pr.merged (EVENTS.md pickup-to-merge).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT avg(dateDiff('second', r.first_run_at, p.merged_at)) AS value\nFROM (\n  SELECT issue_id, min(started_at) AS first_run_at\n  FROM factory.runs\n  WHERE $__timeFilter(started_at) AND issue_id IS NOT NULL AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\n  GROUP BY issue_id\n) r\nINNER JOIN (\n  SELECT issue_id, max(ts) AS merged_at\n  FROM factory.events FINAL\n  WHERE event='pr.merged' AND issue_id IS NOT NULL\n  GROUP BY issue_id\n) p ON p.issue_id = r.issue_id\nWHERE p.merged_at > r.first_run_at",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg pickup to merge",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Sum of cost_usd reported by OpenCode; may be 0 for subscription models.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT round(sum(coalesce(cost_usd, toDecimal64(0,6))), 4) AS value\nFROM factory.runs\nWHERE $__timeFilter(started_at)\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Total reported cost (USD)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Input+output+reasoning+cache tokens for terminal runs in window.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 4
+      },
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)+coalesce(reasoning_tokens,0)+coalesce(cache_read_tokens,0)+coalesce(cache_write_tokens,0)) AS value\nFROM factory.runs\nWHERE $__timeFilter(started_at)\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Total tokens",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-factory"
+      },
+      "description": "Seconds since last successful factory tick (Prometheus textfile metric).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3600
+              },
+              {
+                "color": "red",
+                "value": 7200
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 4
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-factory"
+          },
+          "editorMode": "code",
+          "expr": "time() - factory_tick_last_success_timestamp_seconds",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Last tick age",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Distinct issues with runs started in the last 7 days (ignores dashboard range for this panel).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 4
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT uniqExact(issue_id) AS value\nFROM factory.runs\nWHERE started_at >= now() - INTERVAL 7 DAY AND issue_id IS NOT NULL\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Issues processed (7d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Merged factory PRs in last 7 days.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 4
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT uniqExact(pr_number) AS value\nFROM factory.events FINAL\nWHERE ts >= now() - INTERVAL 7 DAY AND event='pr.merged' AND pr_number IS NOT NULL\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Merged PRs (7d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Runs and merged PRs per day.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "timeseries"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(started_at, INTERVAL 1 day) AS time, count() AS runs\nFROM factory.runs\nWHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY time ORDER BY time",
+          "refId": "Runs"
+        },
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "timeseries"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(ts, INTERVAL 1 day) AS time, uniqExact(pr_number) AS merged_prs\nFROM factory.events FINAL\nWHERE $__timeFilter(ts) AND event='pr.merged'\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\nGROUP BY time ORDER BY time",
+          "refId": "Merged PRs"
+        }
+      ],
+      "title": "Throughput over time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Completed and failed runs per hour.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "timeseries"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(started_at, INTERVAL 1 hour) AS time, countIf(outcome='completed') AS completed\nFROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY time ORDER BY time",
+          "refId": "Completed"
+        },
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "timeseries"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(started_at, INTERVAL 1 hour) AS time, countIf(outcome='failed') AS failed\nFROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY time ORDER BY time",
+          "refId": "Failed"
+        }
+      ],
+      "title": "Run outcomes over time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Latest factory.queue snapshot by state.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 13,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT factory_id, ts, infant, planned, approved_waiting, in_pr, blocked_pr, needs_info\nFROM factory.queue_latest\nORDER BY factory_id",
+          "refId": "A"
+        }
+      ],
+      "title": "Current queue",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Recent merged PRs with issue, lead time, and human intervention proxy.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "issue_url"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open issue",
+                    "url": "${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pr_url"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open PR",
+                    "url": "${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 14,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT\n  p.repo,\n  p.issue_id,\n  p.pr_number,\n  p.merged_at,\n  dateDiff('minute', r.first_run_at, p.merged_at) AS pickup_to_merge_min,\n  p.human_commits,\n  p.review_comments,\n  format('https://github.com/{}/issues/{}', p.repo, toString(p.issue_id)) AS issue_url,\n  format('https://github.com/{}/pull/{}', p.repo, toString(p.pr_number)) AS pr_url\nFROM factory.pr_outcomes p\nLEFT JOIN (SELECT issue_id, min(started_at) AS first_run_at FROM factory.runs WHERE issue_id IS NOT NULL GROUP BY issue_id) r ON r.issue_id = p.issue_id\nWHERE p.merged_at IS NOT NULL AND $__timeFilter(p.merged_at)\n  AND ('*' IN (${factory_id:singlequote}) OR 1=1)\nORDER BY p.merged_at DESC\nLIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent completed issues / PRs",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "factory",
+    "overview"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT factory_id FROM factory.events WHERE $__timeFilter(ts) AND factory_id != '' ORDER BY factory_id",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Factory",
+        "multi": true,
+        "name": "factory_id",
+        "options": [],
+        "query": "SELECT DISTINCT factory_id FROM factory.events WHERE $__timeFilter(ts) AND factory_id != '' ORDER BY factory_id",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT agent_id FROM factory.events WHERE $__timeFilter(ts) AND agent_id != '' ORDER BY agent_id",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Agent",
+        "multi": true,
+        "name": "agent_id",
+        "options": [],
+        "query": "SELECT DISTINCT agent_id FROM factory.events WHERE $__timeFilter(ts) AND agent_id != '' ORDER BY agent_id",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT model FROM factory.events WHERE $__timeFilter(ts) AND model != '' ORDER BY model",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Model",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "query": "SELECT DISTINCT model FROM factory.events WHERE $__timeFilter(ts) AND model != '' ORDER BY model",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT kind FROM factory.events WHERE $__timeFilter(ts) AND kind != '' ORDER BY kind",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Kind",
+        "multi": true,
+        "name": "kind",
+        "options": [],
+        "query": "SELECT DISTINCT kind FROM factory.events WHERE $__timeFilter(ts) AND kind != '' ORDER BY kind",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Factory Overview",
+  "uid": "factory-overview",
+  "version": 1,
+  "weekStart": ""
+}

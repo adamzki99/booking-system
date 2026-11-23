@@ -82,6 +82,7 @@ GRANT SELECT ON otel.otel_logs TO collector;
 GRANT SELECT ON factory.* TO grafana;
 GRANT SELECT ON otel.otel_traces TO grafana;
 GRANT SELECT ON otel.otel_logs TO grafana;
+GRANT SELECT ON system.parts TO grafana;
 SQL
 
 echo "[clickhouse-init] done"

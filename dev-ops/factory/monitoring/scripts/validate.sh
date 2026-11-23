@@ -155,6 +155,7 @@ GRANT SELECT ON otel.otel_logs TO collector;
 GRANT SELECT ON factory.* TO grafana;
 GRANT SELECT ON otel.otel_traces TO grafana;
 GRANT SELECT ON otel.otel_logs TO grafana;
+GRANT SELECT ON system.parts TO grafana;
 SQL
   docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE factory.events" | grep -q 1
   docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE factory.runs" | grep -q 1
@@ -167,7 +168,7 @@ else
   fail=1
 fi
 
-# Dashboard JSON validation (no dashboards yet is ok if directory only has README).
+# Dashboard JSON validation and generator freshness.
 shopt -s nullglob
 dashboards=(dev-ops/factory/monitoring/grafana/dashboards/*.json)
 if [ ${#dashboards[@]} -eq 0 ]; then
@@ -177,6 +178,37 @@ else
     run jq empty "$f"
   done
 fi
+if [ -f dev-ops/factory/monitoring/scripts/generate_dashboards.py ]; then
+  run python3 dev-ops/factory/monitoring/scripts/generate_dashboards.py
+  if ! git -C "$REPO_ROOT" diff --quiet -- dev-ops/factory/monitoring/grafana/dashboards; then
+    echo "[monitoring-validate] FAILED: dashboard JSON not up to date with generator" >&2
+    git -C "$REPO_ROOT" --no-pager diff --name-only -- dev-ops/factory/monitoring/grafana/dashboards >&2 || true
+    fail=1
+  fi
+fi
+
+# Grafana alerting provisioning sanity.
+run python3 - <<'PYALERT'
+import yaml, pathlib, sys
+base = pathlib.Path('dev-ops/factory/monitoring/grafana/provisioning/alerting')
+files = list(base.glob('*.yaml')) + list(base.glob('*.yml'))
+if not files:
+    print('no alerting provisioning files', file=sys.stderr); sys.exit(1)
+uids=set(); titles=set()
+for f in files:
+    doc=yaml.safe_load(f.read_text())
+    for g in doc.get('groups',[]) or []:
+        for r in g.get('rules',[]) or []:
+            u=r.get('uid'); t=r.get('title')
+            if not u or not t: print(f'missing uid/title in {f}', file=sys.stderr); sys.exit(1)
+            if u in uids: print(f'duplicate uid {u}', file=sys.stderr); sys.exit(1)
+            uids.add(u); titles.add(t)
+required={'Factory silent','Factory failing','Factory guardrail drift','Factory stuck run','Factory issue looping','Factory quota pressure','Factory deploy failed/stale','Factory telemetry broken','Factory host memory high','Factory host disk high'}
+missing=required-titles
+if missing:
+    print('missing alert titles: '+', '.join(sorted(missing)), file=sys.stderr); sys.exit(1)
+print(f'alerting ok: {len(uids)} rules')
+PYALERT
 
 # Basic YAML/JSON sanity for configs that should always be parseable.
 run python3 -c "import json,sys,pathlib; [json.load(open(p)) for p in pathlib.Path('dev-ops/factory/monitoring').rglob('*.json')]"
