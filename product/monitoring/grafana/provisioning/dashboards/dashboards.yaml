@@ -11,3 +11,13 @@ providers:
     options:
       path: /var/lib/grafana/dashboards
       foldersFromFilesStructure: false
+  - name: project-dashboards
+    orgId: 1
+    folder: ${MONITORING_PROJECT}
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards-project
+      foldersFromFilesStructure: false
