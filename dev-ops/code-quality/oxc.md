@@ -47,6 +47,16 @@ prompt set; it does not change tools or configuration.
 
 All later prompts should pin exact versions before committing configs.
 
+## Formatting
+
+`oxfmt` is the repository formatter for JS, TS, JSX, TSX, MJS/CJS, JSON, JSONC, CSS, and HTML. Markdown and YAML formatting are added in prompt 04; `opencode.jsonc` is formatted in prompt 08.
+
+- Format all in-scope files: `npm run fmt` (from repo root)
+- Check formatting: `npm run fmt:check` (from repo root)
+- Ignore a block in JS/TS: `// oxfmt-ignore` on the line before the code to leave unchanged
+- Config: `.oxfmtrc.jsonc` at repo root
+- Editor setup comes in prompt 08.
+
 ## 3. Inventory
 
 Exclusions applied (per common rules): `**/node_modules/**`, `**/dist/**`,
@@ -167,7 +177,7 @@ Measured with `oxfmt@0.80.0` on temp copies of the worktree (excluding
 `projects/sauna/docs/mocks/**`, `package-lock.json`). Each config was run as:
 
 ```sh
-npx --yes oxfmt@0.80.0 -c .oxfmtrc.json .
+npx --yes oxfmt@0.80.0 -c .oxfmtrc.jsonc .
 ```
 
 The line counts below are added+removed lines from unified diffs against the

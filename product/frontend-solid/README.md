@@ -31,6 +31,10 @@ npm run preview
 - `npm run build`: run typecheck and create a production build.
 - `npm run preview`: preview the production build locally.
 
+## Formatting
+
+Formatting for JS, TS, JSX, TSX, JSON, JSONC, CSS, and HTML is handled by `oxfmt` from the repository root. Run `npm run fmt` to write changes and `npm run fmt:check` to verify. To leave a JS/TS block unchanged, add `// oxfmt-ignore` on the line before it. Editor setup comes in prompt 08.
+
 ## Project structure
 
 - `src/index.tsx`: app entrypoint and providers.

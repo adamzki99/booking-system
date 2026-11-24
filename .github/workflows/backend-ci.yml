@@ -13,7 +13,7 @@ jobs:
   check:
     name: Format, vet, test, build
     concurrency:
-      group: ${{ github.workflow }}-check-${{ github.head_ref || github.ref_name }}
+      group: ${{ github.workflow }}-backend-check-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     defaults:
