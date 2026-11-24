@@ -116,11 +116,11 @@ describe("Account page email change", () => {
     await screen.findByTestId("account-email");
 
     fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
-    await flush();
+    flush();
     expect(await screen.findByText("https://cal.example/feed.ics")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-    await flush();
+    flush();
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://cal.example/feed.ics"));
   });
 
@@ -131,7 +131,7 @@ describe("Account page email change", () => {
     const emailInput = screen.getByLabelText("New email") as HTMLInputElement;
     setInput(emailInput, "moved@example.com");
     fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
-    await flush();
+    flush();
 
     await waitFor(() => expect(requestEmailChangeMock).toHaveBeenCalledWith("moved@example.com"));
 
@@ -142,10 +142,12 @@ describe("Account page email change", () => {
 
     setInput(screen.getByLabelText("Verification code"), "ABC123");
     fireEvent.click(screen.getByRole("button", { name: "Confirm email change" }));
-    await flush();
+    flush();
 
     await waitFor(() => expect(confirmEmailChangeMock).toHaveBeenCalledWith("ABC123"));
-    await waitFor(() => expect(useSessionMock().refresh).toHaveBeenCalled());
+    // oxlint-disable-next-line typescript/unbound-method -- vitest mock function reference for assertion
+    const refresh = useSessionMock().refresh;
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
 
     await waitFor(() =>
       expect(screen.getByTestId("account-email").textContent).toBe("moved@example.com"),
@@ -167,11 +169,11 @@ describe("Account page email change", () => {
     expect(screen.getByLabelText("Verification code")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
-    await flush();
+    flush();
     await waitFor(() => expect(resendEmailChangeMock).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel email change" }));
-    await flush();
+    flush();
     await waitFor(() => expect(cancelEmailChangeMock).toHaveBeenCalled());
     await waitFor(() =>
       expect(screen.queryByTestId("pending-email-change")).not.toBeInTheDocument(),
@@ -187,7 +189,7 @@ describe("Account page email change", () => {
     await screen.findByTestId("account-email");
 
     fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
-    await flush();
+    flush();
 
     await screen.findByRole("alert");
     expect(screen.getByRole("alert").textContent).toMatch(/already in use/i);
