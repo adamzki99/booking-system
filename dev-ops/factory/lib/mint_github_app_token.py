@@ -3,8 +3,9 @@
 
 Reads an app private key, mints a JWT, resolves the installation for a
 repository (or uses a provided installation id), and exchanges it for an
-installation access token. Prints only the token to stdout; diagnostics go
-to stderr. Secrets are never logged.
+installation access token. Prints only the token to stdout by default.
+With --print-app-slug, prints only the App slug using the App JWT.
+Diagnostics go to stderr. Secrets are never logged.
 """
 import argparse
 import datetime
@@ -83,6 +84,7 @@ def main():
     ap.add_argument("--installation-id")
     ap.add_argument("--repo", help="owner/name")
     ap.add_argument("--repo-root", default=".")
+    ap.add_argument("--print-app-slug", action="store_true", help="print the App slug using the App JWT instead of minting a token")
     args = ap.parse_args()
 
     if args.key_file:
@@ -106,6 +108,19 @@ def main():
     except Exception as e:
         print(f"jwt error: {e}", file=sys.stderr)
         return 2
+
+    if args.print_app_slug:
+        status, app = _request("GET", "https://api.github.com/app", token_jwt)
+        if status != 200:
+            print(f"app lookup failed: {status} {app}", file=sys.stderr)
+            return 1
+        slug = app.get("slug")
+        if not slug:
+            print("no app slug returned", file=sys.stderr)
+            return 1
+        sys.stdout.write(slug)
+        sys.stdout.flush()
+        return 0
 
     repo = args.repo or _repo_from_git(args.repo_root)
     install_id = args.installation_id or os.environ.get("FACTORY_GITHUB_INSTALLATION_ID")
