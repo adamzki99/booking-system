@@ -166,6 +166,18 @@ def test_filter_trusted_issues_fails_closed():
     assert not factory.is_trusted_login(None, "none")
 
 
+def test_filter_trusted_issues_accepts_rest_user_field():
+    issues = [
+        {"number": 1, "user": {"login": "Owner"}},
+        {"number": 2, "user": {"login": "outsider"}},
+        {"number": 3, "user": None},
+        {"number": 4, "author": {"login": "outsider"}, "user": {"login": "Owner"}},
+    ]
+
+    assert [issue["number"] for issue in factory.filter_trusted_issues(issues, "owner")] == [1]
+    assert factory.filter_trusted_issues(issues, "") == []
+
+
 def test_build_prompt_context_only_trusted_comments():
     comments = [
         {"author": {"login": "OWNER"}, "createdAt": "2026-01-01", "body": "owner guidance"},
