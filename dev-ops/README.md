@@ -4,8 +4,10 @@ CI/CD, the software factory, and code quality for the booking system.
 
 ## Software factory
 
-See [`factory/`](factory/README.md). [`factory/tick.sh`](factory/tick.sh) runs
-on a 1-hour interval and picks up GitHub issues and pull requests:
+See [`factory/`](factory/README.md). To provision a new host with a GitHub App
+bot identity and schedule, run [`factory/setup-bot.sh`](factory/setup-bot.sh).
+[`factory/tick.sh`](factory/tick.sh) runs on the configured interval and picks up
+GitHub issues and pull requests:
 
 - **No labels** → the issue is in its infant state → a planning agent posts an
   implementation plan as a comment and categorizes the issue with labels.

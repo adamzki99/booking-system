@@ -54,6 +54,14 @@ LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-test
 LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-test
 ENV
 
+CLICKHOUSE_IMAGE="$(python3 - <<'PY'
+from pathlib import Path
+import yaml
+compose = yaml.safe_load(Path('dev-ops/factory/monitoring/docker-compose.yml').read_text())
+print(compose['services']['clickhouse']['image'])
+PY
+)"
+
 if have_docker; then
   run docker compose -f dev-ops/factory/monitoring/docker-compose.yml --env-file "$TMP_ENV" config -q
   run docker compose -f dev-ops/factory/monitoring/docker-compose.yml --env-file "$TMP_ENV" --profile langfuse config -q
@@ -90,6 +98,23 @@ if have_docker; then
       docker rm -f "$CH_CID" >/dev/null 2>&1 || true
     fi
   }
+  clickhouse_diagnostics() {
+    echo "[monitoring-validate] ClickHouse container status:" >&2
+    docker ps -a --filter "id=$CH_CID" --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}' >&2 || true
+    docker inspect --format 'status={{.State.Status}} exit_code={{.State.ExitCode}} oom_killed={{.State.OOMKilled}} restarts={{.RestartCount}}' "$CH_CID" >&2 || true
+    echo "[monitoring-validate] recent ClickHouse logs:" >&2
+    docker logs --tail 100 "$CH_CID" >&2 || true
+  }
+  wait_for_clickhouse() {
+    local attempt
+    for attempt in $(seq 1 60); do
+      if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then
+        return 0
+      fi
+      [[ "$attempt" -eq 60 ]] || sleep 1
+    done
+    return 1
+  }
   trap 'ch_cleanup; cleanup' EXIT
   CH_CID="$(docker run -d --rm \
     -e CLICKHOUSE_DB=otel \
@@ -98,22 +123,50 @@ if have_docker; then
     -e CLICKHOUSE_GRAFANA_PASSWORD=test-grafana \
     -v "$REPO_ROOT/dev-ops/factory/monitoring/clickhouse/config.d:/etc/clickhouse-server/config.d:ro" \
     -v "$REPO_ROOT/dev-ops/factory/monitoring/clickhouse/users.d/users.xml:/etc/clickhouse-server/users.d/users.xml:ro" \
-    clickhouse/clickhouse-server:26.9.36.3)"
-  echo "[monitoring-validate] waiting for throwaway ClickHouse..."
-  for _ in $(seq 1 60); do
-    if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then break; fi
-    sleep 1
-  done
-  docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null
+    "$CLICKHOUSE_IMAGE")"
+  echo "[monitoring-validate] waiting for throwaway ClickHouse ($CLICKHOUSE_IMAGE)..."
+  if ! wait_for_clickhouse; then
+    echo "[monitoring-validate] ClickHouse did not become ready after 60 attempts" >&2
+    clickhouse_diagnostics
+    exit 1
+  fi
+  # The image entrypoint can briefly restart the server after first readiness.
+  sleep 3
+  if ! wait_for_clickhouse; then
+    echo "[monitoring-validate] ClickHouse did not become stably ready" >&2
+    clickhouse_diagnostics
+    exit 1
+  fi
   # Create users (passwords from env, same as clickhouse-init.sh).
-  docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
+  users_ok=0
+  for attempt in 1 2 3; do
+    if docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
 CREATE USER IF NOT EXISTS collector IDENTIFIED WITH plaintext_password BY 'test-collector';
 CREATE USER IF NOT EXISTS grafana IDENTIFIED WITH plaintext_password BY 'test-grafana';
 ALTER USER collector SETTINGS PROFILE 'collector_profile';
 ALTER USER grafana SETTINGS PROFILE 'grafana_profile';
 SQL
+    then
+      users_ok=1
+      break
+    fi
+    echo "[monitoring-validate] clickhouse user setup attempt $attempt failed, retrying..." >&2
+    clickhouse_diagnostics
+    if ! wait_for_clickhouse; then
+      clickhouse_diagnostics
+      exit 1
+    fi
+    sleep 2
+  done
+  if [[ "$users_ok" -ne 1 ]]; then
+    echo "[monitoring-validate] FAILED: ClickHouse user setup after retries" >&2
+    clickhouse_diagnostics
+    exit 1
+  fi
   # Create otel_logs minimal table so MV creation works.
-  docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
+  logs_table_ok=0
+  for attempt in 1 2 3; do
+    if docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
 CREATE DATABASE IF NOT EXISTS otel;
 CREATE TABLE IF NOT EXISTS otel.otel_logs (
   Timestamp DateTime64(9),
@@ -134,11 +187,28 @@ CREATE TABLE IF NOT EXISTS otel.otel_logs (
   EventName String
 ) ENGINE = MergeTree ORDER BY (Timestamp);
 SQL
-  for _ in $(seq 1 60); do
-    if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then break; fi
-    sleep 1
+    then
+      logs_table_ok=1
+      break
+    fi
+    echo "[monitoring-validate] clickhouse logs table setup attempt $attempt failed, retrying..." >&2
+    clickhouse_diagnostics
+    if ! wait_for_clickhouse; then
+      clickhouse_diagnostics
+      exit 1
+    fi
+    sleep 2
   done
-  docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null
+  if [[ "$logs_table_ok" -ne 1 ]]; then
+    echo "[monitoring-validate] FAILED: ClickHouse logs table setup after retries" >&2
+    clickhouse_diagnostics
+    exit 1
+  fi
+  if ! wait_for_clickhouse; then
+    echo "[monitoring-validate] ClickHouse became unavailable after user setup" >&2
+    clickhouse_diagnostics
+    exit 1
+  fi
   for f in dev-ops/factory/monitoring/clickhouse/init/*.sql; do
     echo "+ clickhouse init $f"
     ok=0
@@ -148,7 +218,7 @@ SQL
         break
       fi
       echo "[monitoring-validate] clickhouse init attempt $attempt failed for $f, retrying..." >&2
-      docker logs --tail 40 "$CH_CID" >&2 || true
+      clickhouse_diagnostics
       for _ in $(seq 1 30); do
         if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then break; fi
         sleep 1
@@ -157,7 +227,7 @@ SQL
     done
     if [[ "$ok" -ne 1 ]]; then
       echo "[monitoring-validate] FAILED: clickhouse init $f" >&2
-      docker logs --tail 80 "$CH_CID" >&2 || true
+      clickhouse_diagnostics
       fail=1
       break
     fi

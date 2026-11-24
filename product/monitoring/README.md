@@ -14,12 +14,12 @@ which monitors the software factory.
 | Component | Image | Version | Role |
 |---|---|---:|---|
 | OpenTelemetry Collector Contrib | `otel/opentelemetry-collector-contrib` | `0.165.0` | OTLP ingest, redaction, export to ClickHouse/Prometheus |
-| ClickHouse | `clickhouse/clickhouse-server` | `26.9.36.3` | Traces and logs store (OTel schema) |
+| ClickHouse | `clickhouse/clickhouse-server` | `26.10.4.207` | Traces and logs store (OTel schema) |
 | Prometheus | `prom/prometheus` | `v3.16.0` | Metrics store, native OTLP receiver enabled |
 | Grafana OSS | `grafana/grafana` | `13.3.1` | Dashboards/alerting, provisioned from files |
 | Grafana ClickHouse plugin | `grafana-clickhouse-datasource` | `4.23.5` | Pinned via `GF_PLUGINS_PREINSTALL` |
 | Node Exporter (profile `host`) | `prom/node-exporter` | `v1.13.1` | Optional host metrics |
-| Postgres Exporter (profile `postgres`) | `quay.io/prometheuscommunity/postgres-exporter` | `v0.17.1` | Optional Postgres metrics |
+| Postgres Exporter (profile `postgres`) | `quay.io/prometheuscommunity/postgres-exporter` | `v0.21.1` | Optional Postgres metrics |
 
 Check versions on vendor release pages/registries before bumping. Dependabot is
 configured for `/product/monitoring` and project monitoring directories.
@@ -129,18 +129,65 @@ or `docker compose run --rm clickhouse-init`).
   manually; do not add it to product migrations. Example:
 
 ```sql
-CREATE ROLE monitoring_readonly;
+-- Example for the default POSTGRES_EXPORTER_USER value.
+CREATE ROLE monitoring_readonly LOGIN PASSWORD '...';
 GRANT pg_monitor TO monitoring_readonly;
-CREATE USER monitoring WITH PASSWORD '...';
-GRANT monitoring_readonly TO monitoring;
 ```
 
 Set `POSTGRES_EXPORTER_DSN`, `POSTGRES_EXPORTER_USER`, and
-`POSTGRES_EXPORTER_PASSWORD` in `.env`.
+`POSTGRES_EXPORTER_PASSWORD` in `.env`. The DSN contains only
+host/database/options, never credentials. Compose passes it through the
+supported v0.21.1 `--datasource.uri` flag and supplies credentials through the
+supported `DATA_SOURCE_USER` and `DATA_SOURCE_PASS` environment variables. This
+avoids deprecated `DATA_SOURCE_URI` configuration and keeps the password out of
+process arguments. `--config.file=` disables the unused auth-module file so a
+missing default file does not produce a startup warning.
 
 - `caddy`: scrape Caddy's metrics endpoint by adding a Prometheus scrape job in
   a project-specific Prometheus config overlay. The Caddyfile change belongs to
   the project (`projects/<name>/`), not `product/`.
+
+### Large-counter rollout
+
+Postgres Exporter v0.21.1 wraps non-negative 64-bit counters modulo `2^53`
+(`9007199254740992`) by default. Wrapping preserves single-unit precision in
+Prometheus float64 values, but appears as a counter reset at the boundary.
+Disabling wrapping exposes the raw magnitude, where float64 can no longer
+represent single-unit increments. The safe default is therefore to keep wrapping
+enabled until production values and downstream rate/reset handling are checked.
+
+Before changing this default, run these read-only queries against each production
+database through an authorized administrative connection:
+
+```sql
+SELECT datname,
+       greatest(xact_commit, xact_rollback, blks_read, blks_hit,
+                tup_returned, tup_fetched, tup_inserted, tup_updated,
+                tup_deleted, conflicts, temp_files, temp_bytes, deadlocks)
+         AS largest_counter
+FROM pg_stat_database
+ORDER BY largest_counter DESC;
+
+SELECT relid::regclass AS table_name,
+       greatest(seq_scan, seq_tup_read, idx_scan, idx_tup_fetch,
+                n_tup_ins, n_tup_upd, n_tup_del, n_tup_hot_upd)
+         AS largest_counter
+FROM pg_stat_user_tables
+ORDER BY largest_counter DESC;
+```
+
+Repeat the check for any other enabled collector that exports integer counters.
+If every value is below `2^53`, leave
+`POSTGRES_EXPORTER_WRAP_LARGE_COUNTERS_FLAG` unset or set it to
+`--wrap-large-counters`. Only after finding values at or above the boundary,
+canary-testing the exporter, and confirming dashboards and alerts tolerate the
+precision tradeoff should an operator set
+`POSTGRES_EXPORTER_WRAP_LARGE_COUNTERS_FLAG=--no-wrap-large-counters`. Record the
+observed values and rollback setting in the change record rather than assuming
+production counter sizes.
+
+The configuration follows the upstream
+[v0.21.1 environment and flag semantics](https://github.com/prometheus-community/postgres_exporter/blob/v0.21.1/README.md#environment-variables).
 
 ## Resource budget
 
@@ -223,8 +270,10 @@ product/monitoring/scripts/validate.sh
 The script runs compose config, collector config validation, promtool checks,
 ClickHouse init SQL smoke in a throwaway container, dashboard JSON/YAML parse,
 dashboard and alert generator up-to-date checks, and fails if Docker is
-unavailable (CI has Docker). It also fails if deployment-specific names appear
-in `product/monitoring`.
+unavailable (CI has Docker). The throwaway container uses the ClickHouse image
+read from `compose.yaml`. Startup is retried for 60 attempts; a readiness failure
+prints container status and recent logs and fails validation. It also fails if
+deployment-specific names appear in `product/monitoring`.
 
 Instance smoke test (requires a running configured instance):
 
@@ -251,3 +300,68 @@ docker compose down -v         # destructive: removes volumes
 Or use `dev-ops/scripts/monitoring.sh <name> <up|down|status|logs|validate>`.
 The helper never removes volumes unless `--volumes` is passed explicitly with a
 confirmation prompt.
+
+## Backups and persistent ClickHouse upgrades
+
+The base stack does not configure a backup destination. Before an upgrade,
+configure and restore-test a ClickHouse `Disk` or object-storage backup target,
+confirm free capacity for data plus backup overhead, and retain the previous
+image tag. Never use the production data volume as a canary.
+
+1. Record the current image, table row counts, partition bounds, and Grafana
+   datasource health. Read the target release/upgrade notes and confirm that the
+   target can read the backup format. Stop the writer while taking the pre-upgrade
+   backup:
+
+   ```sh
+   # from projects/<name>/monitoring
+   docker compose stop otel-collector
+   stamp=$(date -u +%Y%m%dT%H%M%SZ)
+   docker compose exec -T clickhouse clickhouse-client --query \
+     "BACKUP DATABASE otel TO Disk('backups', 'otel-before-${stamp}')"
+   docker compose exec -T clickhouse clickhouse-client --query \
+     "SELECT name, status, error FROM system.backups ORDER BY start_time DESC LIMIT 10"
+   ```
+
+   Proceed only when the synchronous backup reports `BACKUP_CREATED` with no
+   error. Keep the backup immutable until the new version is verified.
+
+2. Rehearse on a disposable Compose project with empty ClickHouse volumes and
+   the candidate image. Mount the backup read-only, restore it, rerun
+   `clickhouse-init` to prove idempotency, and run
+   `product/monitoring/scripts/validate.sh` plus
+   `product/monitoring/scripts/smoke.sh <canary-env>`. The canary must not write to
+   the production database. For a database-level restore into a fresh canary,
+   drop only the canary's empty auto-created database before restoring:
+
+   ```sh
+   docker compose exec -T clickhouse clickhouse-client --query "DROP DATABASE IF EXISTS otel"
+   docker compose exec -T clickhouse clickhouse-client --query \
+     "RESTORE DATABASE otel FROM Disk('backups', 'otel-before-${stamp}')"
+   ```
+
+   Compare restored row counts and partition bounds with the recorded values.
+   Verify fresh trace/log ingestion, every provisioned dashboard, alert rule
+   provisioning, and the ClickHouse Grafana datasource. Tear down the canary and
+   its volumes after recording the result.
+
+3. After the canary passes, recreate only ClickHouse with the target image, run
+   init again, then restore the rest of the stack:
+
+   ```sh
+   docker compose pull clickhouse
+   docker compose up -d clickhouse
+   docker compose run --rm clickhouse-init
+   docker compose up -d
+   ```
+
+4. Verify `SELECT version()`, row counts, partition bounds, container health,
+   fresh telemetry, dashboards, datasource health, and alert provisioning before
+   declaring the upgrade complete.
+
+5. If checks fail, stop writers and keep the failed volume for diagnosis. Do not
+   assume an older ClickHouse binary can open metadata written by the target.
+   Roll back by restoring the verified backup into a previous-version disposable
+   server and switching only after that restore passes, or fix forward on the
+   target. Remove old volumes/backups only after the rollback window and restore
+   test are complete.
