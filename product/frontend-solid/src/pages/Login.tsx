@@ -158,7 +158,13 @@ export default function Login() {
             <div class="login-card-stack">
               <Switch>
                 <Match when={qaMode()}>
-                  <form class="login-form" onSubmit={signInWithoutCode} novalidate>
+                  <form
+                    class="login-form"
+                    onSubmit={(e) => {
+                      void signInWithoutCode(e);
+                    }}
+                    novalidate
+                  >
                     <div class={["login-field", { "login-field--invalid": !!emailError() }]}>
                       {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                       <label class="login-label" for="email">
@@ -198,7 +204,13 @@ export default function Login() {
                   </form>
                 </Match>
                 <Match when={codeSent()}>
-                  <form class="login-form" onSubmit={signIn} novalidate>
+                  <form
+                    class="login-form"
+                    onSubmit={(e) => {
+                      void signIn(e);
+                    }}
+                    novalidate
+                  >
                     <p class="login-code-info">
                       A login code was sent to {email().trim()}. The code is valid for 10 minutes.
                     </p>
@@ -229,7 +241,13 @@ export default function Login() {
                   </form>
                 </Match>
                 <Match when={!qaMode() && !codeSent()}>
-                  <form class="login-form" onSubmit={requestCodeForEmail} novalidate>
+                  <form
+                    class="login-form"
+                    onSubmit={(e) => {
+                      void requestCodeForEmail(e);
+                    }}
+                    novalidate
+                  >
                     <div class={["login-field", { "login-field--invalid": !!emailError() }]}>
                       {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                       <label class="login-label" for="email">

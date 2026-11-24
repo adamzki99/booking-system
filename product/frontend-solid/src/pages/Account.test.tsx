@@ -53,7 +53,7 @@ function stubSession() {
     loginWithQAMode: vi.fn(),
     refresh: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn(),
-  } as any);
+  });
 }
 
 function setInput(element: HTMLElement, value: string) {
@@ -128,7 +128,7 @@ describe("Account page email change", () => {
     render(() => <Account />);
     await screen.findByTestId("account-email");
 
-    const emailInput = screen.getByLabelText("New email") as HTMLInputElement;
+    const emailInput = screen.getByLabelText<HTMLInputElement>("New email");
     setInput(emailInput, "moved@example.com");
     fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
     flush();

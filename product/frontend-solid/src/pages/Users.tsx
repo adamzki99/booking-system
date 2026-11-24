@@ -274,7 +274,11 @@ export default function Users() {
             <Show when={superUser()}>
               <section class="users-management-grid">
                 <Card>
-                  <form onSubmit={onAddUser}>
+                  <form
+                    onSubmit={(e) => {
+                      void onAddUser(e);
+                    }}
+                  >
                     <CardHeader class="users-card-header">
                       <h2 class="users-section-title">Add user</h2>
                     </CardHeader>
@@ -311,7 +315,11 @@ export default function Users() {
                 </Card>
 
                 <Card>
-                  <form onSubmit={onChangeAddress}>
+                  <form
+                    onSubmit={(e) => {
+                      void onChangeAddress(e);
+                    }}
+                  >
                     <CardHeader class="users-card-header">
                       <h2 class="users-section-title">Change address</h2>
                     </CardHeader>
@@ -357,7 +365,11 @@ export default function Users() {
 
                 <Show when={adminUser()}>
                   <Card>
-                    <form onSubmit={onChangeRole}>
+                    <form
+                      onSubmit={(e) => {
+                        void onChangeRole(e);
+                      }}
+                    >
                       <CardHeader class="users-card-header">
                         <h2 class="users-section-title">Change role (admin)</h2>
                       </CardHeader>
@@ -407,7 +419,11 @@ export default function Users() {
                 </Show>
 
                 <Card>
-                  <form onSubmit={onBlock}>
+                  <form
+                    onSubmit={(e) => {
+                      void onBlock(e);
+                    }}
+                  >
                     <CardHeader class="users-card-header">
                       <h2 class="users-section-title">Block time period</h2>
                     </CardHeader>
@@ -446,7 +462,11 @@ export default function Users() {
                 </Card>
 
                 <Card>
-                  <form onSubmit={onBroadcast}>
+                  <form
+                    onSubmit={(e) => {
+                      void onBroadcast(e);
+                    }}
+                  >
                     <CardHeader class="users-card-header">
                       <h2 class="users-section-title">Broadcast message</h2>
                     </CardHeader>

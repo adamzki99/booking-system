@@ -29,7 +29,7 @@ function stubSession(
     loginWithQAMode,
     refresh: vi.fn(),
     logout: vi.fn(),
-  } as any);
+  });
 }
 
 function renderLogin() {

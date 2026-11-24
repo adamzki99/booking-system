@@ -392,7 +392,13 @@ export default function Calendar() {
             <Card class="calendar-card">
               <CardBody>
                 <h2 class="calendar-section-title">Create booking</h2>
-                <form class="calendar-form-stack" onSubmit={submitCreate} novalidate>
+                <form
+                  class="calendar-form-stack"
+                  onSubmit={(e) => {
+                    void submitCreate(e);
+                  }}
+                  novalidate
+                >
                   <Show when={createError()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
                   <Show when={createSuccess()}>
                     {(msg) => <output class="ui-alert ui-alert--success">{msg()}</output>}
