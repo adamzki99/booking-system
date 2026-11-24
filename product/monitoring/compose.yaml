@@ -221,8 +221,13 @@ services:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.21.1
     profiles: ["postgres"]
     restart: unless-stopped
+    # v0.21 deprecates DATA_SOURCE_URI. Keep credentials in the supported
+    # DATA_SOURCE_USER/DATA_SOURCE_PASS environment variables, not argv.
+    command:
+      - --config.file=
+      - --datasource.uri=${POSTGRES_EXPORTER_DSN:-postgres:5432/booking?sslmode=disable}
+      - ${POSTGRES_EXPORTER_WRAP_LARGE_COUNTERS_FLAG:---wrap-large-counters}
     environment:
-      DATA_SOURCE_URI: ${POSTGRES_EXPORTER_DSN:-postgres:5432/booking?sslmode=disable}
       DATA_SOURCE_USER: ${POSTGRES_EXPORTER_USER:-monitoring_readonly}
       DATA_SOURCE_PASS: ${POSTGRES_EXPORTER_PASSWORD:-}
     healthcheck:

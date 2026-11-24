@@ -41,6 +41,14 @@ PROMETHEUS_RETENTION=15d
 PROMETHEUS_RETENTION_SIZE=2GB
 ENV
 
+CLICKHOUSE_IMAGE="$(python3 - <<'PY'
+from pathlib import Path
+import yaml
+compose = yaml.safe_load(Path('product/monitoring/compose.yaml').read_text())
+print(compose['services']['clickhouse']['image'])
+PY
+)"
+
 if have_docker; then
   run docker compose -f product/monitoring/compose.yaml --env-file "$TMP_ENV" config -q
 
@@ -72,6 +80,23 @@ if have_docker; then
       docker rm -f "$CH_CID" >/dev/null 2>&1 || true
     fi
   }
+  clickhouse_diagnostics() {
+    echo "[product-monitoring-validate] ClickHouse container status:" >&2
+    docker ps -a --filter "id=$CH_CID" --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}' >&2 || true
+    docker inspect --format 'status={{.State.Status}} exit_code={{.State.ExitCode}} oom_killed={{.State.OOMKilled}} restarts={{.RestartCount}}' "$CH_CID" >&2 || true
+    echo "[product-monitoring-validate] recent ClickHouse logs:" >&2
+    docker logs --tail 100 "$CH_CID" >&2 || true
+  }
+  wait_for_clickhouse() {
+    local attempt
+    for attempt in $(seq 1 60); do
+      if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then
+        return 0
+      fi
+      [[ "$attempt" -eq 60 ]] || sleep 1
+    done
+    return 1
+  }
   trap 'ch_cleanup; cleanup' EXIT
   CH_CID="$(docker run -d --rm \
     -e CLICKHOUSE_DB=otel \
@@ -80,98 +105,97 @@ if have_docker; then
     -e CLICKHOUSE_GRAFANA_PASSWORD=test-grafana \
     -v "$REPO_ROOT/product/monitoring/clickhouse/config.d:/etc/clickhouse-server/config.d:ro" \
     -v "$REPO_ROOT/product/monitoring/clickhouse/users.d/users.xml:/etc/clickhouse-server/users.d/users.xml:ro" \
-    clickhouse/clickhouse-server:26.9.36.3)"
-  set +e
-  echo "[product-monitoring-validate] waiting for throwaway ClickHouse..."
-  for _ in $(seq 1 60); do
-    if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then break; fi
-    sleep 1
-  done
-  ready=0
-  for _ in $(seq 1 30); do
-    if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then
-      ready=1
-      break
-    fi
-    sleep 1
-  done
-  if [[ "$ready" -ne 1 ]]; then
-    warn "ClickHouse did not become ready; skipping ClickHouse smoke checks"
-    docker logs --tail 80 "$CH_CID" >&2 || true
-    ch_smoke_ok=0
+    "$CLICKHOUSE_IMAGE")"
+  echo "[product-monitoring-validate] waiting for throwaway ClickHouse ($CLICKHOUSE_IMAGE)..."
+  if ! wait_for_clickhouse; then
+    echo "[product-monitoring-validate] ClickHouse did not become ready after 60 attempts" >&2
+    clickhouse_diagnostics
+    fail=1
   else
+    # The image entrypoint can briefly restart the server after first readiness.
+    sleep 3
+    if ! wait_for_clickhouse; then
+      echo "[product-monitoring-validate] ClickHouse did not become stably ready" >&2
+      clickhouse_diagnostics
+      fail=1
+    fi
+  fi
+  if [[ "$fail" -eq 0 ]]; then
     ch_sql_ok=0
     for attempt in 1 2 3; do
-      rc=0
-      docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL' || rc=$?
+      if docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
 CREATE USER IF NOT EXISTS collector IDENTIFIED WITH plaintext_password BY 'test-collector';
 CREATE USER IF NOT EXISTS grafana IDENTIFIED WITH plaintext_password BY 'test-grafana';
 ALTER USER collector SETTINGS PROFILE 'collector_profile';
 ALTER USER grafana SETTINGS PROFILE 'grafana_profile';
 SQL
-      if [[ $rc -eq 0 ]]; then
+      then
         ch_sql_ok=1
         break
       fi
       echo "[product-monitoring-validate] clickhouse user setup attempt $attempt failed, retrying..." >&2
+      clickhouse_diagnostics
       sleep 2
     done
     if [[ "$ch_sql_ok" -ne 1 ]]; then
-      warn "ClickHouse user setup failed after retries; skipping ClickHouse smoke checks"
-      ch_smoke_ok=0
-    else
-      ch_smoke_ok=1
+      echo "[product-monitoring-validate] FAILED: ClickHouse user setup after retries" >&2
+      clickhouse_diagnostics
+      fail=1
     fi
   fi
-  if [[ "$fail" -eq 0 && "${ch_smoke_ok:-0}" -eq 1 ]]; then
-  for f in product/monitoring/clickhouse/init/*.sql; do
-    echo "+ clickhouse init $f"
-    ok=0
-    for attempt in 1 2 3; do
-      rc=0
-      sed -e 's/__TRACES_TTL_DAYS__/7/g' -e 's/__LOGS_TTL_DAYS__/14/g' "$f" | docker exec -i "$CH_CID" clickhouse-client --multiquery || rc=$?
-      if [[ $rc -eq 0 ]]; then
-        ok=1
+  if [[ "$fail" -eq 0 ]]; then
+    for f in product/monitoring/clickhouse/init/*.sql; do
+      echo "+ clickhouse init $f"
+      ok=0
+      for attempt in 1 2 3; do
+        if sed -e 's/__TRACES_TTL_DAYS__/7/g' -e 's/__LOGS_TTL_DAYS__/14/g' "$f" | docker exec -i "$CH_CID" clickhouse-client --multiquery; then
+          ok=1
+          break
+        fi
+        echo "[product-monitoring-validate] clickhouse init attempt $attempt failed for $f, retrying..." >&2
+        clickhouse_diagnostics
+        for _ in $(seq 1 30); do
+          if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then break; fi
+          sleep 1
+        done
+        sleep 2
+      done
+      if [[ "$ok" -ne 1 ]]; then
+        echo "[product-monitoring-validate] FAILED: clickhouse init $f after retries" >&2
+        clickhouse_diagnostics
+        fail=1
         break
       fi
-      echo "[product-monitoring-validate] clickhouse init attempt $attempt failed for $f, retrying..." >&2
-      docker logs --tail 40 "$CH_CID" >&2 || true
-      for _ in $(seq 1 30); do
-        if docker exec "$CH_CID" clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then break; fi
-        sleep 1
-      done
-      sleep 2
     done
-    if [[ "$ok" -ne 1 ]]; then
-      warn "clickhouse init failed for $f after retries; skipping ClickHouse smoke checks"
-      docker logs --tail 80 "$CH_CID" >&2 || true
-      ch_smoke_ok=0
-      break
-    fi
-  done
-  [[ "${ok:-1}" -eq 1 ]] || ch_smoke_ok=0
-  if [[ "$fail" -eq 0 && "${ch_smoke_ok:-0}" -eq 1 ]]; then
-    docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL' || ch_smoke_ok=0
+  fi
+  if [[ "$fail" -eq 0 ]]; then
+    if ! docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL'
 GRANT INSERT ON otel.otel_logs TO collector;
 GRANT INSERT ON otel.otel_traces TO collector;
 GRANT SELECT ON otel.otel_logs TO grafana;
 GRANT SELECT ON otel.otel_traces TO grafana;
 SQL
-    if [[ "${ch_smoke_ok:-0}" -eq 1 ]]; then
-      docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_logs" | grep -q 1 || ch_smoke_ok=0
-      docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_traces" | grep -q 1 || ch_smoke_ok=0
-    fi
-    if [[ "${ch_smoke_ok:-0}" -ne 1 ]]; then
-      warn "ClickHouse smoke checks failed; skipping"
+    then
+      echo "[product-monitoring-validate] FAILED: ClickHouse grants" >&2
+      clickhouse_diagnostics
+      fail=1
     fi
   fi
+  if [[ "$fail" -eq 0 ]]; then
+    for table in otel.otel_logs otel.otel_traces; do
+      if ! docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE $table" | grep -q 1; then
+        echo "[product-monitoring-validate] FAILED: missing table $table" >&2
+        clickhouse_diagnostics
+        fail=1
+      fi
+    done
   fi
   ch_cleanup
   CH_CID=""
   trap cleanup EXIT
-  set -e
 else
   warn "docker not available; skipped compose/collector/promtool/clickhouse checks"
+  fail=1
 fi
 
 shopt -s nullglob
