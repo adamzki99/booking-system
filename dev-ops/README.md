@@ -25,6 +25,29 @@ The system owner steers the project purely by interacting with GitHub issues.
 Deployment of `main` to the **QA environment** happens at **00:00 and 12:00
 Europe/Stockholm** daily, leaving ~12 h for Playwright testing on QA.
 
+## Scheduled Dependabot sweep
+
+[`scripts/dependabot-sweep.sh`](scripts/dependabot-sweep.sh) runs an unattended
+OpenCode session that triages open Dependabot pull requests. It uses a dedicated
+clone, exits without calling the model when there are no open Dependabot PRs, and
+writes logs under `${XDG_STATE_HOME:-~/.local/state}/dependabot-sweep/logs`.
+
+The agent prompt lives at
+[`scripts/dependabot-sweep-prompt.md`](scripts/dependabot-sweep-prompt.md). The
+script is designed for cron or a systemd timer; configure credentials and
+behavior through environment variables or
+`~/.config/dependabot-sweep/env` (chmod 600).
+
+```sh
+# Dry run: analyze and verify locally, but do not push, merge, comment, or label.
+DRY_RUN=1 dev-ops/scripts/dependabot-sweep.sh
+```
+
+Key settings: `REPO_SLUG`, `MODEL`, `AGENT`, `MAX_PRS`, `AUTO_MERGE`,
+`DRY_RUN`, `AUTO_APPROVE`, and `RUN_TIMEOUT`. The script defaults to a
+repository detected from `origin`, uses the configured OpenCode model, and
+passes `--auto` to `opencode run` only when `AUTO_APPROVE=1`.
+
 ## Scheduled deployment (QA)
 
 The dev machine runs a systemd **user timer** that deploys `main` to QA twice
