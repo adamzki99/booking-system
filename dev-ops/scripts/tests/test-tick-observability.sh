@@ -10,6 +10,8 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/factory-observability.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
 git_bin="$(command -v git)"
+real_python="$(command -v python3)"
+export REAL_PYTHON="$real_python"
 "$git_bin" init -q --bare "$tmp/repo.git"
 
 stubs="$tmp/bin"
@@ -25,7 +27,14 @@ cat > "$stubs/opencode" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "--version" ]]; then printf 'test\n'; fi
 EOF
-chmod +x "$stubs/gh" "$stubs/opencode"
+cat > "$stubs/python3" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == */dev-ops/factory/lib/factory.py && "${2:-}" == "emit" && "${3:-}" == "${FACTORY_EMIT_FAIL_EVENT:-}" && -n "${FACTORY_EMIT_FAIL_EVENT:-}" ]]; then
+  exit 1
+fi
+exec "$REAL_PYTHON" "$@"
+EOF
+chmod +x "$stubs/gh" "$stubs/opencode" "$stubs/python3"
 
 # A lock-skipped invocation must not race the active tick by rewriting metrics.
 previous_timestamp=1234567890
@@ -119,3 +128,36 @@ if [[ "$telemetry_errors" -le 0 ]]; then
   exit 1
 fi
 printf 'PASS: telemetry write failures are counted without failing the tick\n'
+
+# A failure writing only the final tick_end event must still be reflected in the
+# Prometheus snapshot. Earlier event writes succeed in this case.
+mkdir -p "$tmp/final-metrics" "$tmp/final-sessions" "$tmp/final-claims"
+set +e
+PATH="$stubs:$PATH" \
+  PYTHONDONTWRITEBYTECODE=1 \
+  FACTORY_EMIT_FAIL_EVENT="tick_end" \
+  FACTORY_WORKTREE="$tmp/factory-wt" \
+  FACTORY_LOG_FILE="$tmp/final-events.jsonl" \
+  FACTORY_METRICS_DIR="$tmp/final-metrics" \
+  FACTORY_SESSION_LOG_DIR="$tmp/final-sessions" \
+  FACTORY_CLAIM_DIR="$tmp/final-claims" \
+  bash "$tmp/tick-repo/dev-ops/factory/tick.sh" --dry-run \
+    >"$tmp/final-stdout" 2>"$tmp/final-stderr"
+rc=$?
+set -e
+
+if [[ "$rc" -ne 0 ]]; then
+  printf 'FAIL: final telemetry write failure changed tick exit code to %s\n' "$rc" >&2
+  cat "$tmp/final-stderr" >&2
+  exit 1
+fi
+if ! grep -q 'failed to emit telemetry event tick_end' "$tmp/final-stderr"; then
+  printf 'FAIL: final telemetry write failure warning missing\n' >&2
+  exit 1
+fi
+telemetry_errors="$(awk '/^factory_telemetry_errors_last /{print $2}' "$tmp/final-metrics/factory_tick.prom")"
+if [[ "$telemetry_errors" -ne 1 ]]; then
+  printf 'FAIL: final telemetry write failure metric expected 1, got %s\n' "$telemetry_errors" >&2
+  exit 1
+fi
+printf 'PASS: final tick_end write failure is counted in metrics\n'
