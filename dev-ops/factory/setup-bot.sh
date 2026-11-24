@@ -124,6 +124,8 @@ prompt_yes_no() {
 
 expand_path() {
   local path="$1"
+  # The literal prefix is intentional; expansion is handled manually below.
+  # shellcheck disable=SC2088
   if [[ "${path:0:2}" == "~/" ]]; then
     path="$HOME/${path:2}"
   elif [[ "$path" == "~" ]]; then
