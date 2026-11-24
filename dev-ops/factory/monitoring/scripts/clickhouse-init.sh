@@ -75,6 +75,12 @@ if [ -n "${LANGFUSE_CLICKHOUSE_PASSWORD:-}" ]; then
 CREATE DATABASE IF NOT EXISTS langfuse;
 CREATE USER IF NOT EXISTS langfuse IDENTIFIED WITH plaintext_password BY '${LANGFUSE_PW}';
 GRANT ALL ON langfuse.* TO langfuse;
+GRANT SELECT(database, table, name, partition, partition_id, active, rows) ON system.parts TO langfuse;
+GRANT SELECT(database, table, is_done) ON system.mutations TO langfuse;
+GRANT SELECT(database, name, engine) ON system.tables TO langfuse;
+GRANT SELECT ON system.processes TO langfuse;
+GRANT SELECT ON system.query_log* TO langfuse;
+GRANT SYSTEM SYNC REPLICA, SYSTEM MERGES, ALTER SETTINGS ON langfuse.observations_pid_tid_sorting TO langfuse;
 SQL
     then
       langfuse_ok=1
