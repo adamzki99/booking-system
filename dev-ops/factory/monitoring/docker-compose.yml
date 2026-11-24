@@ -345,7 +345,7 @@ services:
       - factory-monitoring-net
 
   langfuse-worker:
-    image: langfuse/langfuse-worker:3.227.1
+    image: langfuse/langfuse-worker:4.82.0
     profiles: ["langfuse"]
     restart: unless-stopped
     depends_on:
