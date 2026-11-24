@@ -351,10 +351,15 @@ def is_trusted_login(candidate, trusted):
 
 
 def filter_trusted_issues(issues, trusted):
-    """Keep only issues whose author is in the trusted login set."""
+    """Keep only issues whose author is in the trusted login set.
+
+    Accepts the GraphQL ``author`` field and the REST ``user`` field, since
+    callers use both GitHub API shapes.
+    """
     return [
         issue for issue in issues or []
-        if isinstance(issue, dict) and is_trusted_login(issue.get("author"), trusted)
+        if isinstance(issue, dict)
+        and is_trusted_login(issue.get("author") or issue.get("user"), trusted)
     ]
 
 
