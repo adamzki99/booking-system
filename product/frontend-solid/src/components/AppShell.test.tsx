@@ -55,7 +55,7 @@ describe("AppShell", () => {
       loginWithQAMode: vi.fn(),
       refresh: vi.fn(),
       logout: vi.fn(),
-    } as any);
+    });
   });
 
   it("renders the responsive shell structure with navigation, search, and member footer", async () => {
@@ -128,7 +128,7 @@ describe("AppShell", () => {
   it("submits member search to the users route with a query", async () => {
     renderShell();
 
-    const input = screen.getByPlaceholderText("Search members") as HTMLInputElement;
+    const input = screen.getByPlaceholderText<HTMLInputElement>("Search members");
     fireEvent.input(input, { target: { value: "anna" } });
     const form = input.closest("form");
     expect(form).not.toBeNull();
@@ -150,7 +150,7 @@ describe("AppShell", () => {
       loginWithQAMode: vi.fn(),
       refresh: vi.fn(),
       logout: vi.fn(),
-    } as any);
+    });
     renderShell();
     expect((await screen.findAllByText(label)).length).toBeGreaterThan(0);
   });
@@ -164,7 +164,7 @@ describe("AppShell", () => {
       loginWithQAMode: vi.fn(),
       refresh: vi.fn(),
       logout,
-    } as any);
+    });
     renderShell();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Log out" })[0]);

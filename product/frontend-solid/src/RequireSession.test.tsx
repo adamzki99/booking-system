@@ -44,7 +44,7 @@ describe("RequireSession", () => {
       loginWithQAMode: vi.fn(),
       refresh: vi.fn(),
       logout: vi.fn(),
-    } as any);
+    });
     renderRoutes();
 
     expect(await screen.findByText("login")).toBeInTheDocument();
@@ -64,7 +64,7 @@ describe("RequireSession", () => {
       loginWithQAMode: vi.fn(),
       refresh: vi.fn(),
       logout: vi.fn(),
-    } as any);
+    });
     renderRoutes();
 
     expect(await screen.findByText("calendar")).toBeInTheDocument();
@@ -78,7 +78,7 @@ describe("RequireSession", () => {
       loginWithQAMode: vi.fn(),
       refresh: vi.fn(),
       logout: vi.fn(),
-    } as any);
+    });
     renderRoutes();
 
     await Promise.resolve();

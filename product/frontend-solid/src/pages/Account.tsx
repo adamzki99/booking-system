@@ -118,6 +118,7 @@ function AccountView(props: { seed: AccountData }) {
     setNotice(null);
     setBusy(true);
     try {
+      // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- tsc 5.6.3 types generator action yields as unknown; tsgolint infers the resolved type
       const requested = (yield requestEmailChange(email())) as PendingEmailChange;
       setPending(requested);
       setCode("");
@@ -136,6 +137,7 @@ function AccountView(props: { seed: AccountData }) {
     setNotice(null);
     setBusy(true);
     try {
+      // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- tsc 5.6.3 types generator action yields as unknown; tsgolint infers the resolved type
       const updated = (yield confirmEmailChange(code())) as User;
       setMe(updated);
       setEmail(updated.email);
@@ -156,6 +158,7 @@ function AccountView(props: { seed: AccountData }) {
     setNotice(null);
     setBusy(true);
     try {
+      // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- tsc 5.6.3 types generator action yields as unknown; tsgolint infers the resolved type
       const updated = (yield resendEmailChange()) as PendingEmailChange;
       setPending(updated);
       setCode("");
@@ -193,6 +196,7 @@ function AccountView(props: { seed: AccountData }) {
     setNotice(null);
     setBusy(true);
     try {
+      // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- tsc 5.6.3 types generator action yields as unknown; tsgolint infers the resolved type
       const url = (yield regenerateCalendarUrl()) as string;
       setIcalUrl(url);
     } catch (err) {

@@ -60,7 +60,7 @@ function stubSession(user: User) {
     loginWithQAMode: vi.fn(),
     refresh: vi.fn(),
     logout: vi.fn(),
-  } as any);
+  });
 }
 
 /** Exposes the current query string so tests can assert the ?q= contract. */
@@ -128,7 +128,7 @@ describe("Users page", () => {
     renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
 
-    const select = screen.getByLabelText("User") as HTMLSelectElement;
+    const select = screen.getByLabelText<HTMLSelectElement>("User");
     // options include basic user by email
     expect(Array.from(select.options).map((o) => o.text)).toContain("basic@example.com");
 
@@ -142,7 +142,7 @@ describe("Users page", () => {
   it("removes a directory user from the row action", async () => {
     stubSession(superUser);
     listUsersMock.mockResolvedValue([basicUser]);
-    removeUserMock.mockResolvedValue(undefined as never);
+    removeUserMock.mockResolvedValue(undefined);
     renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
@@ -247,7 +247,7 @@ describe("Users page", () => {
     await screen.findByRole("cell", { name: "super@example.com" });
     expect(screen.queryByRole("cell", { name: "basic@example.com" })).not.toBeInTheDocument();
 
-    const addressSelect = screen.getByLabelText("User") as HTMLSelectElement;
+    const addressSelect = screen.getByLabelText<HTMLSelectElement>("User");
     expect(Array.from(addressSelect.options).map((o) => o.text)).toContain("basic@example.com");
   });
 });
