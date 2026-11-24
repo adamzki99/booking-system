@@ -18,6 +18,7 @@ run() {
 run bash -n dev-ops/factory/tick.sh
 run bash -n dev-ops/factory/nightly-cleanup.sh
 run bash dev-ops/scripts/tests/test-tick-planning.sh
+run bash dev-ops/scripts/tests/test-tick-trust-filter.sh
 if command -v shellcheck >/dev/null 2>&1; then
   run shellcheck -x dev-ops/factory/tick.sh dev-ops/factory/nightly-cleanup.sh
 else
@@ -46,9 +47,9 @@ PY
 
 # Unit tests (factory lib)
 if command -v pytest >/dev/null 2>&1; then
-  run pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-reconcile-outcomes.py
+  run pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py
 elif python3 -m pytest --version >/dev/null 2>&1; then
-  run python3 -m pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-reconcile-outcomes.py
+  run python3 -m pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py
 else
   echo "[factory-validate] WARN: pytest not installed; skipped factory unit tests"
   fail=1
