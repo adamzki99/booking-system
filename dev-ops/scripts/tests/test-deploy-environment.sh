@@ -8,6 +8,12 @@ PASS=0; FAIL=0
 fail() { echo "FAIL: $*" >&2; FAIL=$((FAIL+1)); }
 pass() { PASS=$((PASS+1)); }
 
+# Keep fixture commits self-contained on CI runners without a global Git identity.
+export GIT_AUTHOR_NAME=deploy-test
+export GIT_AUTHOR_EMAIL=deploy-test@example.invalid
+export GIT_COMMITTER_NAME=deploy-test
+export GIT_COMMITTER_EMAIL=deploy-test@example.invalid
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -589,7 +595,10 @@ cat >> "$events_deploy/dev-ops/environments.yaml" <<'YAML'
     port: 8081
 YAML
 "$git_bin" -C "$events_deploy" add dev-ops/environments.yaml
-"$git_bin" -C "$events_deploy" commit -qm "test: add release environment"
+"$git_bin" -C "$events_deploy" \
+  -c user.name=deploy-test \
+  -c user.email=deploy-test@example.invalid \
+  commit -qm "test: add release environment"
 "$git_bin" -C "$events_deploy" push -q origin main
 release_root="$tmp/release-repo"
 mkdir -p "$release_root/dev-ops/scripts" "$release_root/dev-ops/factory/lib"

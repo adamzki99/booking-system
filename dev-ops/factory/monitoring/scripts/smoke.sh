@@ -11,6 +11,7 @@ TMPDIR_SMOKE="$(mktemp -d)"
 LOG_DIR="$TMPDIR_SMOKE/factory-logs"
 METRICS_DIR="$TMPDIR_SMOKE/factory-metrics"
 ENV_FILE="$TMPDIR_SMOKE/.env"
+GRAFANA_METRICS_PASSWORD="smoke-metrics-pass"
 LANGFUSE_PUBLIC_URL="http://smoke-langfuse:3001"
 COMPOSE=(docker compose -f dev-ops/factory/monitoring/docker-compose.yml --env-file "$ENV_FILE" -p "$PROJECT")
 
@@ -36,7 +37,7 @@ CLICKHOUSE_COLLECTOR_PASSWORD=smoke-collector-pass
 CLICKHOUSE_GRAFANA_PASSWORD=smoke-grafana-pass
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=smoke-admin-pass
-GRAFANA_METRICS_PASSWORD=smoke-metrics-pass
+GRAFANA_METRICS_PASSWORD=$GRAFANA_METRICS_PASSWORD
 GRAFANA_BIND_ADDR=127.0.0.1
 OTLP_BIND_ADDR=127.0.0.1
 GRAFANA_ROOT_URL=http://127.0.0.1:13000/
@@ -235,7 +236,9 @@ fi
 
 metrics_status=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:13000/metrics)
 [ "$metrics_status" = "401" ] || { echo "[smoke] /metrics without auth returned $metrics_status, expected 401" >&2; exit 1; }
-metrics_auth_status=$(curl -sS -o /dev/null -w '%{http_code}' -u 'prometheus:smoke-metrics-pass' http://127.0.0.1:13000/metrics)
+metrics_basic_auth="$(printf 'prometheus:%s' "$GRAFANA_METRICS_PASSWORD" | base64)"
+metrics_auth_status=$(curl -sS -o /dev/null -w '%{http_code}' \
+  -H "Authorization: Basic $metrics_basic_auth" http://127.0.0.1:13000/metrics)
 [ "$metrics_auth_status" = "200" ] || { echo "[smoke] /metrics with auth returned $metrics_auth_status, expected 200" >&2; exit 1; }
 echo "[smoke] Grafana /metrics requires basic auth"
 

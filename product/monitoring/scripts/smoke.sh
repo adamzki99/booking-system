@@ -97,7 +97,9 @@ curl -fsS "http://127.0.0.1:${GRAFANA_PORT}/api/health" | grep -q ok
 
 metrics_status=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${GRAFANA_PORT}/metrics")
 [ "$metrics_status" = "401" ] || { echo "[smoke] /metrics without auth returned $metrics_status, expected 401" >&2; exit 1; }
-metrics_auth_status=$(curl -sS -o /dev/null -w '%{http_code}' -u "prometheus:${GRAFANA_METRICS_PASSWORD}" "http://127.0.0.1:${GRAFANA_PORT}/metrics")
+metrics_basic_auth="$(printf 'prometheus:%s' "$GRAFANA_METRICS_PASSWORD" | base64)"
+metrics_auth_status=$(curl -sS -o /dev/null -w '%{http_code}' \
+  -H "Authorization: Basic $metrics_basic_auth" "http://127.0.0.1:${GRAFANA_PORT}/metrics")
 [ "$metrics_auth_status" = "200" ] || { echo "[smoke] /metrics with auth returned $metrics_auth_status, expected 200" >&2; exit 1; }
 echo "[smoke] Grafana /metrics requires basic auth"
 
