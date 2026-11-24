@@ -145,8 +145,32 @@ describe("Users page", () => {
     removeUserMock.mockResolvedValue(undefined);
     renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove basic@example.com" }));
     await waitFor(() => expect(removeUserMock).toHaveBeenCalledWith("b1"));
+  });
+
+  it("gives each Remove action a unique accessible name with the member email", async () => {
+    const otherUser: User = {
+      id: "b2",
+      email: "other@example.com",
+      role: "basic",
+      address: "",
+      active: false,
+    };
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, otherUser]);
+    renderUsers();
+    await screen.findByRole("cell", { name: "other@example.com" });
+
+    expect(screen.getByRole("button", { name: "Remove basic@example.com" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove other@example.com" })).toBeInTheDocument();
+    const removeButtons = screen
+      .getAllByRole("button")
+      .filter((button) => button.textContent === "Remove");
+    expect(removeButtons).toHaveLength(2);
+    for (const button of removeButtons) {
+      expect(button).toHaveAttribute("aria-label");
+    }
   });
 
   it("shows role controls only for admins and excludes the signed-in user", async () => {
