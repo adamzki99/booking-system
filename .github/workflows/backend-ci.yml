@@ -22,10 +22,26 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Read Docker builder Go version
+        id: builder
+        run: |
+          builder_image=$(awk 'toupper($1) == "FROM" && $2 ~ /^golang:/ && toupper($3) == "AS" && tolower($4) == "builder" { print $2 }' Dockerfile)
+          if [[ -z "$builder_image" ]]; then
+            echo "Could not find the golang builder image in Dockerfile" >&2
+            exit 1
+          fi
+          version=${builder_image#golang:}
+          version=${version%%-alpine*}
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "Unsupported Go builder image: $builder_image" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: product/backend/go.mod
+          go-version: ${{ steps.builder.outputs.version }}
           cache-dependency-path: product/backend/go.sum
 
       - name: Check formatting
