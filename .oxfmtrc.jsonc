@@ -8,15 +8,17 @@
     "**/dist/**",
     "**/package-lock.json",
     ".opencode/skills/**",
+    ".opencode/commands/**",
+    ".opencode/agents/**",
     "projects/sauna/docs/mocks/**",
+    "dev-ops/docs/booking-system-repo-reports/**",
     "dev-ops/factory/monitoring/grafana/dashboards/*.json",
     "product/monitoring/grafana/dashboards/*.json",
+    "product/monitoring/grafana/provisioning/alerting/*.yaml",
     "**/*.go",
     "**/*.py",
-    // prompt 04 removes these Markdown/YAML exclusions
-    "**/*.md",
-    "**/*.yaml",
-    "**/*.yml",
+    // Root guardrail file; formatted with guardrails in prompt 08.
+    "/AGENTS.md",
     // prompt 08 removes this guardrail exclusion
     "opencode.jsonc",
   ],
