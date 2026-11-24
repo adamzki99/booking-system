@@ -12,6 +12,11 @@ import "./Login.css";
 
 const EMAIL_GUIDANCE = "Enter a valid email address, for example name@example.com.";
 const CODE_GUIDANCE = "Enter the 6-character code from your email.";
+const RATE_LIMIT_GUIDANCE = "Too many attempts. Please wait a little while and try again.";
+const CODE_EXPIRED_GUIDANCE =
+  "That code is invalid or has expired. Request a new code and try again.";
+const QA_SIGNIN_GUIDANCE =
+  "We could not sign you in with that email address. Check the address and try again.";
 
 function isValidEmail(value: string): boolean {
   const trimmed = value.trim();
@@ -24,10 +29,10 @@ function friendlyAuthError(err: unknown, fallback: string): string {
   const lower = raw.toLowerCase();
   if (err instanceof ApiError) {
     if (err.status === 429 || lower.includes("rate limit")) {
-      return "Too many attempts. Please wait a little while and try again.";
+      return RATE_LIMIT_GUIDANCE;
     }
     if (err.status === 401 || lower.includes("invalid or expired code")) {
-      return "That code is invalid or has expired. Request a new code and try again.";
+      return CODE_EXPIRED_GUIDANCE;
     }
     if (lower.includes("invalid code")) {
       return CODE_GUIDANCE;
@@ -41,6 +46,21 @@ function friendlyAuthError(err: unknown, fallback: string): string {
     return errorMessage(err, fallback);
   }
   return fallback;
+}
+
+/**
+ * QA sign-in has no code step, so never show the one-time-code recovery
+ * guidance for a failed QA login. Keep the failure generic so the UI does not
+ * reveal whether an account exists.
+ */
+function friendlyQALoginError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : "";
+  const lower = raw.toLowerCase();
+  if ((err instanceof ApiError && err.status === 429) || lower.includes("rate limit")) {
+    return RATE_LIMIT_GUIDANCE;
+  }
+  if (lower.includes("invalid email")) return EMAIL_GUIDANCE;
+  return QA_SIGNIN_GUIDANCE;
 }
 
 /**
@@ -129,7 +149,7 @@ export default function Login() {
       await session.loginWithQAMode(email().trim());
       navigate("/", { replace: true });
     } catch (err) {
-      setError(friendlyAuthError(err, "We could not sign you in. Please try again."));
+      setError(friendlyQALoginError(err));
     } finally {
       setBusy(false);
     }

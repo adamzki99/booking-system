@@ -157,6 +157,42 @@ describe("Login page", () => {
     expect(await screen.findByText("calendar")).toBeInTheDocument();
   });
 
+  it("shows a QA-appropriate error without code guidance when QA sign-in fails", async () => {
+    getAuthConfigMock.mockResolvedValue({ qaMode: true });
+    const loginWithQAMode = vi
+      .fn()
+      .mockRejectedValue(new ApiError("auth: invalid or expired code", 401));
+    stubSession(vi.fn(), loginWithQAMode);
+    renderLogin();
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Request code" })).not.toBeInTheDocument(),
+    );
+    setInput(screen.getByLabelText("Email"), "test@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/could not sign you in with that email address/i);
+    expect(alert).not.toHaveTextContent(/request a new code/i);
+    expect(alert).not.toHaveTextContent(/auth:/i);
+    expect(screen.queryByText(/code is invalid or has expired/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps one-time-code error guidance in the non-QA sign-in flow", async () => {
+    const login = vi.fn().mockRejectedValue(new ApiError("auth: invalid or expired code", 401));
+    stubSession(login);
+    renderLogin();
+
+    setInput(await screen.findByLabelText("Email"), "user@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Request code" }));
+    await screen.findByLabelText("Code");
+    setInput(screen.getByLabelText("Code"), "ABC123");
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/request a new code/i);
+  });
+
   it("shows request-code failures", async () => {
     requestCodeMock.mockRejectedValue(new Error("too many requests"));
 
