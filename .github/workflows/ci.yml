@@ -46,9 +46,10 @@ jobs:
               - '.github/workflows/ci.yml'
             monitoring:
               - 'dev-ops/factory/**'
-              - 'dev-ops/scripts/tests/test-setup-factory-bot.sh'
-              - 'dev-ops/scripts/tests/test-tick-app-token.sh'
-              - 'dev-ops/scripts/tests/test-mint-github-app-token.py'
+              - 'dev-ops/factory/tick.sh'
+              - 'dev-ops/factory/lib/**'
+              - 'dev-ops/factory/validate.sh'
+              - 'dev-ops/scripts/tests/**'
               - 'product/monitoring/**'
               - 'projects/sauna/monitoring/**'
               - '.github/workflows/monitoring-ci.yml'
