@@ -71,6 +71,15 @@ def test_make_event_typed_coercion():
     assert e["area_labels"] == ["x", "y"]
 
 
+def test_emit_cli_reports_unwritable_log(tmp_path):
+    logfile = tmp_path / "missing" / "tick.jsonl"
+    argv = [
+        "factory.py", "emit", "tick_start", str(logfile), "tick", "0",
+        "backup", "dev", "host", "factory-1", "owner/repo",
+    ]
+    assert factory._emit_cli(argv) != 0
+
+
 def test_validate_invalid_missing_model():
     try:
         factory.validate_models({"labels": {"default": {}}})

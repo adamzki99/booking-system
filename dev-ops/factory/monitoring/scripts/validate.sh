@@ -218,7 +218,7 @@ for f in files:
             if not u or not t: print(f'missing uid/title in {f}', file=sys.stderr); sys.exit(1)
             if u in uids: print(f'duplicate uid {u}', file=sys.stderr); sys.exit(1)
             uids.add(u); titles.add(t)
-required={'Factory silent','Factory failing','Factory guardrail drift','Factory stuck run','Factory issue looping','Factory quota pressure','Factory deploy failed/stale','Factory telemetry broken','Factory host memory high','Factory host disk high'}
+required={'Factory silent','Factory failing','Factory tick failed','Factory guardrail drift','Factory stuck run','Factory issue looping','Factory quota pressure','Factory deploy failed/stale','Factory telemetry broken','Factory event ingestion stale','Factory host memory high','Factory host disk high'}
 missing=required-titles
 if missing:
     print('missing alert titles: '+', '.join(sorted(missing)), file=sys.stderr); sys.exit(1)

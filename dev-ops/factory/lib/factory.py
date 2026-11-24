@@ -838,8 +838,8 @@ def _emit_cli(argv):
         with open(logfile, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError:
-        # emission must never be fatal
-        return 0
+        # Report the failure to the caller. tick.sh keeps telemetry non-fatal.
+        return 1
     return 0
 
 
