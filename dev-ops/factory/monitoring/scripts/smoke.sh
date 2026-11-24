@@ -26,6 +26,8 @@ mkdir -p "$LOG_DIR" "$METRICS_DIR"
 cat > "$METRICS_DIR/factory_tick.prom" <<PROM
 factory_tick_last_run_timestamp_seconds $(date +%s)
 factory_tick_last_success_timestamp_seconds $(date +%s)
+factory_tick_last_exit_code 1
+factory_telemetry_errors_last 0
 PROM
 
 cat > "$ENV_FILE" <<ENV
@@ -55,6 +57,7 @@ TS2="$(ts_iso $((NOW_EPOCH - 600)))"
 TS3="$(ts_iso $((NOW_EPOCH - 300)))"
 TS4="$(ts_iso $((NOW_EPOCH - 120)))"
 TS6="$(ts_iso $((NOW_EPOCH - 60)))"
+TS7="$(ts_iso "$NOW_EPOCH")"
 cat > "$LOG_DIR/tick.jsonl" <<JSONL
 {"schema_version":2,"event_id":"11111111111111111111111111111111","event":"tick_start","ts":"$TS5","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"tick-smoke-1","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system"}
 {"schema_version":2,"event_id":"11111111111111111111111111111112","event":"issue.detected","ts":"$TS5","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"tick-smoke-1","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","issue_id":42,"kind":"build"}
@@ -68,7 +71,12 @@ cat > "$LOG_DIR/tick.jsonl" <<JSONL
 {"schema_version":2,"event_id":"33333333333333333333333333333335","event":"issue.approved","ts":"$TS5","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"reconcile","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","issue_id":42,"approved_at":"$TS5"}
 {"schema_version":2,"event_id":"33333333333333333333333333333336","event":"issue.closed","ts":"$TS4","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"reconcile","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","issue_id":42,"closed_at":"$TS4","state_reason":"completed"}
 {"schema_version":2,"event_id":"44444444444444444444444444444441","event":"factory.queue","ts":"$TS6","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"tick-smoke-1","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","infant":1,"planned":2,"approved_waiting":1,"in_pr":1,"blocked_pr":0}
+{"schema_version":2,"event_id":"55555555555555555555555555555551","event":"agent.run.failed","ts":"$TS4","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"tick-smoke-1","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","run_id":"run-quota","attempt":1,"fallback_level":"primary","kind":"build","agent_id":"builder","model":"test/model","issue_id":42,"failure_reason":"usage_filled","exit_code":1,"duration_ms":1000,"outcome":"failed"}
+{"schema_version":2,"event_id":"55555555555555555555555555555552","event":"agent.run.started","ts":"$TS4","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"tick-smoke-1","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","run_id":"run-free-1","attempt":2,"fallback_level":"free","kind":"build","agent_id":"builder","model":"test/free","issue_id":42}
+{"schema_version":2,"event_id":"55555555555555555555555555555553","event":"agent.run.started","ts":"$TS4","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"tick-smoke-1","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","run_id":"run-free-2","attempt":2,"fallback_level":"free","kind":"build","agent_id":"builder","model":"test/free","issue_id":42}
+{"schema_version":2,"event_id":"55555555555555555555555555555554","event":"agent.run.started","ts":"$TS4","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"tick-smoke-1","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","run_id":"run-free-3","attempt":2,"fallback_level":"free","kind":"build","agent_id":"builder","model":"test/free","issue_id":42}
 {"schema_version":2,"event_id":"44444444444444444444444444444442","event":"tick_end","ts":"$TS6","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"tick-smoke-1","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","exit_code":0,"duration_ms":120000,"telemetry_errors":0}
+{"schema_version":2,"event_id":"44444444444444444444444444444443","event":"tick_end","ts":"$TS7","service.name":"factory-tick","factory_id":"factory-1","deployment.environment":"dev","host.name":"smoke-host","tick_id":"tick-smoke-2","dry_run":false,"on_usage_filled":"backup","repo":"adamzki99/booking-system","exit_code":1,"duration_ms":1000,"telemetry_errors":1}
 JSONL
 
 echo "[smoke] starting stack..."
@@ -110,7 +118,7 @@ echo "[smoke] factory.events raw count=$raw"
 
 run_count=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT count() FROM factory.runs")
 echo "[smoke] factory.runs count=$run_count"
-[ "$run_count" -eq 1 ] || { echo "[smoke] expected 1 run" >&2; exit 1; }
+[ "$run_count" -eq 5 ] || { echo "[smoke] expected 5 runs" >&2; exit 1; }
 
 # Timestamp equality check - ts stored should match fixture ts.
 ts1=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT toString(ts) FROM factory.events FINAL WHERE event_id='11111111111111111111111111111111'")
@@ -122,6 +130,15 @@ echo "$ts1" | grep -q "$expected_ts1" || { echo "[smoke] timestamp mismatch" >&2
 pr=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT count() FROM factory.events FINAL WHERE event='pr.merged'")
 echo "[smoke] pr.merged count=$pr"
 [ "$pr" -eq 1 ] || { echo "[smoke] expected pr.merged" >&2; exit 1; }
+
+quota=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT if(countIf(event='agent.run.failed' AND failure_reason IN ('usage_filled','usage_filled_skipped')) > 0 OR countIf(event='agent.run.started' AND fallback_level = 'free') > 2, 1, 0) AS value FROM factory.events FINAL WHERE ts >= now() - INTERVAL 24 HOUR AND event IN ('agent.run.failed','agent.run.started')")
+[ "$quota" -eq 1 ] || { echo "[smoke] quota alert query did not match failure fixtures" >&2; exit 1; }
+
+telemetry=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT if(argMaxIf(toInt64OrNull(attrs['telemetry_errors']), ts, event='tick_end') > 0, 1, 0) AS value FROM factory.events FINAL WHERE ts >= now() - INTERVAL 24 HOUR AND event='tick_end'")
+[ "$telemetry" -eq 1 ] || { echo "[smoke] telemetry alert query did not match tick_end fixture" >&2; exit 1; }
+
+ingestion=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT if(countIf(event='tick_end' AND ts >= now() - INTERVAL 2 HOUR) = 0, 1, 0) AS value FROM factory.events FINAL WHERE ts >= now() - INTERVAL 2 HOUR")
+[ "$ingestion" -eq 0 ] || { echo "[smoke] recent tick_end incorrectly flagged ingestion as stale" >&2; exit 1; }
 
 # Prometheus target and metric
 echo "[smoke] waiting for prometheus..."
@@ -144,13 +161,39 @@ done
 m=$("${COMPOSE[@]}" exec -T prometheus wget -qO- 'http://127.0.0.1:9090/api/v1/query?query=factory_tick_last_run_timestamp_seconds' || true)
 echo "$m" | grep -q 'factory_tick_last_run_timestamp_seconds' || { echo "[smoke] metric missing" >&2; exit 1; }
 
+assert_metric() {
+  local metric="$1" expected="$2" response value
+  response=$("${COMPOSE[@]}" exec -T prometheus wget -qO- "http://127.0.0.1:9090/api/v1/query?query=$metric" || true)
+  value="$(printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["data"]["result"][0]["value"][1])')"
+  [ "$value" = "$expected" ] || { echo "[smoke] unexpected $metric value: $value" >&2; exit 1; }
+}
+assert_metric factory_tick_last_exit_code 1
+# ClickHouse carries the telemetry error while the Prometheus counter is zero.
+assert_metric factory_telemetry_errors_last 0
+
+assert_prom_expr() {
+  local expr="$1" expected="$2" encoded response value
+  encoded="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$expr")"
+  response=$("${COMPOSE[@]}" exec -T prometheus wget -qO- "http://127.0.0.1:9090/api/v1/query?query=$encoded" || true)
+  value="$(printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["data"]["result"][0]["value"][1])')"
+  [ "$value" = "$expected" ] || { echo "[smoke] unexpected PromQL value for $expr: $value" >&2; exit 1; }
+}
+assert_prom_expr '(factory_tick_last_exit_code != bool 0) or vector(0)' 1
+assert_prom_expr '(factory_telemetry_errors_last > bool 0) or vector(0)' 0
+assert_prom_expr '((time() - factory_tick_last_run_timestamp_seconds) < bool 7200) or vector(0)' 1
+
 # Grafana health and datasources
 echo "[smoke] waiting for grafana..."
 for _ in $(seq 1 120); do
   if curl -fsS http://127.0.0.1:13000/api/health >/dev/null 2>&1; then break; fi
   sleep 2
 done
-curl -fsS http://127.0.0.1:13000/api/health | grep -q ok || { echo "[smoke] grafana not healthy" >&2; exit 1; }
+grafana_health="$(curl -fsS http://127.0.0.1:13000/api/health || true)"
+if ! printf '%s' "$grafana_health" | grep -q ok; then
+  echo "[smoke] grafana not healthy" >&2
+  "${COMPOSE[@]}" logs --tail=200 grafana >&2 || true
+  exit 1
+fi
 
 # datasource health (basic auth)
 grafana_basic_auth="$(printf '%s' 'admin:smoke-admin-pass' | base64)"
@@ -173,7 +216,7 @@ echo "$dash_resp" | python3 -c 'import sys,json; d=json.load(sys.stdin); uids={x
 # Alert rules provisioned
 echo "[smoke] checking alert rules..."
 alert_resp=$(curl -fsS -H "Authorization: Basic $grafana_basic_auth" 'http://127.0.0.1:13000/api/v1/provisioning/alert-rules')
-echo "$alert_resp" | python3 -c 'import sys,json; d=json.load(sys.stdin); titles={x.get("title") for x in d}; req={"Factory silent","Factory failing","Factory guardrail drift","Factory stuck run","Factory issue looping","Factory quota pressure","Factory deploy failed/stale","Factory telemetry broken","Factory host memory high","Factory host disk high"}; missing=req-titles; print("alerts",len(titles)); sys.exit(1 if missing else 0)' || { echo "[smoke] missing alert rules: $alert_resp" >&2; exit 1; }
+echo "$alert_resp" | python3 -c 'import sys,json; d=json.load(sys.stdin); titles={x.get("title") for x in d}; req={"Factory silent","Factory failing","Factory tick failed","Factory guardrail drift","Factory stuck run","Factory issue looping","Factory quota pressure","Factory deploy failed/stale","Factory telemetry broken","Factory event ingestion stale","Factory host memory high","Factory host disk high"}; missing=req-titles; print("alerts",len(titles)); sys.exit(1 if missing else 0)' || { echo "[smoke] missing alert rules: $alert_resp" >&2; exit 1; }
 
 # Key ClickHouse query per dashboard (bounded) returns at least one row.
 echo "[smoke] checking dashboard key queries..."

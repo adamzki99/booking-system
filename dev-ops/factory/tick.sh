@@ -20,6 +20,7 @@ BUILD_MARKER='<!-- factory:build -->'
 DRY_RUN=0
 RECONCILE_IN_DRY_RUN=0
 TICK_RC=0
+TICK_LOCK_SKIPPED=0
 INFRA_FAILURE=0
 USAGE_FILLED_REASON=""
 ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
@@ -306,7 +307,9 @@ TICK_START_SEC="$(date +%s)"
 
 on_exit() {
   local rc=$?
-  write_metrics_file "$rc"
+  if [[ "$TICK_LOCK_SKIPPED" -eq 0 ]]; then
+    write_metrics_file "$rc"
+  fi
   emit_event tick_end exit_code="$rc" duration_ms="$(( $(date +%s%3N 2>/dev/null || echo "$TICK_START_MS") - TICK_START_MS ))" telemetry_errors="$TELEMETRY_ERRORS"
   exit "$rc"
 }
@@ -336,7 +339,7 @@ write_metrics_file() {
   if [[ -f "$file" ]]; then
     prev_success="$(awk '/^factory_tick_last_success_timestamp_seconds /{print $2}' "$file" 2>/dev/null || true)"
   fi
-  if [[ "$exit_code" -eq 0 ]]; then
+  if [[ "$exit_code" -eq 0 && "$TICK_LOCK_SKIPPED" -eq 0 ]]; then
     success_ts="$now_ts"
   elif [[ -n "$prev_success" ]]; then
     success_ts="$prev_success"
@@ -382,6 +385,7 @@ exec 9>"$(git rev-parse --git-dir)/factory-tick.lock"
 emit_event tick_start opencode_version="$(opencode --version 2>/dev/null || echo unknown)"
 if ! flock -n 9; then
   log "previous tick still running; exiting"
+  TICK_LOCK_SKIPPED=1
   emit_event lock_skipped
   exit 0
 fi

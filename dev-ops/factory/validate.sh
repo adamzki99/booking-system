@@ -47,13 +47,15 @@ PY
 
 # Unit tests (factory lib)
 if command -v pytest >/dev/null 2>&1; then
-  run pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py
+  run pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py dev-ops/scripts/tests/test-monitoring-alerts.py
 elif python3 -m pytest --version >/dev/null 2>&1; then
-  run python3 -m pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py
+  run python3 -m pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py dev-ops/scripts/tests/test-monitoring-alerts.py
 else
   echo "[factory-validate] WARN: pytest not installed; skipped factory unit tests"
   fail=1
 fi
+
+run bash dev-ops/scripts/tests/test-tick-observability.sh
 
 if [[ $fail -ne 0 ]]; then
   echo "[factory-validate] FAIL" >&2
