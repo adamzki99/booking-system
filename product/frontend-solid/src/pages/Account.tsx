@@ -227,9 +227,9 @@ function AccountView(props: { seed: AccountData }) {
       <Show when={error()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
       <Show when={notice()}>
         {(msg) => (
-          <Alert status="success" role="status">
+          <output class="ui-alert ui-alert--success">
             {msg()}
-          </Alert>
+          </output>
         )}
       </Show>
 
@@ -267,6 +267,7 @@ function AccountView(props: { seed: AccountData }) {
                   <form onSubmit={(e) => void onConfirmEmailChange(e)}>
                     <div class="account-section-stack">
                       <div class="account-field">
+                        {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                         <label class="account-label" for="account-code">
                           Verification code
                         </label>
@@ -333,6 +334,7 @@ function AccountView(props: { seed: AccountData }) {
                     </Alert>
                   </Show>
                   <div class="account-field">
+                    {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                     <label class="account-label" for="account-email">
                       New email
                     </label>

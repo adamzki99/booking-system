@@ -205,6 +205,7 @@ export default function Calendar() {
     },
   );
 
+  // oxlint-disable-next-line solid/reactivity -- action handler reads signals only on user invocation
   const submitCreate = action(function* (event: Event) {
     event.preventDefault();
     setCreateError(null);
@@ -243,6 +244,7 @@ export default function Calendar() {
     }
   });
 
+  // oxlint-disable-next-line solid/reactivity -- action handler reads signals only on user invocation
   const submitQuickBook = action(function* () {
     const src = selectedSource();
     const weeks = selectedWeeks();
@@ -303,6 +305,7 @@ export default function Calendar() {
                 </p>
                 <div class="calendar-form-stack">
                   <div class="calendar-field">
+                    {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                     <label class="calendar-label" for="qb-src">
                       Booking to repeat
                     </label>
@@ -393,12 +396,13 @@ export default function Calendar() {
                   <Show when={createError()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
                   <Show when={createSuccess()}>
                     {(msg) => (
-                      <Alert status="success" role="status">
+                      <output class="ui-alert ui-alert--success">
                         {msg()}
-                      </Alert>
+                      </output>
                     )}
                   </Show>
                   <div class="calendar-field">
+                    {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                     <label class="calendar-label" for="start">
                       Start
                     </label>
@@ -418,6 +422,7 @@ export default function Calendar() {
                     />
                   </div>
                   <div class="calendar-field">
+                    {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                     <label class="calendar-label" for="end">
                       End
                     </label>

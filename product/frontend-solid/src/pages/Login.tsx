@@ -160,6 +160,7 @@ export default function Login() {
                 <Match when={qaMode()}>
                   <form class="login-form" onSubmit={signInWithoutCode} novalidate>
                     <div class={["login-field", { "login-field--invalid": !!emailError() }]}>
+                      {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                       <label class="login-label" for="email">
                         Email
                       </label>
@@ -202,6 +203,7 @@ export default function Login() {
                       A login code was sent to {email().trim()}. The code is valid for 10 minutes.
                     </p>
                     <div class="login-field">
+                      {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                       <label class="login-label" for="code">
                         Code
                       </label>
@@ -229,6 +231,7 @@ export default function Login() {
                 <Match when={!qaMode() && !codeSent()}>
                   <form class="login-form" onSubmit={requestCodeForEmail} novalidate>
                     <div class={["login-field", { "login-field--invalid": !!emailError() }]}>
+                      {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                       <label class="login-label" for="email">
                         Email
                       </label>
