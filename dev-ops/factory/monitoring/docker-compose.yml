@@ -419,7 +419,7 @@ services:
       - factory-monitoring-net
 
   langfuse-web:
-    image: langfuse/langfuse:3.227.1
+    image: langfuse/langfuse:4.82.0
     profiles: ["langfuse"]
     restart: unless-stopped
     depends_on:
