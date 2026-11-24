@@ -1,0 +1,20 @@
+{
+  "$schema": "../../product/frontend-solid/node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "unicorn",
+    "typescript",
+    "oxc"
+  ],
+  "categories": {
+    "correctness": "warn"
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/package-lock.json",
+    ".opencode/skills/**",
+    "projects/sauna/docs/mocks/**",
+    "**/*.go",
+    "**/*.py"
+  ]
+}

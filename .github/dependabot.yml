@@ -36,6 +36,13 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      oxc:
+        patterns:
+          - "oxlint"
+          - "oxfmt"
+          - "oxlint-tsgolint"
+          - "tsrs"
+          - "@oxlint/*"
       minor-and-patch:
         update-types:
           - minor
@@ -48,6 +55,32 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      oxc:
+        patterns:
+          - "oxlint"
+          - "oxfmt"
+          - "oxlint-tsgolint"
+          - "tsrs"
+          - "@oxlint/*"
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      oxc:
+        patterns:
+          - "oxlint"
+          - "oxfmt"
+          - "oxlint-tsgolint"
+          - "tsrs"
+          - "@oxlint/*"
       minor-and-patch:
         update-types:
           - minor

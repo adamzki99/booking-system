@@ -1,0 +1,16 @@
+{
+  "name": "booking-system-tooling",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "fmt": "oxfmt --write",
+    "fmt:check": "oxfmt --check",
+    "lint": "npm --prefix product/frontend-solid run lint"
+  },
+  "devDependencies": {
+    "oxfmt": "0.80.0"
+  }
+}
