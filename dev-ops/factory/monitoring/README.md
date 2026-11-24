@@ -41,7 +41,7 @@ as an optional profile. This stack is independent of any external APM vendor.
 | Component | Image | Version | Notes |
 |---|---|---:|---|
 | OpenTelemetry Collector Contrib | `otel/opentelemetry-collector-contrib` | `0.165.0` | filelog + clickhouse exporter + health_check |
-| ClickHouse | `clickhouse/clickhouse-server` | `26.9.36.3` | single node, no ZooKeeper |
+| ClickHouse | `clickhouse/clickhouse-server` | `26.10.4.207` | single node, no ZooKeeper |
 | Prometheus | `prom/prometheus` | `v3.16.0` | local TSDB |
 | Node Exporter | `prom/node-exporter` | `v1.13.1` | host + textfile collector |
 | Grafana OSS | `grafana/grafana` | `13.3.1` | provisioned datasources |
@@ -163,17 +163,30 @@ Passwords come from env; compose fails fast when required secrets are empty.
 - ClickHouse system log tables have short TTLs configured in `config.d/low-memory.xml`.
 - Prometheus retention: `PROMETHEUS_RETENTION_TIME` (15d) and `PROMETHEUS_RETENTION_SIZE` (2GB).
 
-Backups (manual, documented; not automated here):
+Backups are manual and are not automated by this stack. Configure and
+restore-test a ClickHouse backup disk before relying on `BACKUP TO Disk(...)`,
+or use `clickhouse-backup` for object storage workflows. For a pre-upgrade backup,
+stop writers and take synchronous backups of every database in use:
 
 ```sh
-# simple local backup of factory tables
-docker compose exec clickhouse clickhouse-client --query \
-  "BACKUP DATABASE factory TO Disk('backups', 'factory-backup-{timestamp}')"
+# from dev-ops/factory/monitoring
+docker compose stop otel-collector
+# When the langfuse profile is enabled, also stop langfuse-worker and langfuse-web.
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+docker compose exec -T clickhouse clickhouse-client --query \
+  "BACKUP DATABASE otel TO Disk('backups', 'otel-before-${stamp}')"
+docker compose exec -T clickhouse clickhouse-client --query \
+  "BACKUP DATABASE factory TO Disk('backups', 'factory-before-${stamp}')"
+# When enabled:
+docker compose exec -T clickhouse clickhouse-client --query \
+  "BACKUP DATABASE langfuse TO Disk('backups', 'langfuse-before-${stamp}')"
+docker compose exec -T clickhouse clickhouse-client --query \
+  "SELECT name, status, error FROM system.backups ORDER BY start_time DESC LIMIT 10"
 ```
 
-Configure a ClickHouse backup disk before using `BACKUP TO Disk(...)`, or use
-`clickhouse-backup` for object storage workflows. Verify restore in a throwaway
-container before relying on backups.
+Proceed only when every required backup reports `BACKUP_CREATED` with no error.
+Users and profiles come from `users.d/users.xml` and `clickhouse-init.sh`; if
+SQL-managed access entities are added later, include them in the backup plan.
 
 ## Security defaults
 
@@ -295,10 +308,12 @@ dev-ops/factory/monitoring/scripts/smoke.sh
 ```
 
 `validate.sh` also checks that generated dashboard JSON is up to date and that
-alert provisioning contains the required rule titles. `smoke.sh` boots a
-temporary stack, ingests fixture events, checks datasources, verifies
-provisioned dashboards and alert rules, and asserts one key ClickHouse query per
-dashboard returns rows.
+alert provisioning contains the required rule titles. Its throwaway ClickHouse
+container uses the image read from `docker-compose.yml`. Startup is retried for
+60 attempts; a readiness failure prints container status and recent logs before
+validation exits. `smoke.sh` boots a temporary stack, ingests fixture events,
+checks datasources, verifies provisioned dashboards and alert rules, and asserts
+one key ClickHouse query per dashboard returns rows.
 
 ## Troubleshooting
 
@@ -313,8 +328,39 @@ dashboard returns rows.
 
 ## Upgrade procedure
 
-1. Bump image tags in `docker-compose.yml` and this README table.
-2. Run `scripts/validate.sh`.
-3. Run `scripts/smoke.sh` on a docker host.
-4. `docker compose pull && docker compose up -d`.
-5. Verify Grafana health, datasource health, and ClickHouse row counts.
+ClickHouse data is persistent. Use the
+[product monitoring backup and canary runbook](../../product/monitoring/README.md#backups-and-persistent-clickhouse-upgrades)
+for the same safety rules, with these factory-specific steps:
+
+1. Bump image tags in `docker-compose.yml` and this README table. Run
+   `scripts/validate.sh` and `scripts/smoke.sh` against the candidate tree in a
+   disposable project. Do not attach the production `clickhouse-data` volume.
+2. Record current row counts, partition bounds, image tag, datasource health,
+   dashboard state, and alert provisioning. Stop the collector and any enabled
+   Langfuse writers, then create the verified backups described in
+   [Retention and backups](#retention-and-backups).
+3. Restore each required backup into an empty canary running the candidate image.
+   Drop only the canary's empty auto-created databases before a database-level
+   restore. Rerun `clickhouse-init`, the factory smoke test, and all dashboard
+   key queries. If Langfuse is enabled, run its migrations and health checks in
+   the canary without using production credentials or data. Compare restored
+   counts and partitions with the recorded values, then tear down the canary.
+4. Only after the canary passes, recreate ClickHouse without immediately
+   restarting writers:
+
+   ```sh
+   # from dev-ops/factory/monitoring
+   docker compose pull clickhouse
+   docker compose up -d clickhouse
+   docker compose run --rm clickhouse-init
+   docker compose up -d
+   ```
+
+5. Verify `SELECT version()`, table/view counts, fresh event ingestion,
+   ClickHouse and Prometheus datasource health, provisioned dashboards, and all
+   alert rules. When Langfuse is enabled, verify its migrations and health too.
+6. On failure, stop writers and retain the failed volume and backup. Do not
+   assume an in-place ClickHouse downgrade is supported. Restore the verified
+   backup into a previous-version disposable server and switch only after that
+   restore passes, or fix forward on the target. Keep old volumes and backups
+   through the rollback window.
