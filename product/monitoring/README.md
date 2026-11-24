@@ -11,15 +11,15 @@ which monitors the software factory.
 
 ## Building blocks
 
-| Component | Image | Version | Role |
-|---|---|---:|---|
-| OpenTelemetry Collector Contrib | `otel/opentelemetry-collector-contrib` | `0.165.0` | OTLP ingest, redaction, export to ClickHouse/Prometheus |
-| ClickHouse | `clickhouse/clickhouse-server` | `26.10.4.207` | Traces and logs store (OTel schema) |
-| Prometheus | `prom/prometheus` | `v3.16.0` | Metrics store, native OTLP receiver enabled |
-| Grafana OSS | `grafana/grafana` | `13.3.1` | Dashboards/alerting, provisioned from files |
-| Grafana ClickHouse plugin | `grafana-clickhouse-datasource` | `4.23.5` | Pinned via `GF_PLUGINS_PREINSTALL` |
-| Node Exporter (profile `host`) | `prom/node-exporter` | `v1.13.1` | Optional host metrics |
-| Postgres Exporter (profile `postgres`) | `quay.io/prometheuscommunity/postgres-exporter` | `v0.21.1` | Optional Postgres metrics |
+| Component                              | Image                                           |       Version | Role                                                    |
+| -------------------------------------- | ----------------------------------------------- | ------------: | ------------------------------------------------------- |
+| OpenTelemetry Collector Contrib        | `otel/opentelemetry-collector-contrib`          |     `0.165.0` | OTLP ingest, redaction, export to ClickHouse/Prometheus |
+| ClickHouse                             | `clickhouse/clickhouse-server`                  | `26.10.4.207` | Traces and logs store (OTel schema)                     |
+| Prometheus                             | `prom/prometheus`                               |     `v3.16.0` | Metrics store, native OTLP receiver enabled             |
+| Grafana OSS                            | `grafana/grafana`                               |      `13.3.1` | Dashboards/alerting, provisioned from files             |
+| Grafana ClickHouse plugin              | `grafana-clickhouse-datasource`                 |      `4.23.5` | Pinned via `GF_PLUGINS_PREINSTALL`                      |
+| Node Exporter (profile `host`)         | `prom/node-exporter`                            |     `v1.13.1` | Optional host metrics                                   |
+| Postgres Exporter (profile `postgres`) | `quay.io/prometheuscommunity/postgres-exporter` |     `v0.21.1` | Optional Postgres metrics                               |
 
 Check versions on vendor release pages/registries before bumping. Dependabot is
 configured for `/product/monitoring` and project monitoring directories.
@@ -87,15 +87,15 @@ docker compose up -d
 
 All required secrets must be set in `.env`. Startup fails fast if empty.
 
-| Variable | Required | Purpose |
-|---|---:|---|
-| `MONITORING_PROJECT` | yes | Project name; used for compose project, network, labels |
-| `CLICKHOUSE_COLLECTOR_PASSWORD` | yes | ClickHouse write user password |
-| `CLICKHOUSE_GRAFANA_PASSWORD` | yes | ClickHouse read-only user password |
-| `GRAFANA_ADMIN_PASSWORD` | yes | Grafana admin password |
-| `GRAFANA_PORT` | yes | Grafana UI on 127.0.0.1 |
-| `OTLP_GRPC_PORT` | yes | OTLP gRPC on 127.0.0.1 |
-| `OTLP_HTTP_PORT` | yes | OTLP HTTP on 127.0.0.1 |
+| Variable                        | Required | Purpose                                                 |
+| ------------------------------- | -------: | ------------------------------------------------------- |
+| `MONITORING_PROJECT`            |      yes | Project name; used for compose project, network, labels |
+| `CLICKHOUSE_COLLECTOR_PASSWORD` |      yes | ClickHouse write user password                          |
+| `CLICKHOUSE_GRAFANA_PASSWORD`   |      yes | ClickHouse read-only user password                      |
+| `GRAFANA_ADMIN_PASSWORD`        |      yes | Grafana admin password                                  |
+| `GRAFANA_PORT`                  |      yes | Grafana UI on 127.0.0.1                                 |
+| `OTLP_GRPC_PORT`                |      yes | OTLP gRPC on 127.0.0.1                                  |
+| `OTLP_HTTP_PORT`                |      yes | OTLP HTTP on 127.0.0.1                                  |
 
 See `.env.example` for retention and memory tuning knobs.
 
@@ -193,15 +193,15 @@ The configuration follows the upstream
 
 Suggested starting limits for the base stack (small shared host, ~3.2 GB RAM):
 
-| Service | Memory limit | Notes |
-|---|---:|---|
-| clickhouse | 768m | `max_server_memory_usage` also capped in config |
-| prometheus | 256m | 15d / 2GB retention by default |
-| grafana | 256m | provisioned plugins/dashboards |
-| otel-collector | 192m | `memory_limiter` first in pipelines |
-| clickhouse-init/check-env | one-shot/32m | negligible steady-state |
-| node-exporter (`host`) | 64m | optional profile |
-| postgres-exporter (`postgres`) | 64m | optional profile |
+| Service                        | Memory limit | Notes                                           |
+| ------------------------------ | -----------: | ----------------------------------------------- |
+| clickhouse                     |         768m | `max_server_memory_usage` also capped in config |
+| prometheus                     |         256m | 15d / 2GB retention by default                  |
+| grafana                        |         256m | provisioned plugins/dashboards                  |
+| otel-collector                 |         192m | `memory_limiter` first in pipelines             |
+| clickhouse-init/check-env      | one-shot/32m | negligible steady-state                         |
+| node-exporter (`host`)         |          64m | optional profile                                |
+| postgres-exporter (`postgres`) |          64m | optional profile                                |
 
 Always-on base total: ~1.47 GB. On a 3.2 GB dev host shared with booking and
 factory monitoring, this exceeds the practical budget. Run at most one
@@ -213,13 +213,13 @@ Do not start product monitoring as a requirement for booking environments.
 Generic dashboards are provisioned into the Grafana `Product` folder. All
 support variables `deployment_environment`, `service_name`, and `service_version`.
 
-| UID | Title | What it answers |
-|---|---|---|
-| `product-overview` | Service overview | Request rate, 5xx error rate, p50/p95/p99 latency, top slow routes, top error routes, deploy/restart markers, telemetry freshness. |
-| `product-traces` | Traces and logs | Recent traces, error traces, and log search with TraceId/SpanId correlation from ClickHouse OTel tables. |
-| `product-event-sourcing` | Event sourcing and data | Events appended by type, projection checkpoint/lag/errors, command outcomes and duration, DB span latency, pgx pool stats, notification outbox health. |
-| `product-usage` | Product usage | Bookings created/cancelled/rejected by reason, logins by result, codes issued, rate-limit rejections, sidecar requests/latency by result, email send results. |
-| `product-runtime` | Runtime and dependencies | Go runtime memory/goroutines/GC, optional container memory, optional host/postgres/caddy profile panels with No data when profile is disabled. |
+| UID                      | Title                    | What it answers                                                                                                                                               |
+| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product-overview`       | Service overview         | Request rate, 5xx error rate, p50/p95/p99 latency, top slow routes, top error routes, deploy/restart markers, telemetry freshness.                            |
+| `product-traces`         | Traces and logs          | Recent traces, error traces, and log search with TraceId/SpanId correlation from ClickHouse OTel tables.                                                      |
+| `product-event-sourcing` | Event sourcing and data  | Events appended by type, projection checkpoint/lag/errors, command outcomes and duration, DB span latency, pgx pool stats, notification outbox health.        |
+| `product-usage`          | Product usage            | Bookings created/cancelled/rejected by reason, logins by result, codes issued, rate-limit rejections, sidecar requests/latency by result, email send results. |
+| `product-runtime`        | Runtime and dependencies | Go runtime memory/goroutines/GC, optional container memory, optional host/postgres/caddy profile panels with No data when profile is disabled.                |
 
 ## Alerts
 
@@ -228,16 +228,16 @@ Grafana-managed alert rules are provisioned from
 `product/monitoring/.env.example` and are generated with
 `scripts/generate_alert_rules.py`.
 
-| Alert UID | Condition (default) | Runbook (first checks) |
-|---|---|---|
-| `product-backend-silent` | No backend telemetry for 10 min in an environment that reported in last 24h | Check backend logs/health, OTEL_EXPORTER_OTLP_ENDPOINT, collector health, and Prometheus recent samples. |
-| `product-high-error-rate` | 5xx above 2% for 10 min with at least 20 requests | Inspect Traces and logs dashboard for error traces, backend logs by trace_id, deploy markers, projection.errors and DB health. |
-| `product-high-latency` | p95 above 1s for 10 min | Inspect slow routes, DB span latency, pgx pool, sidecar duration, Go runtime/GC and host memory. |
-| `product-projection-lag` | Projection lag above 100 events for 5 min, or any projection error increase | Inspect projection.lag/errors by projection, backend projection logs, event store head vs checkpoints; projections must remain rebuildable. |
-| `product-notifications-failing` | notifications.failed increases, or pending above 50 for 30 min | Inspect notification metrics, backend SMTP/outbox logs, SMTP connectivity/credentials, outbox rows read-only. |
-| `product-sidecar-failing` | Sidecar error rate above 5% for 10 min | Check sidecar health/logs, sidecar.requests/duration by endpoint/result, connectivity, recent deploys; sidecar fails open. |
-| `product-telemetry-pipeline` | Collector refused/dropped/send_failed above 0 for 10 min | Check otel-collector logs/health, refused/dropped/send_failed metrics, ClickHouse and Prometheus health/disk. |
-| `product-disk-retention` | Disk usage above 85% for 15 min where measurable | Check ClickHouse/Prometheus volume sizes, TTL/retention, node-exporter filesystem metrics; reduce retention or move host before outage. |
+| Alert UID                       | Condition (default)                                                         | Runbook (first checks)                                                                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product-backend-silent`        | No backend telemetry for 10 min in an environment that reported in last 24h | Check backend logs/health, OTEL_EXPORTER_OTLP_ENDPOINT, collector health, and Prometheus recent samples.                                    |
+| `product-high-error-rate`       | 5xx above 2% for 10 min with at least 20 requests                           | Inspect Traces and logs dashboard for error traces, backend logs by trace_id, deploy markers, projection.errors and DB health.              |
+| `product-high-latency`          | p95 above 1s for 10 min                                                     | Inspect slow routes, DB span latency, pgx pool, sidecar duration, Go runtime/GC and host memory.                                            |
+| `product-projection-lag`        | Projection lag above 100 events for 5 min, or any projection error increase | Inspect projection.lag/errors by projection, backend projection logs, event store head vs checkpoints; projections must remain rebuildable. |
+| `product-notifications-failing` | notifications.failed increases, or pending above 50 for 30 min              | Inspect notification metrics, backend SMTP/outbox logs, SMTP connectivity/credentials, outbox rows read-only.                               |
+| `product-sidecar-failing`       | Sidecar error rate above 5% for 10 min                                      | Check sidecar health/logs, sidecar.requests/duration by endpoint/result, connectivity, recent deploys; sidecar fails open.                  |
+| `product-telemetry-pipeline`    | Collector refused/dropped/send_failed above 0 for 10 min                    | Check otel-collector logs/health, refused/dropped/send_failed metrics, ClickHouse and Prometheus health/disk.                               |
+| `product-disk-retention`        | Disk usage above 85% for 15 min where measurable                            | Check ClickHouse/Prometheus volume sizes, TTL/retention, node-exporter filesystem metrics; reduce retention or move host before outage.     |
 
 Notification policy groups by `alertname, project, deployment_environment`.
 

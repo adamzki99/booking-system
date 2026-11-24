@@ -107,33 +107,33 @@ tick.sh [--dry-run] [--on-usage-filled=backup|skip|fail] [--max-fix-sessions=N]
 tick.sh --help
 ```
 
-| Flag / env | Default | Meaning |
-|---|---|---|
-| `--dry-run` | off | Select/log actions without starting sessions or acquiring run claims. |
-| `--on-usage-filled=MODE` / `FACTORY_ON_USAGE_FILLED` | `backup` | On quota/usage-filled failure: retry configured backup, then `FACTORY_FREE_MODEL` if distinct; or `skip`; or `fail`. |
-| `--max-fix-sessions=N` / `FACTORY_MAX_FIX_SESSIONS` | `1` | Max fix sessions per tick (serialized). |
-| `FACTORY_FREE_MODEL` | `opencode-go/beam-free` | Last-resort model in backup mode. |
-| `FACTORY_SESSION_TIMEOUT` | `3600` | Per-session timeout seconds (0 disables). |
-| `FACTORY_GH_RETRIES` | `3` | Bounded retries for transient/rate-limited gh/git operations. |
-| `FACTORY_CLAIM_TTL` | `7200` | Claim lease TTL seconds. |
-| `FACTORY_CLAIM_DIR` | `/tmp/factory-claims` | Atomic lease directory. |
-| `FACTORY_WORKTREE` | sibling `<repo>-factory-worktree` | Isolated factory worktree. |
-| `FACTORY_CONFIG_TAG` | `factory-config` | Owner-moved git tag holding the signed-off guardrail snapshot. |
-| `FACTORY_LOG_FILE` | `${XDG_STATE_HOME:-~/.local/state}/factory/tick.jsonl` | JSONL event log. |
-| `FACTORY_ENV` | `dev` | `deployment.environment` field. |
-| `FACTORY_ID` | `factory-1` | `factory_id` field on every event; one scheduler host = one factory id. |
-| `FACTORY_METRICS_DIR` | `${XDG_STATE_HOME:-~/.local/state}/factory/metrics` | Directory for the atomic `factory_tick.prom` Prometheus textfile (written each tick in the EXIT trap). |
-| `FACTORY_SESSION_LOG_DIR` | `/tmp/opencode` | Session logs and prompt temp files. |
-| `FACTORY_LOG_SESSION_OUTPUT` | `tail` | `tail` retains last 16 KiB in failure events and writes session logs; `metadata` suppresses retained output. |
-| `FACTORY_PRESERVE_SESSION_LOGS` | `on-failure` | `on-failure` (delete on success), `always`, `never`. |
-| `FACTORY_CONTAINER_MODE` | `0` | `1` enables bwrap per-session sandbox; falls back to host if bwrap unavailable. |
-| `FACTORY_LOGIN` | (unset) | Login of the factory bot/app identity. Plan markers from other authors are ignored; when unset, no plan marker is trusted. Also used to attribute factory work. |
-| `FACTORY_TRUSTED_LOGINS` | (unset) | Comma/whitespace separated GitHub logins whose issues, PRs, and comments may drive the factory. Includes `FACTORY_LOGIN` when set. Empty discovers nothing and trusts no comments (fail closed). |
-| `FACTORY_GITHUB_APP_ID` | (unset) | GitHub App id used to mint a short-lived least-privilege installation token per tick. |
-| `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE` | (unset) | Path to the app private key PEM (preferred over inline key). |
-| `FACTORY_GITHUB_APP_PRIVATE_KEY` | (unset) | Inline app private key PEM (avoid; prefer file). |
-| `FACTORY_GITHUB_INSTALLATION_ID` | (unset) | Installation id; auto-discovered from the repository when unset. |
-| `MODELS_CONFIG` | `dev-ops/factory/models.yaml` | Label→model config. |
+| Flag / env                                           | Default                                                | Meaning                                                                                                                                                                                          |
+| ---------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--dry-run`                                          | off                                                    | Select/log actions without starting sessions or acquiring run claims.                                                                                                                            |
+| `--on-usage-filled=MODE` / `FACTORY_ON_USAGE_FILLED` | `backup`                                               | On quota/usage-filled failure: retry configured backup, then `FACTORY_FREE_MODEL` if distinct; or `skip`; or `fail`.                                                                             |
+| `--max-fix-sessions=N` / `FACTORY_MAX_FIX_SESSIONS`  | `1`                                                    | Max fix sessions per tick (serialized).                                                                                                                                                          |
+| `FACTORY_FREE_MODEL`                                 | `opencode-go/beam-free`                                | Last-resort model in backup mode.                                                                                                                                                                |
+| `FACTORY_SESSION_TIMEOUT`                            | `3600`                                                 | Per-session timeout seconds (0 disables).                                                                                                                                                        |
+| `FACTORY_GH_RETRIES`                                 | `3`                                                    | Bounded retries for transient/rate-limited gh/git operations.                                                                                                                                    |
+| `FACTORY_CLAIM_TTL`                                  | `7200`                                                 | Claim lease TTL seconds.                                                                                                                                                                         |
+| `FACTORY_CLAIM_DIR`                                  | `/tmp/factory-claims`                                  | Atomic lease directory.                                                                                                                                                                          |
+| `FACTORY_WORKTREE`                                   | sibling `<repo>-factory-worktree`                      | Isolated factory worktree.                                                                                                                                                                       |
+| `FACTORY_CONFIG_TAG`                                 | `factory-config`                                       | Owner-moved git tag holding the signed-off guardrail snapshot.                                                                                                                                   |
+| `FACTORY_LOG_FILE`                                   | `${XDG_STATE_HOME:-~/.local/state}/factory/tick.jsonl` | JSONL event log.                                                                                                                                                                                 |
+| `FACTORY_ENV`                                        | `dev`                                                  | `deployment.environment` field.                                                                                                                                                                  |
+| `FACTORY_ID`                                         | `factory-1`                                            | `factory_id` field on every event; one scheduler host = one factory id.                                                                                                                          |
+| `FACTORY_METRICS_DIR`                                | `${XDG_STATE_HOME:-~/.local/state}/factory/metrics`    | Directory for the atomic `factory_tick.prom` Prometheus textfile (written each tick in the EXIT trap).                                                                                           |
+| `FACTORY_SESSION_LOG_DIR`                            | `/tmp/opencode`                                        | Session logs and prompt temp files.                                                                                                                                                              |
+| `FACTORY_LOG_SESSION_OUTPUT`                         | `tail`                                                 | `tail` retains last 16 KiB in failure events and writes session logs; `metadata` suppresses retained output.                                                                                     |
+| `FACTORY_PRESERVE_SESSION_LOGS`                      | `on-failure`                                           | `on-failure` (delete on success), `always`, `never`.                                                                                                                                             |
+| `FACTORY_CONTAINER_MODE`                             | `0`                                                    | `1` enables bwrap per-session sandbox; falls back to host if bwrap unavailable.                                                                                                                  |
+| `FACTORY_LOGIN`                                      | (unset)                                                | Login of the factory bot/app identity. Plan markers from other authors are ignored; when unset, no plan marker is trusted. Also used to attribute factory work.                                  |
+| `FACTORY_TRUSTED_LOGINS`                             | (unset)                                                | Comma/whitespace separated GitHub logins whose issues, PRs, and comments may drive the factory. Includes `FACTORY_LOGIN` when set. Empty discovers nothing and trusts no comments (fail closed). |
+| `FACTORY_GITHUB_APP_ID`                              | (unset)                                                | GitHub App id used to mint a short-lived least-privilege installation token per tick.                                                                                                            |
+| `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE`                | (unset)                                                | Path to the app private key PEM (preferred over inline key).                                                                                                                                     |
+| `FACTORY_GITHUB_APP_PRIVATE_KEY`                     | (unset)                                                | Inline app private key PEM (avoid; prefer file).                                                                                                                                                 |
+| `FACTORY_GITHUB_INSTALLATION_ID`                     | (unset)                                                | Installation id; auto-discovered from the repository when unset.                                                                                                                                 |
+| `MODELS_CONFIG`                                      | `dev-ops/factory/models.yaml`                          | Label→model config.                                                                                                                                                                              |
 
 OpenCode invocation uses `opencode run --auto --format json --file <prompt-file>`
 for robust prompt delivery and session ID capture. Each invocation is a
@@ -283,6 +283,7 @@ docker compose up -d
 ```
 
 How events reach it:
+
 - Same host: bind-mount `FACTORY_LOG_DIR` read-only into the collector.
 - Other host: run the optional remote shipper config in
   [`otel-collector.yaml`](otel-collector.yaml), which tails the same JSONL with

@@ -7,11 +7,11 @@ homeowner association.
 
 Each top-level directory is a "group" within the organization:
 
-| Directory   | Contents |
-|-------------|----------|
-| `product/`  | The generic booking product - backend, frontend, and everything reusable across deployments. |
+| Directory   | Contents                                                                                                                                               |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `product/`  | The generic booking product - backend, frontend, and everything reusable across deployments.                                                           |
 | `projects/` | One subdirectory per deployment (documentation and configuration). A `product/` folder plus one `projects/<name>/` folder makes a working application. |
-| `dev-ops/`  | CI/CD, the software factory, environments, and code-quality tooling. |
+| `dev-ops/`  | CI/CD, the software factory, environments, and code-quality tooling.                                                                                   |
 
 ## Stack
 

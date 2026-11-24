@@ -48,24 +48,24 @@ Telemetry is optional. When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, the backend ex
 
 ### Environment variables
 
-| Variable | Purpose |
-| --- | --- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP base endpoint, for example `http://otel-collector:4318`. Empty disables export. |
-| `OTEL_SERVICE_NAME` | Overrides `service.name`. Defaults to `booking-backend`. |
-| `OTEL_RESOURCE_ATTRIBUTES` | Comma-separated `key=value` resource attributes, for example `service.version=... ,deployment.environment=... ,project=...`. |
+| Variable                      | Purpose                                                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP base endpoint, for example `http://otel-collector:4318`. Empty disables export.                                    |
+| `OTEL_SERVICE_NAME`           | Overrides `service.name`. Defaults to `booking-backend`.                                                                     |
+| `OTEL_RESOURCE_ATTRIBUTES`    | Comma-separated `key=value` resource attributes, for example `service.version=... ,deployment.environment=... ,project=...`. |
 
 The resource also includes OpenTelemetry SDK, host, and process runtime attributes. `OTEL_SERVICE_NAME` / configured service name takes precedence over defaults.
 
 ### Traces and spans
 
-| Span | Source | Notes |
-| --- | --- | --- |
+| Span                       | Source                    | Notes                                                                                                                                         |
+| -------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /...` / route pattern | `otelhttp` server wrapper | Span name is the matched Go route pattern, for example `GET /bookings/{id}/cancel`. `http.route` is set. `/healthz` is excluded from tracing. |
-| `command.execute` | command service | Attribute: `command.type`. |
-| `projection.apply` | projection runner | Attributes: `projection.name`, `event.count`. |
-| `smtp.send` | SMTP sender | Attribute: `smtp.host`. No recipient, subject, or body attributes. |
-| pgx spans | `otelpgx` | Database spans for pool queries. Query parameters are not recorded. |
-| sidecar client spans | `otelhttp` transport | Outbound HTTP spans to the deployment sidecar. |
+| `command.execute`          | command service           | Attribute: `command.type`.                                                                                                                    |
+| `projection.apply`         | projection runner         | Attributes: `projection.name`, `event.count`.                                                                                                 |
+| `smtp.send`                | SMTP sender               | Attribute: `smtp.host`. No recipient, subject, or body attributes.                                                                            |
+| pgx spans                  | `otelpgx`                 | Database spans for pool queries. Query parameters are not recorded.                                                                           |
+| sidecar client spans       | `otelhttp` transport      | Outbound HTTP spans to the deployment sidecar.                                                                                                |
 
 Stdout JSON logs include `trace_id` and `span_id` when a span is active.
 
@@ -73,29 +73,29 @@ Stdout JSON logs include `trace_id` and `span_id` when a span is active.
 
 All metric attributes are low-cardinality enums. User ids, e-mails, booking ids, tokens, and raw URLs are never used as metric attributes.
 
-| Metric | Type | Attributes | Notes |
-| --- | --- | --- | --- |
-| `events.appended` | counter | `type` | Recorded after successful event append. |
-| `commands.handled` | counter | `command`, `outcome` | `outcome` is `ok` or `error`. |
-| `commands.duration` | histogram (s) | `command`, `outcome` | Command handling duration. |
-| `projection.checkpoint` | observable gauge | `projection` | Last applied event ID. |
-| `projection.lag` | observable gauge | `projection` | Event store head minus checkpoint, clamped to zero. |
-| `projection.errors` | counter | `projection` | Projection apply/checkpoint errors. |
-| `bookings.created` | counter | - | Successful booking creation. |
-| `bookings.cancelled` | counter | - | Successful booking cancellation. |
-| `bookings.rejected` | counter | `reason` | `reason`: `double_booking`, `blocked_period`, `sidecar_rule`, `validation`. |
-| `auth.codes_issued` | counter | - | Login code issued and sent. |
-| `auth.logins` | counter | `result` | `result`: `success`, `invalid_code`, `rate_limited`, `error`. |
-| `ratelimit.rejected` | counter | `limiter` | Low-cardinality limiter name, for example `auth_verify_ip`, `ical_token`. |
-| `sidecar.requests` | counter | `endpoint`, `result` | `result`: `ok`, `rejected`, `unavailable`, `error`. |
-| `sidecar.duration` | histogram (s) | `endpoint`, `result` | Sidecar request duration. |
-| `email.sent` | counter | `result` | `result`: `ok`, `error`. |
-| `notifications.enqueued` | counter | - | Outbox delivery enqueued. |
-| `notifications.sent` | counter | - | Outbox delivery sent. |
-| `notifications.retried` | counter | - | Outbox delivery scheduled for retry. |
-| `notifications.failed` | counter | - | Outbox delivery permanently failed. |
-| `notifications.enqueue_failed` | counter | - | Outbox enqueue failure. |
-| `notifications.pending` | observable gauge | - | Pending outbox deliveries from the database. |
+| Metric                         | Type             | Attributes           | Notes                                                                       |
+| ------------------------------ | ---------------- | -------------------- | --------------------------------------------------------------------------- |
+| `events.appended`              | counter          | `type`               | Recorded after successful event append.                                     |
+| `commands.handled`             | counter          | `command`, `outcome` | `outcome` is `ok` or `error`.                                               |
+| `commands.duration`            | histogram (s)    | `command`, `outcome` | Command handling duration.                                                  |
+| `projection.checkpoint`        | observable gauge | `projection`         | Last applied event ID.                                                      |
+| `projection.lag`               | observable gauge | `projection`         | Event store head minus checkpoint, clamped to zero.                         |
+| `projection.errors`            | counter          | `projection`         | Projection apply/checkpoint errors.                                         |
+| `bookings.created`             | counter          | -                    | Successful booking creation.                                                |
+| `bookings.cancelled`           | counter          | -                    | Successful booking cancellation.                                            |
+| `bookings.rejected`            | counter          | `reason`             | `reason`: `double_booking`, `blocked_period`, `sidecar_rule`, `validation`. |
+| `auth.codes_issued`            | counter          | -                    | Login code issued and sent.                                                 |
+| `auth.logins`                  | counter          | `result`             | `result`: `success`, `invalid_code`, `rate_limited`, `error`.               |
+| `ratelimit.rejected`           | counter          | `limiter`            | Low-cardinality limiter name, for example `auth_verify_ip`, `ical_token`.   |
+| `sidecar.requests`             | counter          | `endpoint`, `result` | `result`: `ok`, `rejected`, `unavailable`, `error`.                         |
+| `sidecar.duration`             | histogram (s)    | `endpoint`, `result` | Sidecar request duration.                                                   |
+| `email.sent`                   | counter          | `result`             | `result`: `ok`, `error`.                                                    |
+| `notifications.enqueued`       | counter          | -                    | Outbox delivery enqueued.                                                   |
+| `notifications.sent`           | counter          | -                    | Outbox delivery sent.                                                       |
+| `notifications.retried`        | counter          | -                    | Outbox delivery scheduled for retry.                                        |
+| `notifications.failed`         | counter          | -                    | Outbox delivery permanently failed.                                         |
+| `notifications.enqueue_failed` | counter          | -                    | Outbox enqueue failure.                                                     |
+| `notifications.pending`        | observable gauge | -                    | Pending outbox deliveries from the database.                                |
 
 Runtime Go/process metrics are exported by the OTel runtime instrumentation. pgx pool stats are exported when pool instrumentation is enabled.
 

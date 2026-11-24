@@ -9,6 +9,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** every `pull_request`, push to `main`, and `workflow_dispatch`.
 
 **Jobs:**
+
 - **Detect changed paths** (`changes`): uses `dorny/paths-filter` to decide which of backend, frontend and sidecar run.
 - **Backend CI**, **Frontend CI**, **Sidecar CI**: reusable workflow calls, gated on the filter outputs.
 - **Security**, **Semgrep**: reusable workflow calls that always run.
@@ -19,6 +20,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** `pull_request` and `push` when `product/backend/**` or the workflow file changes; `workflow_dispatch`.
 
 **Jobs:**
+
 - **Format, vet, test, build** (`product/backend`): checks `gofmt`, runs `go vet ./...`, runs `go test -race -shuffle=on -timeout 20m -json ./...` into `$RUNNER_TEMP/go-test.json`, and builds `./cmd/server`. The following "Test report" step always runs `dev-ops/scripts/go-test-report.sh`, which fails on any test-level `skip`, requires a non-zero pass count for the seven Postgres integration packages (`auth`, `booking`, `eventstore`, `notification`, `projection`, `registry`, `user`), and writes per-package counts to the job summary. The Go version is read from the `golang` builder image in `product/backend/Dockerfile`, so the full test suite runs on the same toolchain line used by the production image without a duplicate test matrix.
 - **Docker build smoke test**: builds `product/backend/Dockerfile` from the repo root to catch Dockerfile regressions.
 
@@ -29,6 +31,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** `pull_request` and `push` to `main` when `product/frontend-solid/**` or the workflow file changes; `workflow_dispatch`.
 
 **Jobs:**
+
 - **Install, typecheck, test, build** (`product/frontend-solid`): installs dependencies with `npm ci` (deterministic, from `package-lock.json`), runs typecheck (`npm run typecheck`), runs the Vitest suite (`npm test`), and runs the production build (`npm run build`, which runs `tsc --noEmit` then `vite build`). Node 22 is used, matching `product/frontend-solid/Dockerfile`. Dependencies are cached via `actions/setup-node`. Actions are pinned to full commit SHAs (`actions/checkout` and `actions/setup-node` v4.4.0) so a repointed tag cannot inject code into the job.
 
 **Notes:** Any failing typecheck, test, or build error fails the check. No secrets are required.
@@ -38,6 +41,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** `pull_request` and `push` to `main` when `projects/sauna/sidecar/**` or the workflow file changes; `workflow_dispatch`.
 
 **Jobs:**
+
 - **Sidecar tests and Docker build** (`projects/sauna/sidecar`): runs `go test -race -shuffle=on -json ./...` into `$RUNNER_TEMP/go-test.json`, then the "Test report" step runs `dev-ops/scripts/go-test-report.sh` with no required-package flags. Go version comes from `projects/sauna/sidecar/go.mod`, and module caching uses `projects/sauna/sidecar/go.sum`. The job then builds `projects/sauna/sidecar/Dockerfile` to validate the complete sidecar image on the same runner.
 
 **Notes:** Any failing sidecar test fails the check. Sidecar logic stays deployment-specific and is intentionally not coupled to `backend-ci.yml`.
@@ -47,6 +51,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** `pull_request`, `push` to `main`, weekly schedule (Monday 06:17 UTC), `workflow_dispatch`.
 
 **Jobs:**
+
 - **Dependency review** (PRs only): uses `actions/dependency-review-action`. Requires GitHub Dependency Graph to be enabled for the repository.
 - **Go vulnerability scan**: runs `govulncheck ./...` in both `product/backend` and `projects/sauna/sidecar`. A finding in either module fails the Security job and therefore `ci-gate`.
 
@@ -59,6 +64,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** `pull_request` to `main`/`master`/`release/**`, `push` to `main`/`master`/`release/**` (workflow file only), `workflow_dispatch`, and a daily `schedule` (randomized time).
 
 **Jobs:**
+
 - **Semgrep** (`semgrep/ci`): runs a tokenless OSS Semgrep scan in the `semgrep/semgrep` container, as defined in [`semgrep.yml`](semgrep.yml). No repository secret is required. Skips `dependabot[bot]`.
 
 **Notes:** Uses tokenless OSS rules. On PRs and pushes, `SEMGREP_BASELINE_COMMIT` limits findings to those introduced by the change; the daily run scans the full tree. Excludes live in `.semgrepignore`. Findings fail the job and therefore `ci-gate`, the only required status check for `main`.
@@ -68,6 +74,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** monthly `schedule` (first day at 05:43 UTC) and `workflow_dispatch`.
 
 **Jobs:**
+
 - **Mint canary token** (`token`): mints a GitHub App installation token from `CANARY_APP_ID` and `CANARY_APP_PRIVATE_KEY`, falling back to `CANARY_TOKEN`. The default `GITHUB_TOKEN` cannot be used because pull requests it opens do not trigger `ci.yml`.
 - **Canary <gate>** (`assert`, matrix): for each gate (`gofmt`, `gotest`, `vitest`, `semgrep`, `dep-review`, `gitleaks`), pushes a throwaway `canary/<gate>-<YYYYMMDD>` branch with one deliberate defect and opens a draft pull request. The job passes only when the pull request's `ci-gate` check concludes failure. Every other outcome (success, skipped, cancelled, neutral, timeout) fails the job.
 - **Clean up canary branches** (`cleanup`): runs with `if: always()` after the matrix, closes every open `canary/*` pull request and deletes every `canary/*` branch, then verifies none remain.
