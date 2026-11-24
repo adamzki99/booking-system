@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "endOfLine": "lf",
+  "proseWrap": "preserve",
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/package-lock.json",
+    ".opencode/skills/**",
+    "projects/sauna/docs/mocks/**",
+    "**/*.go",
+    "**/*.py"
+  ]
+}

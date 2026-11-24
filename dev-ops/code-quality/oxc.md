@@ -1,5 +1,7 @@
 # Oxc adoption baseline and decisions
 
+Status: foundation in place (prompt 02).
+
 ## 1. Purpose and scope
 
 This document records the baseline measurements for adopting Oxc tools across
