@@ -63,9 +63,28 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 
 **Notes:** Uses tokenless OSS rules. On PRs and pushes, `SEMGREP_BASELINE_COMMIT` limits findings to those introduced by the change; the daily run scans the full tree. Excludes live in `.semgrepignore`. Findings fail the job and therefore `ci-gate`, the only required status check for `main`.
 
+## `ci-canary.yml`
+
+**Triggers:** monthly `schedule` (first day at 05:43 UTC) and `workflow_dispatch`.
+
+**Jobs:**
+- **Mint canary token** (`token`): mints a GitHub App installation token from `CANARY_APP_ID` and `CANARY_APP_PRIVATE_KEY`, falling back to `CANARY_TOKEN`. The default `GITHUB_TOKEN` cannot be used because pull requests it opens do not trigger `ci.yml`.
+- **Canary <gate>** (`assert`, matrix): for each gate (`gofmt`, `gotest`, `vitest`, `semgrep`, `dep-review`, `gitleaks`), pushes a throwaway `canary/<gate>-<YYYYMMDD>` branch with one deliberate defect and opens a draft pull request. The job passes only when the pull request's `ci-gate` check concludes failure. Every other outcome (success, skipped, cancelled, neutral, timeout) fails the job.
+- **Clean up canary branches** (`cleanup`): runs with `if: always()` after the matrix, closes every open `canary/*` pull request and deletes every `canary/*` branch, then verifies none remain.
+- **Report canary failure** (`report`): when the matrix failed, opens a `bug` and `dev-ops` issue titled `[ci-canary] CI gate canary failed`, or comments on an existing open one. The `bug` label keeps the issue out of planner discovery, which only considers unlabelled issues.
+
+**Notes:** Canary pull requests are drafts and must never be merged. `dev-ops/scripts/ci-canary.sh` holds the defect payloads and lifecycle; `dev-ops/scripts/tests/test-ci-canary.sh` covers the pass, fail, timeout and missing-token paths with a stubbed `gh`. The `canary/` prefix never matches `factory/issue-N`, so the factory fixer ignores these pull requests. The Semgrep, fake-secret and vulnerable-dependency payloads are generated at run time and are never committed to `main`.
+
 ## Required secrets
 
-No repository secrets are required for the current CI, security, or Semgrep checks. Future deployment or image-publish workflows will need secrets (registry credentials, SSH/runner access, database/application configuration) - document them here when added.
+No repository secrets are required for the regular CI, security, or Semgrep checks. The monthly canary needs one of:
+
+- `CANARY_APP_ID` and `CANARY_APP_PRIVATE_KEY`: GitHub App credentials used to mint an installation token. The app must be installed on this repository with contents, pull requests and issues write access, plus checks read access so the script can read `ci-gate`.
+- `CANARY_TOKEN`: fallback token with the same permissions, used when the app credentials are absent or the app token cannot be minted.
+
+If neither is configured, `ci-canary.yml` fails in the token job with a clear error.
+
+Future deployment or image-publish workflows will need secrets (registry credentials, SSH/runner access, database/application configuration) - document them here when added.
 
 ### Secret handling policy
 
@@ -97,4 +116,7 @@ docker build -f product/backend/Dockerfile product/backend
 cd product/backend
 go install golang.org/x/vuln/cmd/govulncheck@latest
 govulncheck ./...
+
+# CI canary lifecycle (stubbed gh, no network)
+bash dev-ops/scripts/tests/test-ci-canary.sh
 ```

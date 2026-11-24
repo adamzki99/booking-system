@@ -1,0 +1,112 @@
+name: CI Canary
+
+on:
+  schedule:
+    - cron: '43 5 1 * *' # monthly, first day at 05:43 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-canary
+  cancel-in-progress: false
+
+jobs:
+  token:
+    name: Mint canary token
+    runs-on: ubuntu-latest
+    env:
+      CANARY_APP_ID: ${{ secrets.CANARY_APP_ID }}
+      CANARY_APP_PRIVATE_KEY: ${{ secrets.CANARY_APP_PRIVATE_KEY }}
+      CANARY_TOKEN: ${{ secrets.CANARY_TOKEN }}
+    outputs:
+      token: ${{ steps.app.outputs.token || steps.fallback.outputs.token }}
+    steps:
+      - name: Mint GitHub App token
+        id: app
+        if: env.CANARY_APP_ID != '' && env.CANARY_APP_PRIVATE_KEY != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ secrets.CANARY_APP_ID }}
+          private-key: ${{ secrets.CANARY_APP_PRIVATE_KEY }}
+
+      - name: Use fallback token
+        id: fallback
+        if: env.CANARY_APP_ID == '' || env.CANARY_APP_PRIVATE_KEY == '' || steps.app.outcome == 'failure'
+        run: |
+          if [ -z "${CANARY_TOKEN:-}" ]; then
+            echo "::error::Set CANARY_APP_ID + CANARY_APP_PRIVATE_KEY or CANARY_TOKEN"
+            exit 1
+          fi
+          echo "token=$CANARY_TOKEN" >> "$GITHUB_OUTPUT"
+
+  assert:
+    name: Canary ${{ matrix.gate }}
+    needs: token
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    strategy:
+      fail-fast: false
+      matrix:
+        gate: [gofmt, gotest, vitest, semgrep, dep-review, gitleaks]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Plant defect and assert ci-gate fails
+        env:
+          GH_TOKEN: ${{ needs.token.outputs.token }}
+          GITHUB_TOKEN: ${{ needs.token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_CANARY_PUSH_URL: https://x-access-token:${{ needs.token.outputs.token }}@github.com/${{ github.repository }}.git
+          CI_CANARY_TIMEOUT_SECONDS: '1800'
+          CI_CANARY_POLL_SECONDS: '30'
+        run: dev-ops/scripts/ci-canary.sh gate "${{ matrix.gate }}"
+
+  cleanup:
+    name: Clean up canary branches
+    needs: [token, assert]
+    if: always() && needs.token.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Close canary PRs and delete branches
+        env:
+          GH_TOKEN: ${{ needs.token.outputs.token }}
+          GITHUB_TOKEN: ${{ needs.token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_CANARY_PUSH_URL: https://x-access-token:${{ needs.token.outputs.token }}@github.com/${{ github.repository }}.git
+        run: dev-ops/scripts/ci-canary.sh cleanup
+
+  report:
+    name: Report canary failure
+    needs: [token, assert, cleanup]
+    if: always() && needs.token.result == 'success' && needs.assert.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: File or update canary bug issue
+        env:
+          GH_TOKEN: ${{ needs.token.outputs.token }}
+          GITHUB_TOKEN: ${{ needs.token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_CANARY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: dev-ops/scripts/ci-canary.sh report
