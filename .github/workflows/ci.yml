@@ -47,6 +47,8 @@ jobs:
             monitoring:
               - 'dev-ops/factory/monitoring/**'
               - 'dev-ops/factory/otel-collector.yaml'
+              - 'product/monitoring/**'
+              - 'projects/sauna/monitoring/**'
               - '.github/workflows/monitoring-ci.yml'
               - '.github/workflows/ci.yml'
 

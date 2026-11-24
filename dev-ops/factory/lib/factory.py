@@ -302,10 +302,86 @@ def check_state(item):
     return st
 
 
-def fix_candidates_from_prs(prs):
+def parse_trusted_logins(raw):
+    """Parse a comma/whitespace separated login list into a lowercase set.
+
+    An empty or missing value yields an empty set so callers fail closed.
+    """
+    if raw is None:
+        return set()
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        values = []
+        for item in raw:
+            if isinstance(item, dict):
+                item = item.get("login")
+            if isinstance(item, str):
+                values.append(item)
+    else:
+        values = re.split(r"[,\s]+", str(raw))
+    return {value.strip().lower() for value in values if value.strip()}
+
+
+def trusted_logins_from_env(environ=None):
+    """Load trusted logins from the environment, including FACTORY_LOGIN."""
+    env = os.environ if environ is None else environ
+    raw = env.get("FACTORY_TRUSTED_LOGINS", "")
+    login = env.get("FACTORY_LOGIN", "")
+    if login:
+        raw = f"{raw},{login}"
+    return parse_trusted_logins(raw)
+
+
+def _login_of(candidate):
+    if isinstance(candidate, dict):
+        candidate = candidate.get("login")
+    return candidate if isinstance(candidate, str) else ""
+
+
+def is_trusted_login(candidate, trusted):
+    """Return whether a login or GitHub author object is explicitly trusted."""
+    login = _login_of(candidate).strip().lower()
+    return bool(login) and login in parse_trusted_logins(trusted)
+
+
+def filter_trusted_issues(issues, trusted):
+    """Keep only issues whose author is in the trusted login set."""
+    return [
+        issue for issue in issues or []
+        if isinstance(issue, dict) and is_trusted_login(issue.get("author"), trusted)
+    ]
+
+
+def build_prompt_context(body, comments, trusted):
+    """Return a body plus trusted-author comments with attribution headers."""
+    parts = [str(body).rstrip()] if body is not None and str(body).strip() else []
+    for comment in comments or []:
+        if not isinstance(comment, dict) or not is_trusted_login(comment.get("author"), trusted):
+            continue
+        login = _login_of(comment.get("author"))
+        created = comment.get("createdAt") or comment.get("created_at") or ""
+        header = f"--- Comment by {login}" + (f" at {created}" if created else "") + " ---"
+        text = comment.get("body")
+        parts.append(header + ("\n" + str(text) if text is not None else ""))
+    return "\n\n".join(parts).strip()
+
+
+def pr_is_trusted(pr, trusted, repo_owner):
+    """Require explicit same-repository metadata and a trusted PR author."""
+    if not isinstance(pr, dict) or pr.get("isCrossRepository") is not False:
+        return False
+    if not is_trusted_login(pr.get("author"), trusted):
+        return False
+    owner = _login_of(repo_owner).strip().lower()
+    head_owner = _login_of(pr.get("headRepositoryOwner")).strip().lower()
+    return bool(owner) and bool(head_owner) and head_owner == owner
+
+
+def fix_candidates_from_prs(prs, trusted, repo_owner):
     rows = []
     for pr in prs or []:
-        if pr.get("isDraft"):
+        if not isinstance(pr, dict) or pr.get("isDraft"):
+            continue
+        if not pr_is_trusted(pr, trusted, repo_owner):
             continue
         head = pr.get("headRefName") or ""
         m = re.match(r"^factory/issue-(\d+)$", head)
@@ -351,8 +427,14 @@ def prioritize_issues(issues, prio):
     return [it["number"] for it in sorted(issues or [], key=key)]
 
 
-def has_marker_comments(comments, marker):
-    return any(marker in (c.get("body") or "") for c in (comments or []))
+def has_marker_comments(comments, marker, author=None):
+    if author is not None and not author:
+        return False
+    return any(
+        marker in (c.get("body") or "")
+        and (author is None or (c.get("author") or {}).get("login") == author)
+        for c in (comments or [])
+    )
 
 
 def claim_status(claim_dir, ttl, now_ts, pid_alive_fn=None):
@@ -765,11 +847,15 @@ def main(argv):
             "usage: factory.py <validate-models|validate-event|normalize-model|"
             "classify-gh|classify-git|should-retry|is-usage-filled|"
             "model-for-labels|claim-acquire|claim-release|emit|session-id|"
-            "classify-failure|error-fingerprint|trace-id|parse-tool-calls|export-trace> ...",
+            "classify-failure|error-fingerprint|trace-id|parse-tool-calls|export-trace|"
+            "trusted-logins> ...",
             file=sys.stderr,
         )
         return 2
     cmd = argv[1]
+    if cmd == "trusted-logins":
+        print(",".join(sorted(trusted_logins_from_env())))
+        return 0
     if cmd == "validate-models":
         path = argv[2] if len(argv) > 2 else "-"
         import yaml

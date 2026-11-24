@@ -26,6 +26,7 @@ ON_USAGE_FILLED="${FACTORY_ON_USAGE_FILLED:-backup}"
 MAX_FIX_SESSIONS="${FACTORY_MAX_FIX_SESSIONS:-1}"
 FREE_MODEL="${FACTORY_FREE_MODEL:-opencode-go/beam-free}"
 FACTORY_LOGIN="${FACTORY_LOGIN:-}"
+FACTORY_TRUSTED_LOGINS="${FACTORY_TRUSTED_LOGINS:-}"
 FACTORY_GITHUB_APP_ID="${FACTORY_GITHUB_APP_ID:-}"
 FACTORY_GITHUB_APP_PRIVATE_KEY_FILE="${FACTORY_GITHUB_APP_PRIVATE_KEY_FILE:-}"
 FACTORY_GITHUB_APP_PRIVATE_KEY="${FACTORY_GITHUB_APP_PRIVATE_KEY:-}"
@@ -86,7 +87,7 @@ Environment (key):
   FACTORY_PRESERVE_SESSION_LOGS (on-failure|always|never),
   FACTORY_ID, FACTORY_METRICS_DIR,
   FACTORY_WORKTREE, FACTORY_CONFIG_TAG, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED,
-  FACTORY_LOGIN, FACTORY_GITHUB_APP_ID, FACTORY_GITHUB_APP_PRIVATE_KEY_FILE,
+  FACTORY_LOGIN, FACTORY_TRUSTED_LOGINS, FACTORY_GITHUB_APP_ID, FACTORY_GITHUB_APP_PRIVATE_KEY_FILE,
   FACTORY_GITHUB_APP_PRIVATE_KEY, FACTORY_GITHUB_INSTALLATION_ID.
 USAGE
 }
@@ -290,7 +291,14 @@ python3 -c 'import yaml' 2>/dev/null || die "PyYAML is required (pip install pyy
 
 # Mint a least-privilege factory token (if configured) before any gh/git work.
 mint_factory_github_token
-export FACTORY_LOGIN
+export FACTORY_LOGIN FACTORY_TRUSTED_LOGINS
+
+# Discovery and prompt context trust the configured logins plus the factory
+# identity. An empty result is deliberate: no issue, PR, or comment is trusted.
+TRUSTED_LOGINS="$(python3 "$SCRIPT_DIR/lib/factory.py" trusted-logins)"
+trusted_logins() {
+  printf '%s' "$TRUSTED_LOGINS"
+}
 
 TICK_ID="$(python3 -c 'import secrets;print(secrets.token_hex(16))' 2>/dev/null || echo 00000000000000000000000000000000)"
 TICK_START_MS="$(date +%s%3N)"
@@ -375,23 +383,27 @@ if ! flock -n 9; then
   exit 0
 fi
 
-# Print the number of the oldest open issue with no labels, or nothing.
+# Print every open issue with no labels, oldest first.
 # Distinguishes "no candidates" (success, empty output) from infra/auth failures.
-# Sets OLDEST_UNLABELED_ISSUE and OLDEST_UNLABELED_COUNT on success.
-OLDEST_UNLABELED_ISSUE=""
-OLDEST_UNLABELED_COUNT=0
-oldest_unlabeled_issue() {
-  OLDEST_UNLABELED_ISSUE=""
-  OLDEST_UNLABELED_COUNT=0
-  if ! gh_run_capture "oldest_unlabeled_issue" gh issue list --state open --limit 200 --json number,labels,createdAt \
-    --jq '[.[] | select((.labels | length) == 0)] | {count:length, oldest:(sort_by(.createdAt) | .[0].number // empty)}'; then
-    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+unlabeled_issues() {
+  if ! gh_run_capture "unlabeled_issues" gh api --paginate --slurp 'repos/{owner}/{repo}/issues?state=open&per_page=100'; then
+    INFRA_FAILURE=1
     return 1
   fi
-  # shellcheck disable=SC2034
-  OLDEST_UNLABELED_COUNT="$(printf '%s' "${GH_OUT:-}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)"
-  OLDEST_UNLABELED_ISSUE="$(printf '%s' "${GH_OUT:-}" | python3 -c 'import json,sys; v=json.load(sys.stdin).get("oldest",""); print("" if v is None else v)' 2>/dev/null || echo "")"
-  printf '%s\n' "$OLDEST_UNLABELED_ISSUE"
+  if ! printf '%s' "${GH_OUT:-[]}" | python3 -c '
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import factory
+pages = json.load(sys.stdin)
+issues = [issue for page in pages for issue in page if "pull_request" not in issue]
+issues = factory.filter_trusted_issues(issues, sys.argv[2])
+for issue in sorted(issues, key=lambda item: (item.get("created_at") or item.get("createdAt") or "9999", item["number"])):
+    if not issue.get("labels"):
+        print(issue["number"])
+' "$SCRIPT_DIR/lib" "$(trusted_logins)"; then
+    INFRA_FAILURE=1
+    return 1
+  fi
 }
 
 # Legacy inline discovery helpers retained for reference; active paths use
@@ -617,6 +629,24 @@ has_marker() {
   printf '%s\n' "${GH_OUT:-false}"
 }
 
+# Plan markers are authoritative only when written by the configured factory
+# identity. An unset FACTORY_LOGIN trusts no plan marker.
+has_plan_marker() {
+  local found
+  if ! gh_run_capture "has_plan_marker" gh issue view "$1" --json comments; then
+    INFRA_FAILURE=1
+    return 2
+  fi
+  found="$(printf '%s' "${GH_OUT:-}" | python3 -c '
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import factory
+payload = json.load(sys.stdin)
+print("true" if factory.has_marker_comments(payload.get("comments", []), sys.argv[2], sys.argv[3]) else "false")
+' "$SCRIPT_DIR/lib" "$PLAN_MARKER" "$FACTORY_LOGIN")" || { INFRA_FAILURE=1; return 2; }
+  [[ "$found" == "true" ]]
+}
+
 has_pr_marker() {
   local marker_json
   marker_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$2")"
@@ -710,13 +740,46 @@ print(hashlib.sha256(data.encode("utf-8")).hexdigest()[:12])
 PYEOF
 }
 
+render_prompt_context() {
+  python3 -c '
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import factory
+data = json.load(sys.stdin)
+print(factory.build_prompt_context(data.get("body", ""), data.get("comments", []), sys.argv[2]))
+' "$SCRIPT_DIR/lib" "$(trusted_logins)"
+}
+
+prompt_context() { # $1 issue number, optional $2 pr number
+  local issue="$1" pr="${2:-}" issue_json pr_json
+  if ! gh_run_capture "prompt_context_issue" gh issue view "$issue" --json body,comments; then
+    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+    return 1
+  fi
+  issue_json="$GH_OUT"
+  if [[ -n "$pr" ]]; then
+    if ! gh_run_capture "prompt_context_pr" gh pr view "$pr" --json body,comments; then
+      case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+      return 1
+    fi
+    pr_json="$GH_OUT"
+  fi
+  if ! printf '%s' "$issue_json" | render_prompt_context; then
+    return 1
+  fi
+  if [[ -n "$pr" ]]; then
+    printf '\n\n--- PR context ---\n'
+    printf '%s' "$pr_json" | render_prompt_context
+  fi
+}
+
 # prompts (abbreviated here but included)
 plan_prompt() { # $1 issue number
   cat << EOF
 You are the planning agent of this software factory. Turn GitHub issue #$1
 into a planned, categorized issue.
 
-1. Read it: gh issue view $1 --comments
+1. The issue body and trusted-author comments are already supplied in the prompt; do not fetch comments yourself.
 2. Post one comment with a concrete, minimal implementation plan. The comment
    body must start with this exact marker line:
 
@@ -770,7 +833,7 @@ gh issue create, so the body follows the agentic template and passes
 \`dev-ops/scripts/validate-issue-body.sh\`.
 Factory delivery rules (these override generic skill defaults where they
 conflict):
-1. Read the issue and its plan: gh issue view $1 --comments
+1. The issue body and trusted-author comments are already supplied in the prompt; do not fetch comments yourself.
 2. Inspect repository/working-tree state with git status in the primary
    checkout; never modify it. Create an isolated per-issue worktree and a
    descriptive feature branch (factory/issue-$1) based on the latest
@@ -826,7 +889,7 @@ Blocking reasons reported by GitHub: $3
 (failing-checks = status/CI failures; changes-requested = review requested
 changes; conflicts = merge conflicts / not mergeable.)
 
-1. Read context: gh pr view $1 --comments; gh pr checks $1 || true; gh issue view $2 --comments
+1. Read checks: gh pr checks $1 || true. The issue body, PR body, and trusted-author comments are already supplied in the prompt.
 2. Locate/reuse the existing worktree for the PR branch; verify branch and status.
    Read <worktree>/.factory-deliver-state.json if present and verify against
    actual Git/GitHub state. Never modify unrelated working directories.
@@ -1432,37 +1495,55 @@ fi
 # owner-moved configuration tag (issue #164).
 check_guardrail_drift
 
+plan_candidates=()
+plan_candidate_index=0
 plan_issue=""
-if oldest_unlabeled_issue >/dev/null; then
-  plan_issue="$OLDEST_UNLABELED_ISSUE"
-else
-  log "failed to query unlabeled issues (infra/auth/rate-limit/transient possible); treating as discovery failure"
-fi
+fallback_plan_issue=""
+plan_count=0
 
-if [[ -n "$plan_issue" && "$(has_marker "$plan_issue" "$PLAN_MARKER")" == "true" ]]; then
-  log "issue #$plan_issue already planned (marker present); skipping"
-  emit_event marker_skip issue="$plan_issue" reason="already planned"
+# Select the next eligible planning candidate. Marker, acceptance-criteria, and
+# query failures skip only that candidate so they cannot block the whole queue.
+select_plan_issue() {
+  local candidate ac_rc marker_rc
   plan_issue=""
-fi
+  while [[ "$plan_candidate_index" -lt "${#plan_candidates[@]}" ]]; do
+    candidate="${plan_candidates[$plan_candidate_index]}"
+    plan_candidate_index=$((plan_candidate_index + 1))
+    [[ -z "$candidate" ]] && continue
 
-# Acceptance-criteria gate (issue #91): an unlabeled ("infant") issue must
-# capture explicit acceptance criteria before it is picked up by the planning
-# agent. Skip planning (and leave the issue unlabeled) until they are present.
-if [[ -n "$plan_issue" ]]; then
-  set +e
-  dev-ops/scripts/check-acceptance-criteria.sh --issue "$plan_issue" >/dev/null 2>&1
-  ac_rc=$?
-  set -e
-  if [[ $ac_rc -eq 1 ]]; then
-    log "issue #$plan_issue has no acceptance criteria; skipping planning until they are added"
-    emit_event plan_skipped issue="$plan_issue" reason="missing acceptance criteria"
-    plan_issue=""
-  elif [[ $ac_rc -ne 0 ]]; then
-    log "acceptance-criteria checker failed for #$plan_issue (rc=$ac_rc); skipping"
-    emit_event plan_skipped issue="$plan_issue" reason="acceptance criteria checker error" checker_rc="$ac_rc"
-    plan_issue=""
-  fi
-fi
+    if has_plan_marker "$candidate"; then
+      log "issue #$candidate already planned by $FACTORY_LOGIN; skipping"
+      emit_event marker_skip issue="$candidate" reason="already planned"
+      continue
+    else
+      marker_rc=$?
+      if [[ "$marker_rc" -eq 2 ]]; then
+        log "could not determine plan marker state for #$candidate; skipping"
+        emit_event marker_skip issue="$candidate" reason="plan marker state unknown"
+        continue
+      fi
+    fi
+
+    set +e
+    dev-ops/scripts/check-acceptance-criteria.sh --issue "$candidate" >/dev/null 2>&1
+    ac_rc=$?
+    set -e
+    if [[ $ac_rc -eq 1 ]]; then
+      log "issue #$candidate has no acceptance criteria; skipping planning until they are added"
+      emit_event plan_skipped issue="$candidate" reason="missing acceptance criteria"
+      continue
+    elif [[ $ac_rc -ne 0 ]]; then
+      log "acceptance-criteria checker failed for #$candidate (rc=$ac_rc); skipping"
+      emit_event plan_skipped issue="$candidate" reason="acceptance criteria checker error" checker_rc="$ac_rc"
+      INFRA_FAILURE=1
+      continue
+    fi
+
+    plan_issue="$candidate"
+    return 0
+  done
+  return 1
+}
 
 acquire_claim() { # key -> prints claim path on success
   local key dir now out rc
@@ -1485,6 +1566,42 @@ release_claim() {
   local dir="$1"
   [[ -n "$dir" ]] || return 0
   python3 "$SCRIPT_DIR/lib/factory.py" claim-release "$dir" >/dev/null 2>&1 || rm -rf "$dir" || true
+}
+
+run_plan_action() {
+  local issue="$1" model backup_model tier_label plan_claim base_prompt context
+  [[ "$plan_count" -ge 2 ]] && return 0
+  plan_count=$((plan_count + 1))
+
+  emit_event issue.detected issue_id="$issue" kind="plan"
+  IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels)
+  emit_event plan_selected issue="$issue" model="${model:-}" backup_model="${backup_model:-}" tier_label="${tier_label:-default}"
+  if [[ "$DRY_RUN" == 1 ]]; then
+    log "dry-run: would plan issue #$issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
+    emit_event dry_run kind="plan" issue="$issue"
+    return 0
+  fi
+
+  plan_claim=""
+  if ! plan_claim="$(acquire_claim "plan-${issue}")"; then
+    log "issue #$issue already claimed for planning; skipping"
+    emit_event claim_conflict issue="$issue" reason="${plan_claim:-claim-failed}" kind="plan"
+    return 0
+  fi
+  base_prompt="$(plan_prompt "$issue")"
+  if ! context="$(prompt_context "$issue")"; then
+    log "could not build trusted context for issue #$issue; skipping session"
+    emit_event marker_skip issue="$issue" reason="context-unavailable"
+    release_claim "$plan_claim"
+    TICK_RC=1
+    return 0
+  fi
+  emit_event issue.assigned issue_id="$issue" kind="plan" agent_id="planner"
+  start_session "plan" "$issue" "" "factory: plan issue #$issue" "$model" "$backup_model" "$base_prompt
+
+Context (issue body and trusted comments):
+$context" "${tier_label:-default}" "" || TICK_RC=1
+  release_claim "$plan_claim"
 }
 
 # Build path, sub-path 1: fix open factory PRs
@@ -1541,8 +1658,70 @@ if [[ "$MAX_FIX_SESSIONS" -gt 0 ]]; then
       emit_event dry_run kind="fix" pr="$pr_number" issue="$issue_number"
       fix_count=$((fix_count + 1))
     else
+      fix_base_prompt="$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")"
+      if ! fix_context="$(prompt_context "$issue_number" "$pr_number")"; then
+        log "could not build trusted context for PR #$pr_number; skipping session"
+        emit_event marker_skip pr="$pr_number" reason="context-unavailable"
+        release_claim "$claim_dir"
+        INFRA_FAILURE=1
+        fix_failures=$((fix_failures + 1))
+        continue
+      fi
+      if ! gh_run_capture "fix_repo_owner" gh repo view --json owner --jq .owner.login || [[ -z "${GH_OUT:-}" ]]; then
+        log "could not determine repository owner for PR #$pr_number; skipping"
+        emit_event marker_skip pr="$pr_number" reason="recheck-failed"
+        release_claim "$claim_dir"
+        INFRA_FAILURE=1
+        fix_failures=$((fix_failures + 1))
+        continue
+      fi
+      fix_repo_owner="$GH_OUT"
+      # Re-read trust metadata immediately before the session. Context fetching
+      # happens first so this is the last gh operation before opencode starts.
+      if ! gh_run_capture "fix_pr_recheck" gh pr view "$pr_number" --json isCrossRepository,headRefOid,author,headRepositoryOwner; then
+        log "could not re-check PR #$pr_number; skipping"
+        emit_event marker_skip pr="$pr_number" reason="recheck-failed"
+        release_claim "$claim_dir"
+        INFRA_FAILURE=1
+        fix_failures=$((fix_failures + 1))
+        continue
+      fi
+      if ! fix_recheck="$(printf '%s' "$GH_OUT" | python3 -c '
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import factory
+try:
+    pr = json.load(sys.stdin)
+except (ValueError, TypeError):
+    raise SystemExit(1)
+trusted = factory.pr_is_trusted(pr, sys.argv[2], sys.argv[3])
+print(("true" if trusted else "false") + "\t" + (pr.get("headRefOid") or ""))
+' "$SCRIPT_DIR/lib" "$(trusted_logins)" "$fix_repo_owner")"; then
+        log "invalid re-check response for PR #$pr_number; skipping"
+        emit_event marker_skip pr="$pr_number" reason="recheck-failed"
+        release_claim "$claim_dir"
+        INFRA_FAILURE=1
+        fix_failures=$((fix_failures + 1))
+        continue
+      fi
+      IFS=$'\t' read -r fix_pr_trusted fix_new_sha <<< "$fix_recheck"
+      fix_skip_reason=""
+      if [[ "$fix_pr_trusted" != "true" ]]; then
+        fix_skip_reason="untrusted-pr"
+      elif [[ -z "$fix_new_sha" || "$fix_new_sha" != "$head_sha" ]]; then
+        fix_skip_reason="sha-changed"
+      fi
+      if [[ -n "$fix_skip_reason" ]]; then
+        log "PR #$pr_number skipped before session ($fix_skip_reason)"
+        emit_event marker_skip pr="$pr_number" reason="$fix_skip_reason"
+        release_claim "$claim_dir"
+        continue
+      fi
       emit_event issue.assigned issue_id="$issue_number" pr_number="$pr_number" kind="fix" agent_id="fixer"
-      if start_session "fix" "$issue_number" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$(fix_prompt "$pr_number" "$issue_number" "$reasons" "$marker")" "${tier_label:-default}" "${area_labels:-}"; then
+      if start_session "fix" "$issue_number" "$pr_number" "factory: fix PR #$pr_number (issue #$issue_number)" "$model" "$backup_model" "$fix_base_prompt
+
+Context (issue/PR body and trusted comments):
+$fix_context" "${tier_label:-default}" "${area_labels:-}"; then
         :
       else
         fix_failures=$((fix_failures + 1))
@@ -1607,6 +1786,26 @@ if [[ -n "$build_issue" ]]; then
   emit_event build_selected issue="$build_issue"
 fi
 
+# Planning uses its normal slot, plus the unused build slot when no build was
+# selected. Two candidates are selected up front so skipped issues never block
+# later eligible work.
+plan_candidates_output=""
+if plan_candidates_output="$(unlabeled_issues)"; then
+  mapfile -t plan_candidates <<< "$plan_candidates_output"
+else
+  INFRA_FAILURE=1
+  log "failed to query unlabeled issues (infra/auth/rate-limit/transient possible); treating as discovery failure"
+fi
+
+primary_plan_issue=""
+if select_plan_issue; then
+  primary_plan_issue="$plan_issue"
+fi
+if [[ -z "$build_issue" && -n "$primary_plan_issue" ]] && select_plan_issue; then
+  fallback_plan_issue="$plan_issue"
+fi
+plan_issue="$primary_plan_issue"
+
 emit_factory_queue() {
   local qjson=""
   if qjson="$(python3 "$SCRIPT_DIR/queue_snapshot.py" 2>/dev/null)"; then
@@ -1648,7 +1847,7 @@ finish_tick() {
   emit_event tick_result "$@" result="$result"
 }
 
-if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
+if [[ -z "$plan_issue" && -z "$fallback_plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
   if [[ "$INFRA_FAILURE" -eq 1 ]]; then
     log "discovery failed due to infrastructure/auth/rate-limit/transient issues; not reporting nothing_to_do"
     emit_event discovery_failed infra_failure=1
@@ -1662,24 +1861,10 @@ if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
 fi
 
 if [[ -n "$plan_issue" ]]; then
-  emit_event issue.detected issue_id="$plan_issue" kind="plan"
-  IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels)
-  area_labels=""
-  emit_event plan_selected issue="$plan_issue" model="${model:-}" backup_model="${backup_model:-}" tier_label="${tier_label:-default}"
-  if [[ "$DRY_RUN" == 1 ]]; then
-    log "dry-run: would plan issue #$plan_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
-    emit_event dry_run kind="plan" issue="$plan_issue"
-  else
-    plan_claim=""
-    if ! plan_claim="$(acquire_claim "plan-${plan_issue}")"; then
-      log "issue #$plan_issue already claimed for planning; skipping"
-      emit_event claim_conflict issue="$plan_issue" reason="${plan_claim:-claim-failed}" kind="plan"
-    else
-      emit_event issue.assigned issue_id="$plan_issue" kind="plan" agent_id="planner"
-      start_session "plan" "$plan_issue" "" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" "${tier_label:-default}" "${area_labels:-}" || TICK_RC=1
-      release_claim "$plan_claim"
-    fi
-  fi
+  run_plan_action "$plan_issue"
+fi
+if [[ -n "$fallback_plan_issue" ]]; then
+  run_plan_action "$fallback_plan_issue"
 fi
 
 if [[ -n "$build_issue" ]]; then
@@ -1695,9 +1880,20 @@ if [[ -n "$build_issue" ]]; then
       log "issue #$build_issue already claimed for build; skipping"
       emit_event claim_conflict issue="$build_issue" reason="${build_claim:-claim-failed}" kind="build"
     else
-      emit_event issue.assigned issue_id="$build_issue" kind="build" agent_id="builder"
-      start_session "build" "$build_issue" "" "factory: build issue #$build_issue" "$model" "$backup_model" "$(build_prompt "$build_issue")" "${tier_label:-default}" "${area_labels:-}" || TICK_RC=1
-      release_claim "$build_claim"
+      build_base_prompt="$(build_prompt "$build_issue")"
+      if ! build_context="$(prompt_context "$build_issue")"; then
+        log "could not build trusted context for issue #$build_issue; skipping session"
+        emit_event marker_skip issue="$build_issue" reason="context-unavailable"
+        release_claim "$build_claim"
+        TICK_RC=1
+      else
+        emit_event issue.assigned issue_id="$build_issue" kind="build" agent_id="builder"
+        start_session "build" "$build_issue" "" "factory: build issue #$build_issue" "$model" "$backup_model" "$build_base_prompt
+
+Context (issue body and trusted comments):
+$build_context" "${tier_label:-default}" "${area_labels:-}" || TICK_RC=1
+        release_claim "$build_claim"
+      fi
     fi
   fi
 fi
