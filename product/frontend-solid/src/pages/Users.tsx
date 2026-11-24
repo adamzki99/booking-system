@@ -244,7 +244,6 @@ export default function Users() {
                             <td class="users-muted">{u().address}</td>
                             <td>{String(u().active)}</td>
                             <Show when={superUser()}>
-                              {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- false positive on td element */}
                               <td>
                                 <Show
                                   when={
@@ -255,6 +254,7 @@ export default function Users() {
                                     size="sm"
                                     variant="accentOutline"
                                     class="users-remove-btn"
+                                    aria-label={`Remove ${u().email}`}
                                     onClick={() => void onRemove(u().id)}
                                   >
                                     Remove
