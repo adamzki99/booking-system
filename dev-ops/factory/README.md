@@ -7,12 +7,15 @@ The automation that turns GitHub issues into merged PRs.
 1. [`tick.sh`](tick.sh) runs on a 1-hour interval (e.g. via cron) and fetches
    issues and pull requests from GitHub.
 2. Per tick, it may start:
-   - **one planning session** - for the oldest unlabeled ("infant") issue, but
-     only if it has an `## Acceptance Criteria` section with at least one
-     measurable checkbox (gated by
-     `dev-ops/scripts/check-acceptance-criteria.sh`).
-     A planner agent posts the implementation plan as a comment and categorizes
-     the issue with labels. It never applies `owner approved`.
+   - **up to two planning sessions** - one in the normal planning slot, plus one
+     in the build slot when no build is selected. Discovery scans all unlabeled
+     ("infant") issues oldest first and skips candidates with a trusted plan
+     marker, missing acceptance criteria, or a failed gate without blocking later
+     issues. Eligible issues must have an `## Acceptance Criteria` section with
+     at least one measurable checkbox (gated by
+     `dev-ops/scripts/check-acceptance-criteria.sh`). A planner agent posts the
+     implementation plan as a comment and categorizes the issue with labels. It
+     never applies `owner approved`.
    - **build-path sessions** (fixes, then optionally a new build):
      - **fix sessions** - for open factory PRs (head `factory/issue-*`) that are
        blocked from merge (failing/status checks, changes requested, or merge
@@ -44,7 +47,9 @@ created. The system owner steers the project by interacting with issues only.
   worktree (`FACTORY_WORKTREE`, default sibling `<repo>-factory-worktree`).
 - **Idempotent ticks.** Finished work carries `<!-- factory:plan -->` /
   `<!-- factory:build -->` markers; fix attempts carry
-  `<!-- factory:fix-pr:<sha>:<reasons> -->` PR markers.
+  `<!-- factory:fix-pr:<sha>:<reasons> -->` PR markers. Plan markers count only
+  when their comment author matches `FACTORY_LOGIN`; an unset `FACTORY_LOGIN`
+  trusts no plan marker.
 - **Owner-approved gate is respected.** Only the repository owner applies
   `owner approved`; build selection requires it.
 - **No auto-merge bypass.** Sessions must not disable tests, weaken gates, edit
@@ -77,7 +82,7 @@ tick.sh --help
 | `FACTORY_LOG_SESSION_OUTPUT` | `tail` | `tail` retains last 16 KiB in failure events and writes session logs; `metadata` suppresses retained output. |
 | `FACTORY_PRESERVE_SESSION_LOGS` | `on-failure` | `on-failure` (delete on success), `always`, `never`. |
 | `FACTORY_CONTAINER_MODE` | `0` | `1` enables bwrap per-session sandbox; falls back to host if bwrap unavailable. |
-| `FACTORY_LOGIN` | (unset) | Login of the factory bot/app identity used to filter marker comments and attribute factory work. |
+| `FACTORY_LOGIN` | (unset) | Login of the factory bot/app identity. Plan markers from other authors are ignored; when unset, no plan marker is trusted. Also used to attribute factory work. |
 | `FACTORY_GITHUB_APP_ID` | (unset) | GitHub App id used to mint a short-lived least-privilege installation token per tick. |
 | `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE` | (unset) | Path to the app private key PEM (preferred over inline key). |
 | `FACTORY_GITHUB_APP_PRIVATE_KEY` | (unset) | Inline app private key PEM (avoid; prefer file). |
@@ -245,8 +250,9 @@ Cron (keep human output separate):
   per tick via `FACTORY_GITHUB_APP_ID` and a private key. `tick.sh` exports it as
   `GH_TOKEN`/`GITHUB_TOKEN` for `gh` and sessions; the token is never logged.
   Set `FACTORY_LOGIN` to the app's bot login so marker comments and PRs are
-  attributable to the factory identity. Avoid org-wide or admin scopes. Never
-  print tokens; pass via environment, not argv.
+  attributable to the factory identity. Planning ignores plan markers from any
+  other author, and trusts none when this value is unset. Avoid org-wide or
+  admin scopes. Never print tokens; pass via environment, not argv.
 - **Agent/tool permissions:** factory sessions run opencode with repository
   access and shell tooling. Treat this as privileged automation: run on a
   trusted host/account, restrict filesystem/SSH credentials available to the

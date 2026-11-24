@@ -108,6 +108,18 @@ def test_has_marker_comments():
     assert factory.has_marker_comments(comments, "<!-- factory:plan -->")
 
 
+def test_has_marker_comments_filters_author():
+    marker = "<!-- factory:plan -->"
+    comments = [
+        {"author": {"login": "owner"}, "body": marker},
+        {"author": {"login": "factory-bot"}, "body": "no marker"},
+        {"author": {"login": "factory-bot"}, "body": marker},
+    ]
+    assert factory.has_marker_comments(comments, marker, "factory-bot")
+    assert not factory.has_marker_comments(comments, marker, "another-bot")
+    assert not factory.has_marker_comments(comments, marker, "")
+
+
 def test_classify_git_and_permission():
     assert factory.classify_git_error("permission denied 403") == "permission"
     assert factory.classify_gh_error("rate limit exceeded") == "rate_limit"

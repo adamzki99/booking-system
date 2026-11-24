@@ -375,23 +375,24 @@ if ! flock -n 9; then
   exit 0
 fi
 
-# Print the number of the oldest open issue with no labels, or nothing.
+# Print every open issue with no labels, oldest first.
 # Distinguishes "no candidates" (success, empty output) from infra/auth failures.
-# Sets OLDEST_UNLABELED_ISSUE and OLDEST_UNLABELED_COUNT on success.
-OLDEST_UNLABELED_ISSUE=""
-OLDEST_UNLABELED_COUNT=0
-oldest_unlabeled_issue() {
-  OLDEST_UNLABELED_ISSUE=""
-  OLDEST_UNLABELED_COUNT=0
-  if ! gh_run_capture "oldest_unlabeled_issue" gh issue list --state open --limit 200 --json number,labels,createdAt \
-    --jq '[.[] | select((.labels | length) == 0)] | {count:length, oldest:(sort_by(.createdAt) | .[0].number // empty)}'; then
-    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+unlabeled_issues() {
+  if ! gh_run_capture "unlabeled_issues" gh api --paginate --slurp 'repos/{owner}/{repo}/issues?state=open&per_page=100'; then
+    INFRA_FAILURE=1
     return 1
   fi
-  # shellcheck disable=SC2034
-  OLDEST_UNLABELED_COUNT="$(printf '%s' "${GH_OUT:-}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)"
-  OLDEST_UNLABELED_ISSUE="$(printf '%s' "${GH_OUT:-}" | python3 -c 'import json,sys; v=json.load(sys.stdin).get("oldest",""); print("" if v is None else v)' 2>/dev/null || echo "")"
-  printf '%s\n' "$OLDEST_UNLABELED_ISSUE"
+  if ! printf '%s' "${GH_OUT:-[]}" | python3 -c '
+import json, sys
+pages = json.load(sys.stdin)
+issues = [issue for page in pages for issue in page if "pull_request" not in issue]
+for issue in sorted(issues, key=lambda item: (item.get("created_at") or item.get("createdAt") or "9999", item["number"])):
+    if not issue.get("labels"):
+        print(issue["number"])
+'; then
+    INFRA_FAILURE=1
+    return 1
+  fi
 }
 
 # Legacy inline discovery helpers retained for reference; active paths use
@@ -615,6 +616,24 @@ has_marker() {
     return 0
   fi
   printf '%s\n' "${GH_OUT:-false}"
+}
+
+# Plan markers are authoritative only when written by the configured factory
+# identity. An unset FACTORY_LOGIN trusts no plan marker.
+has_plan_marker() {
+  local found
+  if ! gh_run_capture "has_plan_marker" gh issue view "$1" --json comments; then
+    INFRA_FAILURE=1
+    return 2
+  fi
+  found="$(printf '%s' "${GH_OUT:-}" | python3 -c '
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import factory
+payload = json.load(sys.stdin)
+print("true" if factory.has_marker_comments(payload.get("comments", []), sys.argv[2], sys.argv[3]) else "false")
+' "$SCRIPT_DIR/lib" "$PLAN_MARKER" "$FACTORY_LOGIN")" || { INFRA_FAILURE=1; return 2; }
+  [[ "$found" == "true" ]]
 }
 
 has_pr_marker() {
@@ -1432,37 +1451,55 @@ fi
 # owner-moved configuration tag (issue #164).
 check_guardrail_drift
 
+plan_candidates=()
+plan_candidate_index=0
 plan_issue=""
-if oldest_unlabeled_issue >/dev/null; then
-  plan_issue="$OLDEST_UNLABELED_ISSUE"
-else
-  log "failed to query unlabeled issues (infra/auth/rate-limit/transient possible); treating as discovery failure"
-fi
+fallback_plan_issue=""
+plan_count=0
 
-if [[ -n "$plan_issue" && "$(has_marker "$plan_issue" "$PLAN_MARKER")" == "true" ]]; then
-  log "issue #$plan_issue already planned (marker present); skipping"
-  emit_event marker_skip issue="$plan_issue" reason="already planned"
+# Select the next eligible planning candidate. Marker, acceptance-criteria, and
+# query failures skip only that candidate so they cannot block the whole queue.
+select_plan_issue() {
+  local candidate ac_rc marker_rc
   plan_issue=""
-fi
+  while [[ "$plan_candidate_index" -lt "${#plan_candidates[@]}" ]]; do
+    candidate="${plan_candidates[$plan_candidate_index]}"
+    plan_candidate_index=$((plan_candidate_index + 1))
+    [[ -z "$candidate" ]] && continue
 
-# Acceptance-criteria gate (issue #91): an unlabeled ("infant") issue must
-# capture explicit acceptance criteria before it is picked up by the planning
-# agent. Skip planning (and leave the issue unlabeled) until they are present.
-if [[ -n "$plan_issue" ]]; then
-  set +e
-  dev-ops/scripts/check-acceptance-criteria.sh --issue "$plan_issue" >/dev/null 2>&1
-  ac_rc=$?
-  set -e
-  if [[ $ac_rc -eq 1 ]]; then
-    log "issue #$plan_issue has no acceptance criteria; skipping planning until they are added"
-    emit_event plan_skipped issue="$plan_issue" reason="missing acceptance criteria"
-    plan_issue=""
-  elif [[ $ac_rc -ne 0 ]]; then
-    log "acceptance-criteria checker failed for #$plan_issue (rc=$ac_rc); skipping"
-    emit_event plan_skipped issue="$plan_issue" reason="acceptance criteria checker error" checker_rc="$ac_rc"
-    plan_issue=""
-  fi
-fi
+    if has_plan_marker "$candidate"; then
+      log "issue #$candidate already planned by $FACTORY_LOGIN; skipping"
+      emit_event marker_skip issue="$candidate" reason="already planned"
+      continue
+    else
+      marker_rc=$?
+      if [[ "$marker_rc" -eq 2 ]]; then
+        log "could not determine plan marker state for #$candidate; skipping"
+        emit_event marker_skip issue="$candidate" reason="plan marker state unknown"
+        continue
+      fi
+    fi
+
+    set +e
+    dev-ops/scripts/check-acceptance-criteria.sh --issue "$candidate" >/dev/null 2>&1
+    ac_rc=$?
+    set -e
+    if [[ $ac_rc -eq 1 ]]; then
+      log "issue #$candidate has no acceptance criteria; skipping planning until they are added"
+      emit_event plan_skipped issue="$candidate" reason="missing acceptance criteria"
+      continue
+    elif [[ $ac_rc -ne 0 ]]; then
+      log "acceptance-criteria checker failed for #$candidate (rc=$ac_rc); skipping"
+      emit_event plan_skipped issue="$candidate" reason="acceptance criteria checker error" checker_rc="$ac_rc"
+      INFRA_FAILURE=1
+      continue
+    fi
+
+    plan_issue="$candidate"
+    return 0
+  done
+  return 1
+}
 
 acquire_claim() { # key -> prints claim path on success
   local key dir now out rc
@@ -1485,6 +1522,31 @@ release_claim() {
   local dir="$1"
   [[ -n "$dir" ]] || return 0
   python3 "$SCRIPT_DIR/lib/factory.py" claim-release "$dir" >/dev/null 2>&1 || rm -rf "$dir" || true
+}
+
+run_plan_action() {
+  local issue="$1" model backup_model tier_label plan_claim
+  [[ "$plan_count" -ge 2 ]] && return 0
+  plan_count=$((plan_count + 1))
+
+  emit_event issue.detected issue_id="$issue" kind="plan"
+  IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels)
+  emit_event plan_selected issue="$issue" model="${model:-}" backup_model="${backup_model:-}" tier_label="${tier_label:-default}"
+  if [[ "$DRY_RUN" == 1 ]]; then
+    log "dry-run: would plan issue #$issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
+    emit_event dry_run kind="plan" issue="$issue"
+    return 0
+  fi
+
+  plan_claim=""
+  if ! plan_claim="$(acquire_claim "plan-${issue}")"; then
+    log "issue #$issue already claimed for planning; skipping"
+    emit_event claim_conflict issue="$issue" reason="${plan_claim:-claim-failed}" kind="plan"
+    return 0
+  fi
+  emit_event issue.assigned issue_id="$issue" kind="plan" agent_id="planner"
+  start_session "plan" "$issue" "" "factory: plan issue #$issue" "$model" "$backup_model" "$(plan_prompt "$issue")" "${tier_label:-default}" "" || TICK_RC=1
+  release_claim "$plan_claim"
 }
 
 # Build path, sub-path 1: fix open factory PRs
@@ -1607,6 +1669,26 @@ if [[ -n "$build_issue" ]]; then
   emit_event build_selected issue="$build_issue"
 fi
 
+# Planning uses its normal slot, plus the unused build slot when no build was
+# selected. Two candidates are selected up front so skipped issues never block
+# later eligible work.
+plan_candidates_output=""
+if plan_candidates_output="$(unlabeled_issues)"; then
+  mapfile -t plan_candidates <<< "$plan_candidates_output"
+else
+  INFRA_FAILURE=1
+  log "failed to query unlabeled issues (infra/auth/rate-limit/transient possible); treating as discovery failure"
+fi
+
+primary_plan_issue=""
+if select_plan_issue; then
+  primary_plan_issue="$plan_issue"
+fi
+if [[ -z "$build_issue" && -n "$primary_plan_issue" ]] && select_plan_issue; then
+  fallback_plan_issue="$plan_issue"
+fi
+plan_issue="$primary_plan_issue"
+
 emit_factory_queue() {
   local qjson=""
   if qjson="$(python3 "$SCRIPT_DIR/queue_snapshot.py" 2>/dev/null)"; then
@@ -1648,7 +1730,7 @@ finish_tick() {
   emit_event tick_result "$@" result="$result"
 }
 
-if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
+if [[ -z "$plan_issue" && -z "$fallback_plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
   if [[ "$INFRA_FAILURE" -eq 1 ]]; then
     log "discovery failed due to infrastructure/auth/rate-limit/transient issues; not reporting nothing_to_do"
     emit_event discovery_failed infra_failure=1
@@ -1662,24 +1744,10 @@ if [[ -z "$plan_issue" && "$fix_count" -eq 0 && -z "$build_issue" ]]; then
 fi
 
 if [[ -n "$plan_issue" ]]; then
-  emit_event issue.detected issue_id="$plan_issue" kind="plan"
-  IFS=$'\t' read -r model backup_model tier_label < <(model_for_labels)
-  area_labels=""
-  emit_event plan_selected issue="$plan_issue" model="${model:-}" backup_model="${backup_model:-}" tier_label="${tier_label:-default}"
-  if [[ "$DRY_RUN" == 1 ]]; then
-    log "dry-run: would plan issue #$plan_issue (model: ${model:-opencode default}, backup: ${backup_model:-none}, on-usage-filled: $ON_USAGE_FILLED)"
-    emit_event dry_run kind="plan" issue="$plan_issue"
-  else
-    plan_claim=""
-    if ! plan_claim="$(acquire_claim "plan-${plan_issue}")"; then
-      log "issue #$plan_issue already claimed for planning; skipping"
-      emit_event claim_conflict issue="$plan_issue" reason="${plan_claim:-claim-failed}" kind="plan"
-    else
-      emit_event issue.assigned issue_id="$plan_issue" kind="plan" agent_id="planner"
-      start_session "plan" "$plan_issue" "" "factory: plan issue #$plan_issue" "$model" "$backup_model" "$(plan_prompt "$plan_issue")" "${tier_label:-default}" "${area_labels:-}" || TICK_RC=1
-      release_claim "$plan_claim"
-    fi
-  fi
+  run_plan_action "$plan_issue"
+fi
+if [[ -n "$fallback_plan_issue" ]]; then
+  run_plan_action "$fallback_plan_issue"
 fi
 
 if [[ -n "$build_issue" ]]; then

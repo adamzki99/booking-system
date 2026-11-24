@@ -351,8 +351,14 @@ def prioritize_issues(issues, prio):
     return [it["number"] for it in sorted(issues or [], key=key)]
 
 
-def has_marker_comments(comments, marker):
-    return any(marker in (c.get("body") or "") for c in (comments or []))
+def has_marker_comments(comments, marker, author=None):
+    if author is not None and not author:
+        return False
+    return any(
+        marker in (c.get("body") or "")
+        and (author is None or (c.get("author") or {}).get("login") == author)
+        for c in (comments or [])
+    )
 
 
 def claim_status(claim_dir, ttl, now_ts, pid_alive_fn=None):
