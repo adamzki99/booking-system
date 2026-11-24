@@ -100,12 +100,8 @@ services:
     ports:
       - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317"
       - "127.0.0.1:${OTLP_HTTP_PORT:-4318}:4318"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:13133/ >/dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+    # The distroless image has no /bin/sh or wget. Collector availability is
+    # monitored through its Prometheus target and factory event ingestion.
     deploy:
       resources:
         limits:
@@ -460,4 +456,4 @@ volumes:
 
 networks:
   factory-monitoring-net:
-    name: factory-monitoring-net
+    name: ${FACTORY_MONITORING_NETWORK:-factory-monitoring-net}

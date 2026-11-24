@@ -329,6 +329,7 @@ write_metrics_file() {
   now_ts="$(date +%s 2>/dev/null || echo 0)"
   dur=$((now_ts - TICK_START_SEC))
   mkdir -p "$dir" 2>/dev/null || true
+  chmod 755 "$dir" 2>/dev/null || true
   tmp="$(mktemp "$dir/.factory_tick.prom.XXXXXX" 2>/dev/null || mktemp 2>/dev/null || echo /tmp/factory_tick.prom.$$)"
   # Preserve the previous success timestamp unless this tick succeeded.
   prev_success=""
@@ -370,7 +371,9 @@ factory_tick_runs_last{kind="fix",outcome="skipped"} $RUNS_FIX_SKIPPED
 # TYPE factory_telemetry_errors_last gauge
 factory_telemetry_errors_last $TELEMETRY_ERRORS
 EOF
+  chmod 644 "$tmp" 2>/dev/null || true
   mv "$tmp" "$file" 2>/dev/null || { cat "$tmp" > "$file" 2>/dev/null || true; }
+  chmod 644 "$file" 2>/dev/null || true
   rm -f "$tmp" 2>/dev/null || true
 }
 
@@ -386,7 +389,7 @@ fi
 # Print every open issue with no labels, oldest first.
 # Distinguishes "no candidates" (success, empty output) from infra/auth failures.
 unlabeled_issues() {
-  if ! gh_run_capture "unlabeled_issues" gh api --paginate --slurp 'repos/{owner}/{repo}/issues?state=open&per_page=100'; then
+  if ! gh_run_capture "unlabeled_issues" gh api --paginate 'repos/{owner}/{repo}/issues?state=open&per_page=100'; then
     INFRA_FAILURE=1
     return 1
   fi
@@ -394,8 +397,26 @@ unlabeled_issues() {
 import json, sys
 sys.path.insert(0, sys.argv[1])
 import factory
-pages = json.load(sys.stdin)
-issues = [issue for page in pages for issue in page if "pull_request" not in issue]
+text = sys.stdin.read()
+decoder = json.JSONDecoder()
+idx = 0
+issues = []
+while idx < len(text):
+    while idx < len(text) and text[idx].isspace():
+        idx += 1
+    if idx >= len(text):
+        break
+    document, idx = decoder.raw_decode(text, idx)
+    if not isinstance(document, list):
+        raise ValueError("issues response is not a list")
+    if document and isinstance(document[0], list):
+        for page in document:
+            if not isinstance(page, list):
+                raise ValueError("issues page is not a list")
+            issues.extend(page)
+    else:
+        issues.extend(document)
+issues = [issue for issue in issues if isinstance(issue, dict) and "pull_request" not in issue]
 issues = factory.filter_trusted_issues(issues, sys.argv[2])
 for issue in sorted(issues, key=lambda item: (item.get("created_at") or item.get("createdAt") or "9999", item["number"])):
     if not issue.get("labels"):
@@ -704,6 +725,17 @@ classify_failure() { # $1 text, $2 exit_code
   printf '%s' "${1:-}" | python3 "$SCRIPT_DIR/lib/factory.py" classify-failure "${2:-1}" - 2>/dev/null || echo exit_nonzero
 }
 
+# OpenCode can emit a structured error record while still exiting 0. Treat that
+# stream as a failed invocation so fallback and failure telemetry still run.
+opencode_status() { # $1 stream text, $2 process status
+  local text="$1" status="$2"
+  if [[ "$status" -eq 0 ]] && printf '%s' "$text" | python3 "$SCRIPT_DIR/lib/factory.py" stream-error - >/dev/null 2>&1; then
+    printf '1'
+  else
+    printf '%s' "$status"
+  fi
+}
+
 error_fingerprint() { # $1 text
   printf '%s' "${1:-}" | python3 "$SCRIPT_DIR/lib/factory.py" error-fingerprint - 2>/dev/null || true
 }
@@ -986,6 +1018,7 @@ finalize_session_log() { # path, success(0/1)
 
 emit_tool_calls() { # $1 run_id, $2 stream_text
   local run_id="$1" text="$2"
+  local tool status duration_ms skill_name
   [[ -z "$text" ]] && return 0
   while IFS=$'\t' read -r tool status duration_ms skill_name; do
     [[ -z "$tool" ]] && continue
@@ -1051,6 +1084,7 @@ start_session() { # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 b
   status=$?
   set +o pipefail
   set -e
+  status="$(opencode_status "$out" "$status")"
   FACTORY_LAST_RUN_STREAM="$out"
 
   # Parse session_id and usage/cost from the captured stream before the log
@@ -1168,6 +1202,7 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
           bstatus=$?
           set +o pipefail
           set -e
+          bstatus="$(opencode_status "$bout" "$bstatus")"
           FACTORY_LAST_RUN_STREAM="$bout"
           printf '%s\n' "$bout" >&2
           emit_tool_calls "$run_id" "$bout"
@@ -1273,6 +1308,7 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
           fstatus=$?
           set +o pipefail
           set -e
+          fstatus="$(opencode_status "$fout" "$fstatus")"
           FACTORY_LAST_RUN_STREAM="$fout"
           printf '%s\n' "$fout"
           emit_tool_calls "$run_id" "$fout"
@@ -1898,6 +1934,11 @@ $build_context" "${tier_label:-default}" "${area_labels:-}" || TICK_RC=1
   fi
 fi
 
+if [[ "${INFRA_FAILURE:-0}" -eq 1 ]]; then
+  log "discovery failed due to infrastructure/auth/rate-limit/transient issues; marking tick failed"
+  emit_event discovery_failed infra_failure=1
+  TICK_RC=1
+fi
 if [[ "${fix_failures:-0}" -gt 0 ]]; then TICK_RC=1; fi
 if [[ "${TICK_RC:-0}" -ne 0 ]]; then
   finish_tick "failure" fix_failures="$fix_failures"
