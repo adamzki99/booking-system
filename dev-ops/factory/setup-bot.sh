@@ -124,10 +124,11 @@ prompt_yes_no() {
 
 expand_path() {
   local path="$1"
-  case "$path" in
-    '~/'*) path="$HOME/${path#\~/}" ;;
-    "~") path="$HOME" ;;
-  esac
+  if [[ "${path:0:2}" == "~/" ]]; then
+    path="$HOME/${path:2}"
+  elif [[ "$path" == "~" ]]; then
+    path="$HOME"
+  fi
   [[ "$path" == /* ]] || path="$PWD/$path"
   printf '%s' "$path"
 }
