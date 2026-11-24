@@ -53,6 +53,7 @@ def test_make_event_schema():
     assert e["event"] == "tick_start"
     assert e["event_id"]
     assert e["factory_id"] == "factory-1"
+    assert e["deployment.environment"] == "dev"
     assert e["foo"] == "bar"
 
 
@@ -65,6 +66,7 @@ def test_make_event_typed_coercion():
     assert e["exit_code"] == 1
     assert e["duration_ms"] == 42
     assert e["dry_run"] is True
+    assert e["deployment.environment"] == "prod"
     assert e["cost_usd"] == 1.5
     assert e["attempt"] == 3
     assert e["skills_loaded"] == ["a", "b"]

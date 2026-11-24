@@ -65,7 +65,8 @@ SELECT
     ifNull(attrs['tool'], '') AS tool,
     ifNull(attrs['status'], '') AS status,
     toInt64OrNull(attrs['duration_ms']) AS duration_ms,
-    ifNull(attrs['skill_name'], '') AS skill_name
+    ifNull(attrs['skill_name'], '') AS skill_name,
+    attrs
 FROM factory.events FINAL
 WHERE event = 'agent.tool.called';
 

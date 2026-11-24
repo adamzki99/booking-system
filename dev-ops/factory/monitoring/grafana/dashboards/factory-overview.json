@@ -1116,7 +1116,7 @@
         "type": "grafana-clickhouse-datasource",
         "uid": "clickhouse-factory"
       },
-      "description": "Recent merged PRs with issue, lead time, and human intervention proxy.",
+      "description": "Recent merged PRs with issue, lead time, and human intervention proxy. Filtered by Factory through matching factory.runs; pr_outcomes has no factory_id.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1217,7 +1217,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT\n  p.repo,\n  p.issue_id,\n  p.pr_number,\n  p.merged_at,\n  dateDiff('minute', r.first_run_at, p.merged_at) AS pickup_to_merge_min,\n  p.human_commits,\n  p.review_comments,\n  format('https://github.com/{}/issues/{}', p.repo, toString(p.issue_id)) AS issue_url,\n  format('https://github.com/{}/pull/{}', p.repo, toString(p.pr_number)) AS pr_url\nFROM factory.pr_outcomes p\nLEFT JOIN (SELECT issue_id, min(started_at) AS first_run_at FROM factory.runs WHERE issue_id IS NOT NULL GROUP BY issue_id) r ON r.issue_id = p.issue_id\nWHERE p.merged_at IS NOT NULL AND $__timeFilter(p.merged_at)\n  AND ('*' IN (${factory_id:singlequote}) OR 1=1)\nORDER BY p.merged_at DESC\nLIMIT 50",
+          "rawSql": "SELECT\n  p.repo,\n  p.issue_id,\n  p.pr_number,\n  p.merged_at,\n  dateDiff('minute', r.first_run_at, p.merged_at) AS pickup_to_merge_min,\n  p.human_commits,\n  p.review_comments,\n  format('https://github.com/{}/issues/{}', p.repo, toString(p.issue_id)) AS issue_url,\n  format('https://github.com/{}/pull/{}', p.repo, toString(p.pr_number)) AS pr_url\nFROM factory.pr_outcomes p\nLEFT JOIN (SELECT repo, issue_id, min(started_at) AS first_run_at FROM factory.runs WHERE issue_id IS NOT NULL GROUP BY repo, issue_id) r ON r.issue_id = p.issue_id AND r.repo = p.repo\nWHERE p.merged_at IS NOT NULL AND $__timeFilter(p.merged_at)\n  AND (\n    '*' IN (${factory_id:singlequote})\n    OR EXISTS (\n      SELECT 1 FROM factory.runs rf\n      WHERE rf.repo = p.repo AND rf.issue_id = p.issue_id\n        AND rf.factory_id IN (${factory_id:singlequote})\n    )\n  )\nORDER BY p.merged_at DESC\nLIMIT 50",
           "refId": "A"
         }
       ],
@@ -1234,7 +1234,7 @@
   "templating": {
     "list": [
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -1259,7 +1259,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -1284,7 +1284,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -1309,7 +1309,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",

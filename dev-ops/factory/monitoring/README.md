@@ -57,7 +57,8 @@ Check versions on vendor release pages/registries before bumping.
 cd dev-ops/factory/monitoring
 cp .env.example .env
 # edit .env: set CLICKHOUSE_COLLECTOR_PASSWORD, CLICKHOUSE_GRAFANA_PASSWORD,
-# GRAFANA_ADMIN_PASSWORD, HOST_NAME, FACTORY_LOG_DIR, FACTORY_METRICS_DIR
+# GRAFANA_ADMIN_PASSWORD, GRAFANA_METRICS_PASSWORD, HOST_NAME, FACTORY_LOG_DIR,
+# FACTORY_METRICS_DIR, and the browser-reachable GRAFANA_ROOT_URL
 ```
 
 2. Create host directories if needed:
@@ -74,6 +75,25 @@ docker compose up -d
 ```
 
 Startup fails fast if required secrets are empty (compose interpolation and check-env).
+
+### Operator action before redeploy
+
+- Set the new required `GRAFANA_METRICS_PASSWORD` in `.env`. The one-shot
+  `check-env` service writes it to a private file in the `grafana-metrics-auth`
+  volume for Prometheus. Grafana uses the fixed username `prometheus`; the
+  password is not committed or placed directly in `prometheus.yml`.
+- Keep `GRAFANA_BIND_ADDR=127.0.0.1` and `OTLP_BIND_ADDR=127.0.0.1` for local-only
+  access. To keep reaching Grafana or OTLP on the LAN, explicitly set the
+  relevant bind address to `0.0.0.0` and restrict access with a firewall. These
+  services use plain HTTP unless fronted by TLS (Caddy, Tailscale Serve, or an
+  SSH tunnel).
+- Set `GRAFANA_ROOT_URL` to the full browser-reachable Grafana URL, including the
+  trailing slash and any reverse-proxy sub-path. For direct LAN access this is
+  typically `http://<host>:3000/`; for a TLS proxy use its HTTPS URL.
+- If the Langfuse profile is exposed, set `LANGFUSE_BIND_ADDR` deliberately and
+  set `LANGFUSE_PUBLIC_URL` to the browser-reachable base URL. The one-shot
+  `check-env` service renders that value into the provisioned Run Detail
+  dashboard before Grafana starts.
 
 ## Commands
 
@@ -94,13 +114,14 @@ docker compose down -v
 
 Run commands from `dev-ops/factory/monitoring/`.
 
-## Endpoints (127.0.0.1 only)
+## Endpoints (loopback by default)
 
-| Endpoint   | Default                             | Notes                                     |
-| ---------- | ----------------------------------- | ----------------------------------------- |
-| Grafana UI | `127.0.0.1:${GRAFANA_PORT:-3000}`   | admin password from `.env`, anonymous off |
-| OTLP gRPC  | `127.0.0.1:${OTLP_GRPC_PORT:-4317}` | for local/remote OTLP senders             |
-| OTLP HTTP  | `127.0.0.1:${OTLP_HTTP_PORT:-4318}` | for local/remote OTLP senders             |
+| Endpoint                         | Default                                                   | Notes                                     |
+| -------------------------------- | --------------------------------------------------------- | ----------------------------------------- |
+| Grafana UI                       | `${GRAFANA_BIND_ADDR:-127.0.0.1}:${GRAFANA_PORT:-3000}`   | admin password from `.env`, anonymous off |
+| OTLP gRPC                        | `${OTLP_BIND_ADDR:-127.0.0.1}:${OTLP_GRPC_PORT:-4317}`    | for local/remote OTLP senders             |
+| OTLP HTTP                        | `${OTLP_BIND_ADDR:-127.0.0.1}:${OTLP_HTTP_PORT:-4318}`    | for local/remote OTLP senders             |
+| Langfuse UI (`langfuse` profile) | `${LANGFUSE_BIND_ADDR:-127.0.0.1}:${LANGFUSE_PORT:-3001}` | optional profile                          |
 
 Prometheus and ClickHouse are not published by default. Reach them via:
 
@@ -191,11 +212,30 @@ SQL-managed access entities are added later, include them in the backup plan.
 
 ## Security defaults
 
-- All published ports bind to `127.0.0.1`.
+- Published ports bind to `127.0.0.1` by default. Override the relevant bind
+  address only when needed; direct LAN access is plain HTTP unless fronted by TLS.
 - No default passwords; required secrets come from `.env` and startup fails if empty.
-- Grafana anonymous access off, sign-up off, update checks off.
+- Grafana anonymous access off, sign-up off, update checks off, external snapshots
+  off, externally shared dashboards off, and UI plugin administration off.
+- Grafana `/metrics` requires basic auth. Prometheus reads the password from a
+  startup-generated file with owner-only permissions.
 - ClickHouse users are least-privilege (`collector` insert, `grafana` read-only).
 - Collector redacts common sensitive keys (`output_tail`, token/password/secret/authorization/api key patterns) as defence in depth.
+
+### Grafana accounts and password rotation
+
+`GRAFANA_ADMIN_PASSWORD` is applied only when Grafana first creates its SQLite
+database in the `grafana-data` volume. Changing it later in `.env` does not
+change an existing admin password. Rotate it inside the running container:
+
+```sh
+docker compose exec grafana grafana cli admin reset-admin-password '<new password>'
+```
+
+Use the shared admin account only for administration. For day-to-day dashboard
+use, sign in as admin, open **Administration > Users and access > Users**, invite
+or create a user, and assign the **Viewer** role. Do not provision personal
+credentials in git.
 
 ## Resource budget
 
@@ -221,21 +261,36 @@ Provisioned from `grafana/dashboards/*.json` (generated from
 have stable UIDs, include template variables `factory_id`, `agent_id`, `model`,
 `kind`, and a time range, and use bounded ClickHouse queries with `$__timeFilter(...)`.
 
-| UID                  | Dashboard            | Answers                                                                                                                                                                                                        |
-| -------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `factory-overview`   | Factory overview     | Issues processed/completed, run success rate, active agents, avg pickup-to-merge, tokens/cost, throughput over time, last tick age, current queue snapshot, recent merged PRs.                                 |
-| `factory-agents`     | Agent performance    | Per agent/version/model: runs, success rate, duration, cost/successful issue, fallback share, PR touch count; prompt version breakdown; leaderboard by merged PRs per run hour (EVENTS.md agent efficiency).   |
-| `factory-execution`  | Execution analytics  | Runs/hour, duration p50/p90, top tools, skill loads, failures by reason/fingerprint, issues with most runs, retries/fallbacks/operational events, stuck runs.                                                  |
-| `factory-cost`       | Cost and efficiency  | Reported cost and tokens by time/model/agent/kind; cost per merged PR and tokens per merged PR (approx); usage-filled/backup/free share. Cost is as reported by OpenCode and may be 0 for subscription models. |
-| `factory-quality`    | Quality and outcomes | PR acceptance rate, human intervention proxy, lead time p50/p90, first-pass success, rework/abandonment, CI/check outcomes, review comments.                                                                   |
-| `factory-host`       | Factory host         | Host CPU/memory/disk/load, collector records, per-container memory (if cAdvisor metrics present), ClickHouse disk by table (best effort), Prometheus TSDB size.                                                |
-| `factory-run-detail` | Factory run detail   | Deep dive for one run: run summary, factory events, trace waterfall (otel_traces), tool calls, tokens/cost per step, and Langfuse trace link when Langfuse profile is enabled.                                 |
+| UID                  | Dashboard            | Answers                                                                                                                                                                                                                               |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `factory-overview`   | Factory overview     | Issues processed/completed, run success rate, active agents, avg pickup-to-merge, tokens/cost, throughput over time, last tick age, current queue snapshot, recent merged PRs.                                                        |
+| `factory-agents`     | Agent performance    | Per agent/version/model: runs, success rate, duration, cost/successful issue, fallback share, PR touch count; prompt version breakdown; leaderboard by merged PRs per run hour (EVENTS.md agent efficiency).                          |
+| `factory-execution`  | Execution analytics  | Runs/hour, duration p50/p90, top tools, skill loads, failures by reason/fingerprint, issues with most runs, retries/fallbacks/operational events, stuck runs.                                                                         |
+| `factory-cost`       | Cost and efficiency  | Reported cost and tokens by time/model/agent/kind; cost per merged PR and tokens per merged PR (approx); usage-filled/backup/free share. Cost is as reported by OpenCode and may be 0 for subscription models.                        |
+| `factory-quality`    | Quality and outcomes | PR acceptance rate, human intervention proxy, lead time p50/p90, first-pass success, rework/abandonment, CI/check outcomes, review comments.                                                                                          |
+| `factory-host`       | Factory host         | Host CPU/memory/disk/load, collector records, per-container memory (if cAdvisor metrics present), ClickHouse disk by table (best effort), Prometheus TSDB size.                                                                       |
+| `factory-run-detail` | Factory run detail   | Deep dive for one run: run summary, factory events, trace waterfall (otel_traces), tool calls, tokens/cost per step, and Langfuse trace link when Langfuse profile is enabled. Defaults to the newest run in the selected time range. |
 
 Regenerate dashboards:
 
 ```sh
 python3 dev-ops/factory/monitoring/scripts/generate_dashboards.py
 ```
+
+The Run Detail `run_id` query is ordered newest first and has no saved empty
+selection, so Grafana preselects the newest run. An explicitly empty `run_id` or
+`trace_id` still produces valid SQL and no rows.
+
+Grafana 13.3 file provisioning supports environment variables in provisioning
+configuration, but not in dashboard JSON definition files. The committed Run
+Detail dashboard therefore contains a `__LANGFUSE_PUBLIC_URL__` placeholder. At
+stack startup, the one-shot `check-env` service renders the source dashboards
+into the derived `grafana-dashboards` volume, substituting `LANGFUSE_PUBLIC_URL`
+with a fallback of `http://127.0.0.1:3001`. Grafana mounts that rendered volume
+read-only and keeps `allowUiUpdates: false`, so the repository remains the source
+of truth and no manual textbox edit is required. After changing
+`LANGFUSE_PUBLIC_URL`, run `docker compose up -d check-env grafana` to re-render
+the dashboard volume before reloading Grafana.
 
 ## Langfuse (optional profile, prompt 05)
 
@@ -257,7 +312,7 @@ verify Langfuse v3 migrations against your pinned version before upgrading.
 
 Security/privacy defaults:
 
-- UI published on `127.0.0.1:${LANGFUSE_PORT:-3001}` only.
+- UI published on `${LANGFUSE_BIND_ADDR:-127.0.0.1}:${LANGFUSE_PORT:-3001}` by default.
 - All secrets from `.env`; no defaults. `langfuse-check-env` fails startup if required secrets are empty.
 - Langfuse telemetry/phone-home disabled (`TELEMETRY_ENABLED=false`).
 - Factory OTLP trace export sends no prompt/completion/tool content by default. Set `FACTORY_TRACE_CONTENT=1` only for trusted, self-hosted diagnosis. Collector redaction is a second defence.
@@ -309,13 +364,17 @@ dev-ops/factory/monitoring/scripts/validate.sh
 dev-ops/factory/monitoring/scripts/smoke.sh
 ```
 
-`validate.sh` also checks that generated dashboard JSON is up to date and that
-alert provisioning contains the required rule titles. Its throwaway ClickHouse
-container uses the image read from `docker-compose.yml`. Startup is retried for
-60 attempts; a readiness failure prints container status and recent logs before
-validation exits. `smoke.sh` boots a temporary stack, ingests fixture events,
-checks datasources, verifies provisioned dashboards and alert rules, and asserts
-one key ClickHouse query per dashboard returns rows.
+`validate.sh` also checks that generated dashboard JSON is up to date, renders
+default and multi-value dashboard SQL (including empty Run Detail selections),
+checks Grafana/Prometheus hardening, and verifies alert provisioning contains the
+required rule titles. Its throwaway ClickHouse container uses the image read from
+`docker-compose.yml`. Startup is retried for 60 attempts; a readiness failure
+prints container status and recent logs before validation exits. `smoke.sh` boots
+a temporary stack, ingests fixture events, parses and executes every rendered
+dashboard query with ClickHouse, verifies the newest-run default, checks
+datasources, dashboards and alert rules, asserts Grafana `/metrics` returns 401
+without credentials and 200 with them, confirms the Prometheus `grafana` target
+is up, and asserts one key ClickHouse query per dashboard returns rows.
 
 ## Troubleshooting
 

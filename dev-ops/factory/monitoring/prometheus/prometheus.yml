@@ -23,5 +23,8 @@ scrape_configs:
       - targets: ["clickhouse:9363"]
 
   - job_name: grafana
+    basic_auth:
+      username: prometheus
+      password_file: /etc/prometheus/secrets/grafana-metrics-password
     static_configs:
       - targets: ["grafana:3000"]

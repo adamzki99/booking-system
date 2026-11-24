@@ -19,8 +19,11 @@ run() {
 have_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
 
 TMP_ENV=""
+TMP_DASH=""
 cleanup() {
-  [[ -n "$TMP_ENV" && -f "$TMP_ENV" ]] && rm -f "$TMP_ENV"
+  if [[ -n "$TMP_ENV" && -f "$TMP_ENV" ]]; then rm -f "$TMP_ENV"; fi
+  if [[ -n "$TMP_DASH" && -d "$TMP_DASH" ]]; then rm -rf "$TMP_DASH"; fi
+  return 0
 }
 trap cleanup EXIT
 
@@ -31,6 +34,10 @@ CLICKHOUSE_COLLECTOR_PASSWORD=test-collector
 CLICKHOUSE_GRAFANA_PASSWORD=test-grafana
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=test-admin
+GRAFANA_METRICS_PASSWORD=test-metrics
+GRAFANA_BIND_ADDR=127.0.0.1
+OTLP_BIND_ADDR=127.0.0.1
+GRAFANA_ROOT_URL=http://127.0.0.1:13000/
 HOST_NAME=test-host
 GRAFANA_PORT=3000
 OTLP_GRPC_PORT=4317
@@ -264,12 +271,20 @@ else
   done
 fi
 if [ -f dev-ops/factory/monitoring/scripts/generate_dashboards.py ]; then
+  TMP_DASH="$(mktemp -d)"
+  cp -r dev-ops/factory/monitoring/grafana/dashboards "$TMP_DASH/dashboards.bak"
   run python3 dev-ops/factory/monitoring/scripts/generate_dashboards.py
-  if ! git -C "$REPO_ROOT" diff --quiet -- dev-ops/factory/monitoring/grafana/dashboards; then
+  if ! diff -ru "$TMP_DASH/dashboards.bak" dev-ops/factory/monitoring/grafana/dashboards; then
     echo "[monitoring-validate] FAILED: dashboard JSON not up to date with generator" >&2
-    git -C "$REPO_ROOT" --no-pager diff --name-only -- dev-ops/factory/monitoring/grafana/dashboards >&2 || true
+    rm -rf dev-ops/factory/monitoring/grafana/dashboards
+    mv "$TMP_DASH/dashboards.bak" dev-ops/factory/monitoring/grafana/dashboards
+    TMP_DASH=""
     fail=1
+  else
+    rm -rf "$TMP_DASH"
+    TMP_DASH=""
   fi
+  run python3 dev-ops/factory/monitoring/scripts/check_dashboards.py
 fi
 
 # Grafana alerting provisioning sanity.
@@ -312,6 +327,10 @@ PY
 # Basic YAML/JSON sanity for configs that should always be parseable.
 run python3 -c "import json,sys,pathlib; [json.load(open(p)) for p in pathlib.Path('dev-ops/factory/monitoring').rglob('*.json')]"
 run python3 -c "import yaml,sys,pathlib; [yaml.safe_load(open(p)) for p in pathlib.Path('dev-ops/factory/monitoring').rglob('*.yml')] + [yaml.safe_load(open(p)) for p in pathlib.Path('dev-ops/factory/monitoring').rglob('*.yaml')]"
+run python3 dev-ops/scripts/check-monitoring-hardening.py \
+  --compose dev-ops/factory/monitoring/docker-compose.yml \
+  --prometheus dev-ops/factory/monitoring/prometheus/prometheus.yml \
+  --env-example dev-ops/factory/monitoring/.env.example
 
 if [[ $fail -ne 0 ]]; then
   echo "[monitoring-validate] FAIL" >&2

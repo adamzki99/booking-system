@@ -546,6 +546,7 @@ if run_deploy "$out" \
     DEPLOY_LOCK_FILE="$tmp/locks/events.lock" \
     XDG_STATE_HOME="$tmp/state" \
     TMPDIR="$tmp/tmp" \
+    FACTORY_ENV="factory-host" \
     FACTORY_LOG_FILE="$events_log" \
     -- qa; then
   pass
@@ -571,11 +572,64 @@ for k in ("env_name", "branch", "commit", "previous_commit"):
     assert k in s and s[k], f"deploy.started missing {k}"
 for k in ("env_name", "commit", "duration_ms", "health"):
     assert k in c, f"deploy.completed missing {k}"
+for event in (s, c):
+    assert event["env_name"] == "qa", "deploy event has the wrong env_name"
+    assert event["deployment.environment"] == "qa", "deploy event has the wrong deployment.environment"
 assert c["health"] == "healthy"
 assert isinstance(c["duration_ms"], int) and c["duration_ms"] >= 0
 print("ok")
 PY
 [[ $? -eq 0 ]] && pass || fail "deploy event fields valid"
+
+# The deployed environment is not QA-specific. A configured release environment
+# must label its deploy events with that environment name, not FACTORY_ENV.
+cat >> "$events_deploy/dev-ops/environments.yaml" <<'YAML'
+  release-preview:
+    branch: main
+    port: 8081
+YAML
+"$git_bin" -C "$events_deploy" add dev-ops/environments.yaml
+"$git_bin" -C "$events_deploy" commit -qm "test: add release environment"
+"$git_bin" -C "$events_deploy" push -q origin main
+release_root="$tmp/release-repo"
+mkdir -p "$release_root/dev-ops/scripts" "$release_root/dev-ops/factory/lib"
+cp "$SCRIPT" "$release_root/dev-ops/scripts/deploy-environment.sh"
+cp "$REPO_ROOT/dev-ops/factory/lib/factory.py" "$release_root/dev-ops/factory/lib/factory.py"
+cat > "$release_root/dev-ops/environments.yaml" <<'YAML'
+environments:
+  release-preview:
+    branch: main
+    port: 8081
+YAML
+release_log="$tmp/factory-events-release.jsonl"
+out="$tmp/out-events-release.log"
+original_script="$SCRIPT"
+SCRIPT="$release_root/dev-ops/scripts/deploy-environment.sh"
+if run_deploy "$out" \
+    DEPLOY_DIR="$events_deploy" \
+    DEPLOY_LOCK_FILE="$tmp/locks/events-release.lock" \
+    XDG_STATE_HOME="$tmp/state" \
+    TMPDIR="$tmp/tmp" \
+    FACTORY_ENV="factory-host" \
+    FACTORY_LOG_FILE="$release_log" \
+    -- release-preview; then
+  pass
+else
+  fail "deploy of a release environment should succeed"
+fi
+SCRIPT="$original_script"
+python3 - "$release_log" release-preview <<'PY'
+import json, sys
+path, expected_env = sys.argv[1:]
+events = [json.loads(line) for line in open(path) if line.strip()]
+deploys = [event for event in events if event.get("event") in ("deploy.started", "deploy.completed")]
+assert {event["event"] for event in deploys} == {"deploy.started", "deploy.completed"}
+for event in deploys:
+    assert event["env_name"] == expected_env, "release deploy event has the wrong env_name"
+    assert event["deployment.environment"] == expected_env, "release deploy event has the wrong deployment.environment"
+print("ok")
+PY
+[[ $? -eq 0 ]] && pass || fail "release deploy events carry the deployed environment"
 
 # Deploy events: failed deploy emits deploy.failed.
 fail_log="$tmp/factory-events-fail.jsonl"
@@ -590,6 +644,7 @@ if run_deploy "$out" \
     DEPLOY_LOCK_FILE="$tmp/locks/fail-events.lock" \
     XDG_STATE_HOME="$tmp/state" \
     TMPDIR="$tmp/tmp" \
+    FACTORY_ENV="factory-host" \
     FACTORY_LOG_FILE="$fail_log" \
     FAIL_COMPOSE_UP=1 \
     -- qa; then
@@ -604,8 +659,13 @@ grep -Eq '"event": ?"deploy.failed"' "$fail_log" \
 python3 - "$fail_log" <<'PY'
 import json, sys
 events = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+started = [e for e in events if e.get("event") == "deploy.started"]
 failed = [e for e in events if e.get("event") == "deploy.failed"]
+assert started, "missing deploy.started"
 assert failed, "missing deploy.failed"
+for event in (started[-1], failed[-1]):
+    assert event["env_name"] == "qa", "deploy event has the wrong env_name"
+    assert event["deployment.environment"] == "qa", "deploy event has the wrong deployment.environment"
 f = failed[-1]
 for k in ("env_name", "commit", "duration_ms", "failed_step"):
     assert k in f, f"deploy.failed missing {k}"

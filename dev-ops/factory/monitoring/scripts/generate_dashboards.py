@@ -76,7 +76,9 @@ def templating(extra_vars=None):
             "definition": sql,
             "hide": 0,
             "includeAll": include_all,
-            "allValue": "*" if include_all else None,
+            # Grafana inserts a custom all value verbatim, even with :singlequote.
+            # Keep it a SQL literal so "All" renders as '*' rather than *.
+            "allValue": "'*'" if include_all else None,
             "label": label,
             "multi": multi,
             "name": name,
@@ -100,12 +102,26 @@ def templating(extra_vars=None):
     return vars
 
 
-FILTERS = """
-  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))
-  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))
-  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))
-  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))
+def filters_for(alias: str = "") -> str:
+    """Render the shared filters, qualifying columns without changing variables."""
+    prefix = f"{alias}." if alias else ""
+    return f"""
+  AND ('*' IN (${{factory_id:singlequote}}) OR {prefix}factory_id IN (${{factory_id:singlequote}}))
+  AND ('*' IN (${{agent_id:singlequote}}) OR {prefix}agent_id IN (${{agent_id:singlequote}}))
+  AND ('*' IN (${{model:singlequote}}) OR {prefix}model IN (${{model:singlequote}}))
+  AND ('*' IN (${{kind:singlequote}}) OR {prefix}kind IN (${{kind:singlequote}}))
 """.strip()
+
+
+FILTERS = filters_for()
+
+# An empty singlequote selection renders as nothing in Grafana. Wrapping the
+# interpolation in a typed array keeps Run Detail SQL valid for empty URL values;
+# nullIf turns the empty string into NULL so non-run events with an empty run_id
+# cannot match an empty selection.
+RUN_ID_FILTER = "run_id = nullIf(arrayElement(CAST([${run_id:singlequote}], 'Array(String)'), 1), '')"
+TRACE_ID_FILTER = "TraceId = nullIf(arrayElement(CAST([${trace_id:singlequote}], 'Array(String)'), 1), '')"
+LANGFUSE_URL_PLACEHOLDER = "__LANGFUSE_PUBLIC_URL__"
 
 
 def stat_panel(pid, title, desc, sql, grid, unit="none", thresholds=None, color_mode="value", graph="area"):
@@ -296,7 +312,7 @@ SELECT factory_id, ts, infant, planned, approved_waiting, in_pr, blocked_pr, nee
 FROM factory.queue_latest
 ORDER BY factory_id
 """, {"h":7,"w":12,"x":0,"y":16}),
-        table_panel(14, "Recent completed issues / PRs", "Recent merged PRs with issue, lead time, and human intervention proxy.", f"""
+        table_panel(14, "Recent completed issues / PRs", "Recent merged PRs with issue, lead time, and human intervention proxy. Filtered by Factory through matching factory.runs; pr_outcomes has no factory_id.", f"""
 SELECT
   p.repo,
   p.issue_id,
@@ -308,9 +324,16 @@ SELECT
   format('https://github.com/{{}}/issues/{{}}', p.repo, toString(p.issue_id)) AS issue_url,
   format('https://github.com/{{}}/pull/{{}}', p.repo, toString(p.pr_number)) AS pr_url
 FROM factory.pr_outcomes p
-LEFT JOIN (SELECT issue_id, min(started_at) AS first_run_at FROM factory.runs WHERE issue_id IS NOT NULL GROUP BY issue_id) r ON r.issue_id = p.issue_id
+LEFT JOIN (SELECT repo, issue_id, min(started_at) AS first_run_at FROM factory.runs WHERE issue_id IS NOT NULL GROUP BY repo, issue_id) r ON r.issue_id = p.issue_id AND r.repo = p.repo
 WHERE p.merged_at IS NOT NULL AND $__timeFilter(p.merged_at)
-  AND ('*' IN (${{factory_id:singlequote}}) OR 1=1)
+  AND (
+    '*' IN (${{factory_id:singlequote}})
+    OR EXISTS (
+      SELECT 1 FROM factory.runs rf
+      WHERE rf.repo = p.repo AND rf.issue_id = p.issue_id
+        AND rf.factory_id IN (${{factory_id:singlequote}})
+    )
+  )
 ORDER BY p.merged_at DESC
 LIMIT 50
 """, {"h":7,"w":12,"x":12,"y":16}, overrides=[
@@ -359,7 +382,7 @@ SELECT
   round(uniqExactIf(p.pr_number, p.merged_at IS NOT NULL) / nullIf(sum(coalesce(r.duration_ms,0))/3600000,0),3) AS merged_prs_per_run_hour
 FROM factory.runs r
 LEFT JOIN factory.pr_outcomes p ON p.issue_id = r.issue_id AND p.repo = r.repo
-WHERE $__timeFilter(r.started_at) {FILTERS.replace('factory_id','r.factory_id').replace('agent_id','r.agent_id').replace('model','r.model').replace('kind','r.kind')}
+WHERE $__timeFilter(r.started_at) {filters_for('r')}
 GROUP BY r.agent_id, r.agent_version, r.model
 ORDER BY merged_prs_per_run_hour DESC
 LIMIT 50
@@ -442,11 +465,11 @@ def dashboard_cost():
         stat_panel(1, "Reported cost (USD)", "Sum cost_usd as reported by OpenCode. Subscription models may report 0.", f"SELECT round(sum(coalesce(cost_usd,toDecimal64(0,6))),4) AS value FROM factory.runs WHERE $__timeFilter(started_at) {FILTERS}", {"h":4,"w":4,"x":0,"y":0}, unit="currencyUSD"),
         stat_panel(2, "Total tokens", "All token types for terminal runs.", f"SELECT sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)+coalesce(reasoning_tokens,0)+coalesce(cache_read_tokens,0)+coalesce(cache_write_tokens,0)) AS value FROM factory.runs WHERE $__timeFilter(started_at) {FILTERS}", {"h":4,"w":4,"x":4,"y":0}, unit="short"),
         stat_panel(3, "Cost / merged PR", "Reported cost divided by merged PRs in window (approx).", f"""
-SELECT round(sum(coalesce(cost_usd,toDecimal64(0,6))) / nullIf(uniqExactIf(pr_number, event='pr.merged' AND pr_number IS NOT NULL),0),4) AS value
+SELECT round(sum(coalesce(reported_cost_usd,toDecimal64(0,6))) / nullIf(uniqExactIf(pr_number, event='pr.merged' AND pr_number IS NOT NULL),0),4) AS value
 FROM (
-  SELECT ts, pr_number, event, factory_id, toDecimal64(0,6) AS cost_usd FROM factory.events FINAL WHERE $__timeFilter(ts) AND event='pr.merged'
+  SELECT ts, pr_number, event, factory_id, toDecimal64(0,6) AS reported_cost_usd FROM factory.events FINAL WHERE $__timeFilter(ts) AND event='pr.merged'
   UNION ALL
-  SELECT started_at AS ts, pr_number, outcome AS event, factory_id, coalesce(cost_usd,toDecimal64(0,6)) AS cost_usd FROM factory.runs WHERE $__timeFilter(started_at)
+  SELECT started_at AS ts, pr_number, outcome AS event, factory_id, coalesce(cost_usd,toDecimal64(0,6)) AS reported_cost_usd FROM factory.runs WHERE $__timeFilter(started_at)
 ) t WHERE ('*' IN (${{factory_id:singlequote}}) OR factory_id IN (${{factory_id:singlequote}}))
 """, {"h":4,"w":4,"x":8,"y":0}, unit="currencyUSD"),
         stat_panel(4, "Tokens / merged PR", "Tokens per merged PR in window (approx).", f"""
@@ -458,7 +481,7 @@ SELECT round(sum(tokens) / nullIf(sum(merged),0),0) AS value FROM (
     AND ('*' IN (${{factory_id:singlequote}}) OR factory_id IN (${{factory_id:singlequote}}))
 )
 """, {"h":4,"w":4,"x":12,"y":0}, unit="short"),
-        timeseries_panel(5, "Cost over time (reported)", "Reported cost per day; may be 0 for subscription models.", [ch_target("Cost USD", f"SELECT toStartOfInterval(started_at, INTERVAL 1 day) AS time, sum(coalesce(cost_usd,toDecimal64(0,6))) AS cost_usd FROM factory.runs WHERE $__timeFilter(started_at) {FILTERS} GROUP BY time ORDER BY time", "timeseries", 0)], {"h":8,"w":12,"x":0,"y":4}, unit="currencyUSD"),
+        timeseries_panel(5, "Cost over time (reported)", "Reported cost per day; may be 0 for subscription models.", [ch_target("Cost USD", f"SELECT toStartOfInterval(started_at, INTERVAL 1 day) AS time, sum(coalesce(cost_usd,toDecimal64(0,6))) AS reported_cost_usd FROM factory.runs WHERE $__timeFilter(started_at) {FILTERS} GROUP BY time ORDER BY time", "timeseries", 0)], {"h":8,"w":12,"x":0,"y":4}, unit="currencyUSD"),
         timeseries_panel(6, "Tokens over time", "Token types per day.", [
             ch_target("Input", f"SELECT toStartOfInterval(started_at, INTERVAL 1 day) AS time, sum(coalesce(input_tokens,0)) AS input FROM factory.runs WHERE $__timeFilter(started_at) {FILTERS} GROUP BY time ORDER BY time", "timeseries", 0),
             ch_target("Output", f"SELECT toStartOfInterval(started_at, INTERVAL 1 day) AS time, sum(coalesce(output_tokens,0)) AS output FROM factory.runs WHERE $__timeFilter(started_at) {FILTERS} GROUP BY time ORDER BY time", "timeseries", 0),
@@ -468,18 +491,18 @@ SELECT round(sum(tokens) / nullIf(sum(merged),0),0) AS value FROM (
         ], {"h":8,"w":12,"x":12,"y":4}, unit="short"),
         table_panel(7, "Cost/tokens by model", "Model breakdown; cost as reported by OpenCode.", f"""
 SELECT model, count() AS runs, countIf(outcome='completed') AS successes,
-  round(sum(coalesce(cost_usd,toDecimal64(0,6))),4) AS cost_usd,
+  round(sum(coalesce(cost_usd,toDecimal64(0,6))),4) AS reported_cost_usd,
   sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)+coalesce(reasoning_tokens,0)+coalesce(cache_read_tokens,0)+coalesce(cache_write_tokens,0)) AS tokens,
   round(sum(coalesce(cost_usd,toDecimal64(0,6))) / nullIf(countIf(outcome='completed'),0),4) AS cost_per_success
 FROM factory.runs WHERE $__timeFilter(started_at) {FILTERS}
-GROUP BY model ORDER BY cost_usd DESC LIMIT 50
+GROUP BY model ORDER BY reported_cost_usd DESC LIMIT 50
 """, {"h":8,"w":12,"x":0,"y":12}),
         table_panel(8, "Cost/tokens by agent/kind", "Agent and kind breakdown.", f"""
 SELECT agent_id, kind, count() AS runs,
-  round(sum(coalesce(cost_usd,toDecimal64(0,6))),4) AS cost_usd,
+  round(sum(coalesce(cost_usd,toDecimal64(0,6))),4) AS reported_cost_usd,
   sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)+coalesce(reasoning_tokens,0)+coalesce(cache_read_tokens,0)+coalesce(cache_write_tokens,0)) AS tokens
 FROM factory.runs WHERE $__timeFilter(started_at) {FILTERS}
-GROUP BY agent_id, kind ORDER BY cost_usd DESC LIMIT 50
+GROUP BY agent_id, kind ORDER BY reported_cost_usd DESC LIMIT 50
 """, {"h":8,"w":12,"x":12,"y":12}),
         table_panel(9, "Usage-filled / backup / free share", "Quota pressure and fallback share.", f"""
 SELECT
@@ -581,9 +604,9 @@ LIMIT 50
 
 def dashboard_run_detail():
     run_var = {
-        "current": {"selected": False, "text": "", "value": ""},
         "datasource": DS_CH,
         "definition": "SELECT run_id FROM factory.runs WHERE $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 200",
+        "description": "Defaults to the newest run in the selected time range. An empty selection returns no rows.",
         "hide": 0,
         "includeAll": False,
         "label": "Run ID",
@@ -598,16 +621,15 @@ def dashboard_run_detail():
         "type": "query",
     }
     trace_var = {
-        "current": {"selected": False, "text": "", "value": ""},
         "datasource": DS_CH,
-        "definition": "SELECT trace_id FROM factory.runs WHERE run_id = ${run_id:singlequote} LIMIT 1",
+        "definition": f"SELECT trace_id FROM factory.runs WHERE {RUN_ID_FILTER} AND trace_id != '' LIMIT 1",
         "hide": 2,
         "includeAll": False,
         "label": "Trace ID",
         "multi": False,
         "name": "trace_id",
         "options": [],
-        "query": "SELECT trace_id FROM factory.runs WHERE run_id = ${run_id:singlequote} LIMIT 1",
+        "query": f"SELECT trace_id FROM factory.runs WHERE {RUN_ID_FILTER} AND trace_id != '' LIMIT 1",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": False,
@@ -615,12 +637,13 @@ def dashboard_run_detail():
         "type": "query",
     }
     langfuse_url_var = {
-        "current": {"selected": True, "text": "http://127.0.0.1:3001", "value": "http://127.0.0.1:3001"},
+        "current": {"selected": True, "text": LANGFUSE_URL_PLACEHOLDER, "value": LANGFUSE_URL_PLACEHOLDER},
+        "description": "Browser-reachable Langfuse base URL, rendered from LANGFUSE_PUBLIC_URL at stack startup with a loopback fallback.",
         "hide": 0,
         "label": "Langfuse URL",
         "name": "langfuse_url",
-        "options": [{"selected": True, "text": "http://127.0.0.1:3001", "value": "http://127.0.0.1:3001"}],
-        "query": "http://127.0.0.1:3001",
+        "options": [{"selected": True, "text": LANGFUSE_URL_PLACEHOLDER, "value": LANGFUSE_URL_PLACEHOLDER}],
+        "query": LANGFUSE_URL_PLACEHOLDER,
         "skipUrlSync": False,
         "type": "textbox",
     }
@@ -636,7 +659,7 @@ def dashboard_run_detail():
     }
 
     panels = [
-        table_panel(1, "Run summary", "Selected run from factory.runs.", """
+        table_panel(1, "Run summary", "Newest run by default, or the selected run from factory.runs. Empty selections return no rows.", f"""
 SELECT
   run_id, factory_id, tick_id, kind, agent_id, agent_version, prompt_version, model, tier_label,
   fallback_level, attempt, issue_id, pr_number, repo, session_id, trace_id,
@@ -644,17 +667,17 @@ SELECT
   input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens,
   cost_usd, tool_calls, tool_errors, files_changed, exit_code, error_fingerprint
 FROM factory.runs
-WHERE run_id = ${run_id:singlequote}
+WHERE {RUN_ID_FILTER}
 LIMIT 1
 """, {"h": 6, "w": 24, "x": 0, "y": 0}, overrides=[
             {"matcher": {"id": "byName", "options": "trace_id"}, "properties": [{"id": "links", "value": [
                 {"title": "Open Langfuse trace", "url": "${langfuse_url}/project/${langfuse_project_id}/traces/${__value.raw}", "targetBlank": True}
             ]}]},
         ]),
-        table_panel(2, "Run events", "Factory events for the selected run.", """
+        table_panel(2, "Run events", "Factory events for the selected run.", f"""
 SELECT ts, event, status, kind, agent_id, model, session_id, trace_id, duration_ms, failure_reason, error_fingerprint, attrs
 FROM factory.events FINAL
-WHERE run_id = ${run_id:singlequote}
+WHERE {RUN_ID_FILTER}
 ORDER BY ts ASC
 LIMIT 500
 """, {"h": 8, "w": 24, "x": 0, "y": 6}),
@@ -671,7 +694,7 @@ LIMIT 500
                 "meta": {"builderOptions": {"columns": [], "database": "otel", "limit": 1000, "mode": "list", "queryType": "traces"}},
                 "pluginVersion": "4.23.5",
                 "queryType": "traces",
-                "rawSql": """
+                "rawSql": f"""
 SELECT
   TraceId AS traceID,
   SpanId AS spanID,
@@ -684,7 +707,7 @@ SELECT
   arrayMap(k -> map('key', k, 'value', ResourceAttributes[k]), mapKeys(ResourceAttributes)) AS serviceTags,
   if(StatusCode = 'STATUS_CODE_ERROR' OR StatusCode = 'Error' OR StatusCode = '2', 2, 0) AS statusCode
 FROM otel.otel_traces
-WHERE TraceId = ${trace_id:singlequote}
+WHERE {TRACE_ID_FILTER}
 ORDER BY Timestamp ASC
 LIMIT 1000
 """.strip(),
@@ -693,14 +716,14 @@ LIMIT 1000
             "title": "Trace (waterfall)",
             "type": "traces",
         },
-        table_panel(4, "Tool calls", "Tool calls emitted by the run.", """
+        table_panel(4, "Tool calls", "Tool calls emitted by the run.", f"""
 SELECT ts, tool, status, duration_ms, skill_name, run_id, attrs
 FROM factory.tool_calls
-WHERE run_id = ${run_id:singlequote}
+WHERE {RUN_ID_FILTER}
 ORDER BY ts ASC
 LIMIT 500
 """, {"h": 8, "w": 12, "x": 0, "y": 24}),
-        table_panel(5, "Tokens per step", "LLM step spans from otel.otel_traces with GenAI token attributes.", """
+        table_panel(5, "Tokens per step", "LLM step spans from otel.otel_traces with GenAI token attributes.", f"""
 SELECT
   Timestamp AS ts,
   SpanName AS span,
@@ -713,7 +736,7 @@ SELECT
   toFloat64OrNull(SpanAttributes['gen_ai.usage.cost_usd']) AS cost_usd,
   Duration / 1000000 AS duration_ms
 FROM otel.otel_traces
-WHERE TraceId = ${trace_id:singlequote}
+WHERE {TRACE_ID_FILTER}
   AND SpanName IN ('opencode.llm.step', 'factory.agent.run')
 ORDER BY Timestamp ASC
 LIMIT 200

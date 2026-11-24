@@ -20,6 +20,7 @@ set -a; source "$ENV_FILE"; set +a
 : "${MONITORING_PROJECT:?MONITORING_PROJECT required}"
 : "${OTLP_HTTP_PORT:?OTLP_HTTP_PORT required}"
 : "${GRAFANA_PORT:?GRAFANA_PORT required}"
+: "${GRAFANA_METRICS_PASSWORD:?GRAFANA_METRICS_PASSWORD required}"
 
 ENV_DIR="$(cd -- "$(dirname -- "$ENV_FILE")" >/dev/null && pwd)"
 if [ -f "$ENV_DIR/compose.yaml" ]; then
@@ -94,6 +95,12 @@ done
 echo "[smoke] checking Grafana health..."
 curl -fsS "http://127.0.0.1:${GRAFANA_PORT}/api/health" | grep -q ok
 
+metrics_status=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${GRAFANA_PORT}/metrics")
+[ "$metrics_status" = "401" ] || { echo "[smoke] /metrics without auth returned $metrics_status, expected 401" >&2; exit 1; }
+metrics_auth_status=$(curl -sS -o /dev/null -w '%{http_code}' -u "prometheus:${GRAFANA_METRICS_PASSWORD}" "http://127.0.0.1:${GRAFANA_PORT}/metrics")
+[ "$metrics_auth_status" = "200" ] || { echo "[smoke] /metrics with auth returned $metrics_auth_status, expected 200" >&2; exit 1; }
+echo "[smoke] Grafana /metrics requires basic auth"
+
 prom_query() {
   local q="$1"
   "${COMPOSE[@]}" exec -T prometheus wget -qO- --post-data="query=${q}" http://127.0.0.1:9090/api/v1/query 2>/dev/null
@@ -102,6 +109,16 @@ prom_query() {
 has_result() {
   python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("status")=="success" and len(d.get("data",{}).get("result",[]))>0 else 1)'
 }
+
+grafana_up=0
+for _ in $(seq 1 60); do
+  if prom_query 'up{job="grafana"}' | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d.get("data",{}).get("result",[]); sys.exit(0 if r and r[0].get("value",[None,"0"])[1]=="1" else 1)'; then
+    grafana_up=1
+    break
+  fi
+  sleep 2
+done
+[ "$grafana_up" -eq 1 ] || { echo "[smoke] grafana target is not up" >&2; exit 1; }
 
 echo "[smoke] waiting for metrics in Prometheus and asserting key dashboard queries..."
 # Query Prometheus to discover actual translated metric names, then check one key query per dashboard.
