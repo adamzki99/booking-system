@@ -460,7 +460,7 @@ export default function Calendar() {
                   <span class="calendar-th calendar-th-action" />
                 </div>
 
-                <ul class="calendar-booking-list" role="list">
+                <ul class="calendar-booking-list" >
                   <For
                     each={showAll() ? currentBookings() : currentBookings().slice(0, 5)}
                     keyed={(b) => b.id}
@@ -470,7 +470,7 @@ export default function Calendar() {
                       const member = () => currentMembers()[b().userId];
                       const label = () => memberLabel(member(), b());
                       return (
-                        <li class="calendar-booking-item" role="listitem">
+                        <li class="calendar-booking-item" >
                           <div class="calendar-booking-row">
                             <div class="calendar-booking-member">
                               <Avatar size="sm" name={label()} />
