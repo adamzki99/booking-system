@@ -75,9 +75,7 @@ export default function Users() {
     const searchTerm = query().trim().toLowerCase();
     if (!searchTerm) return users;
     return users.filter((u) =>
-      [u.email, u.address ?? "", u.role].some((value) =>
-        value.toLowerCase().includes(searchTerm),
-      ),
+      [u.email, u.address ?? "", u.role].some((value) => value.toLowerCase().includes(searchTerm)),
     );
   };
 
@@ -185,9 +183,7 @@ export default function Users() {
               </Alert>
             )}
           >
-            <Show when={mutationError()}>
-              {(msg) => <Alert status="error">{msg()}</Alert>}
-            </Show>
+            <Show when={mutationError()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
 
             <div class="users-field users-search">
               <label class="users-label" for="member-search">
@@ -245,8 +241,7 @@ export default function Users() {
                               <td>
                                 <Show
                                   when={
-                                    u().role === "basic" ||
-                                    (adminUser() && u().role === "super")
+                                    u().role === "basic" || (adminUser() && u().role === "super")
                                   }
                                 >
                                   <Button

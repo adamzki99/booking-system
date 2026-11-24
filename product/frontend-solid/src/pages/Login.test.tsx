@@ -71,9 +71,7 @@ describe("Login page", () => {
     setInput(await screen.findByLabelText("Email"), "user@example.com");
     fireEvent.click(screen.getByRole("button", { name: "Request code" }));
 
-    await waitFor(() =>
-      expect(requestCodeMock).toHaveBeenCalledWith("user@example.com"),
-    );
+    await waitFor(() => expect(requestCodeMock).toHaveBeenCalledWith("user@example.com"));
     expect(await screen.findByLabelText("Code")).toBeInTheDocument();
   });
 
@@ -83,9 +81,7 @@ describe("Login page", () => {
     setInput(await screen.findByLabelText("Email"), "user");
     fireEvent.click(screen.getByRole("button", { name: "Request code" }));
 
-    expect(
-      await screen.findByText(/enter a valid email address/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/enter a valid email address/i)).toBeInTheDocument();
     expect(requestCodeMock).not.toHaveBeenCalled();
   });
 
@@ -100,16 +96,12 @@ describe("Login page", () => {
     setInput(screen.getByLabelText("Code"), "abc123");
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    await waitFor(() =>
-      expect(login).toHaveBeenCalledWith("user@example.com", "ABC123"),
-    );
+    await waitFor(() => expect(login).toHaveBeenCalledWith("user@example.com", "ABC123"));
     expect(await screen.findByText("calendar")).toBeInTheDocument();
   });
 
   it("shows a friendly message for invalid or expired codes without raw auth prefix", async () => {
-    const login = vi
-      .fn()
-      .mockRejectedValue(new ApiError("auth: invalid or expired code", 401));
+    const login = vi.fn().mockRejectedValue(new ApiError("auth: invalid or expired code", 401));
     stubSession(login);
     renderLogin();
 
@@ -119,9 +111,7 @@ describe("Login page", () => {
     setInput(screen.getByLabelText("Code"), "ABC123");
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(
-      await screen.findByText(/code is invalid or has expired/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/code is invalid or has expired/i)).toBeInTheDocument();
     expect(screen.queryByText(/auth:/i)).not.toBeInTheDocument();
   });
 
@@ -132,16 +122,12 @@ describe("Login page", () => {
     renderLogin();
 
     await waitFor(() =>
-      expect(
-        screen.queryByRole("button", { name: "Request code" }),
-      ).not.toBeInTheDocument(),
+      expect(screen.queryByRole("button", { name: "Request code" })).not.toBeInTheDocument(),
     );
     setInput(screen.getByLabelText("Email"), "user1@test.local");
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    await waitFor(() =>
-      expect(loginWithQAMode).toHaveBeenCalledWith("user1@test.local"),
-    );
+    await waitFor(() => expect(loginWithQAMode).toHaveBeenCalledWith("user1@test.local"));
     expect(requestCodeMock).not.toHaveBeenCalled();
     expect(await screen.findByText("calendar")).toBeInTheDocument();
   });

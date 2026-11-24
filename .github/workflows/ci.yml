@@ -88,10 +88,14 @@ jobs:
     name: Semgrep
     uses: ./.github/workflows/semgrep.yml
 
+  format:
+    name: Format CI
+    uses: ./.github/workflows/format-ci.yml
+
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [changes, backend, frontend, sidecar, monitoring, security, semgrep]
+    needs: [changes, backend, frontend, sidecar, monitoring, security, semgrep, format]
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate results

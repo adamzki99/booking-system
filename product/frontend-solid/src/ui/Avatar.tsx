@@ -38,4 +38,3 @@ export default function Avatar(props: AvatarProps): JSX.Element {
     </div>
   );
 }
-

@@ -9,7 +9,15 @@
     "**/package-lock.json",
     ".opencode/skills/**",
     "projects/sauna/docs/mocks/**",
+    "dev-ops/factory/monitoring/grafana/dashboards/*.json",
+    "product/monitoring/grafana/dashboards/*.json",
     "**/*.go",
-    "**/*.py"
-  ]
+    "**/*.py",
+    // prompt 04 removes these Markdown/YAML exclusions
+    "**/*.md",
+    "**/*.yaml",
+    "**/*.yml",
+    // prompt 08 removes this guardrail exclusion
+    "opencode.jsonc",
+  ],
 }

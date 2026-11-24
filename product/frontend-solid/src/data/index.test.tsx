@@ -54,9 +54,7 @@ describe("data conventions", () => {
     function App() {
       const data = createAsyncData(() => pending.promise);
       return (
-        <Errored
-          fallback={(err) => <div data-testid="error">{String(err())}</div>}
-        >
+        <Errored fallback={(err) => <div data-testid="error">{String(err())}</div>}>
           <Loading fallback={<div>loading</div>}>
             <div>{data()}</div>
           </Loading>

@@ -74,11 +74,7 @@ describe("Calendar page", () => {
     const times = screen
       .getAllByRole("listitem")
       .map((item) => item.querySelector("time")?.getAttribute("datetime"));
-    expect(times).toEqual([
-      "2026-11-07T12:00:00Z",
-      "2026-11-08T08:00:00Z",
-      "2026-11-09T10:00:00Z",
-    ]);
+    expect(times).toEqual(["2026-11-07T12:00:00Z", "2026-11-08T08:00:00Z", "2026-11-09T10:00:00Z"]);
   });
 
   it("creates a booking from the form values and shows it after refresh", async () => {
@@ -100,9 +96,7 @@ describe("Calendar page", () => {
       }),
     );
     // The refreshed list shows the new own booking with a cancel control.
-    expect(
-      await screen.findByRole("button", { name: "Cancel booking" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Cancel booking" })).toBeInTheDocument();
     expect(listMock).toHaveBeenCalledTimes(2);
   });
 
@@ -111,9 +105,7 @@ describe("Calendar page", () => {
 
     render(() => <Calendar />);
 
-    expect(
-      await screen.findByRole("button", { name: "Create booking" }),
-    ).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Create booking" })).toBeDisabled();
 
     setInput(screen.getByLabelText("Start"), "2026-11-08T08:00");
     expect(screen.getByRole("button", { name: "Create booking" })).toBeDisabled();
@@ -129,12 +121,8 @@ describe("Calendar page", () => {
     render(() => <Calendar />);
 
     // Only one cancel control exists: for the signed-in user's own booking.
-    expect(
-      await screen.findByRole("button", { name: "Cancel booking" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getAllByRole("button", { name: "Cancel booking" }),
-    ).toHaveLength(1);
+    expect(await screen.findByRole("button", { name: "Cancel booking" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Cancel booking" })).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel booking" }));
     await waitFor(() => expect(cancelMock).toHaveBeenCalledWith("b1"));

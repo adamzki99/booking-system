@@ -29,4 +29,3 @@ Object.defineProperty(window, "scrollTo", {
 afterEach(() => {
   cleanup();
 });
-

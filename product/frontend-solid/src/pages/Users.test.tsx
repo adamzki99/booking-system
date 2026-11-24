@@ -30,9 +30,27 @@ const removeUserMock = vi.mocked(removeUser);
 const changeUserAddressMock = vi.mocked(changeUserAddress);
 const changeUserRoleMock = vi.mocked(changeUserRole);
 
-const basicUser = { id: "b1", email: "basic@example.com", role: "basic" as const, address: "A", active: true };
-const superUser = { id: "s1", email: "super@example.com", role: "super" as const, address: null, active: true };
-const adminUser = { id: "a1", email: "admin@example.com", role: "admin" as const, address: null, active: true };
+const basicUser = {
+  id: "b1",
+  email: "basic@example.com",
+  role: "basic" as const,
+  address: "A",
+  active: true,
+};
+const superUser = {
+  id: "s1",
+  email: "super@example.com",
+  role: "super" as const,
+  address: null,
+  active: true,
+};
+const adminUser = {
+  id: "a1",
+  email: "admin@example.com",
+  role: "admin" as const,
+  address: null,
+  active: true,
+};
 
 function stubSession(user: User) {
   useSessionMock.mockReturnValue({
@@ -204,9 +222,7 @@ describe("Users page", () => {
     listUsersMock.mockResolvedValue([basicUser, superUser]);
     renderUsers("/users?q=super");
     await screen.findByRole("cell", { name: "super@example.com" });
-    expect(
-      screen.queryByRole("cell", { name: "basic@example.com" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "basic@example.com" })).not.toBeInTheDocument();
   });
 
   it("filters rows and writes the query parameter as the user types", async () => {
@@ -217,9 +233,7 @@ describe("Users page", () => {
 
     setInput(screen.getByLabelText("Search members"), "super");
 
-    expect(
-      screen.queryByRole("cell", { name: "basic@example.com" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "basic@example.com" })).not.toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "super@example.com" })).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByTestId("location-search").textContent).toContain("q=super"),
@@ -231,13 +245,9 @@ describe("Users page", () => {
     listUsersMock.mockResolvedValue([basicUser, superUser]);
     renderUsers("/users?q=super");
     await screen.findByRole("cell", { name: "super@example.com" });
-    expect(
-      screen.queryByRole("cell", { name: "basic@example.com" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "basic@example.com" })).not.toBeInTheDocument();
 
     const addressSelect = screen.getByLabelText("User") as HTMLSelectElement;
-    expect(Array.from(addressSelect.options).map((o) => o.text)).toContain(
-      "basic@example.com",
-    );
+    expect(Array.from(addressSelect.options).map((o) => o.text)).toContain("basic@example.com");
   });
 });
