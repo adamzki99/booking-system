@@ -89,7 +89,8 @@ created. The system owner steers the project by interacting with issues only.
   `<!-- factory:build -->` markers; fix attempts carry
   `<!-- factory:fix-pr:<sha>:<reasons> -->` PR markers. Plan markers count only
   when their comment author matches `FACTORY_LOGIN`; an unset `FACTORY_LOGIN`
-  trusts no plan marker.
+  trusts no plan marker. Login comparisons treat the REST `[bot]` suffix and
+  the GraphQL bare slug as the same identity.
 - **Owner-approved gate is respected.** Only the repository owner applies
   `owner approved`; build selection requires it.
 - **Trusted authors only.** Plan/build discovery accepts issues only from

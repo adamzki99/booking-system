@@ -27,11 +27,11 @@ You never modify code or files.
 ## Workflow
 1. The issue body and trusted-author comments are already supplied in the
    prompt; do not fetch comments yourself.
-2. Check for an existing plan comment (marked `<!-- factory-plan -->`). If one
+2. Check for an existing plan comment (marked `<!-- factory:plan -->`). If one
    exists, update it instead of posting a second.
 3. Explore the code with read-only tools to find where the change belongs and
    how similar things are already done.
-4. Post the plan as a comment, starting with `<!-- factory-plan -->`, using:
+4. Post the plan as a comment, starting with `<!-- factory:plan -->`, using:
    - **Summary**: one or two sentences on the goal.
    - **Approach**: the smallest change that satisfies the issue.
    - **Files**: likely files to touch, and why.

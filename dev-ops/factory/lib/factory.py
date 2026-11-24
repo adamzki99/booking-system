@@ -309,8 +309,27 @@ def check_state(item):
     return st
 
 
+def _login_of(candidate):
+    if isinstance(candidate, dict):
+        candidate = candidate.get("login")
+    return candidate if isinstance(candidate, str) else ""
+
+
+def normalize_login(candidate):
+    """Canonicalise a GitHub login for trust comparisons.
+
+    The REST API reports app bot logins with a ``[bot]`` suffix while GraphQL
+    returns the bare slug. Normalising both sides keeps marker and author
+    checks working across the two API shapes.
+    """
+    login = _login_of(candidate).strip().lower()
+    if login.endswith("[bot]"):
+        login = login[:-5].rstrip()
+    return login
+
+
 def parse_trusted_logins(raw):
-    """Parse a comma/whitespace separated login list into a lowercase set.
+    """Parse a comma/whitespace separated login list into normalised logins.
 
     An empty or missing value yields an empty set so callers fail closed.
     """
@@ -325,7 +344,7 @@ def parse_trusted_logins(raw):
                 values.append(item)
     else:
         values = re.split(r"[,\s]+", str(raw))
-    return {value.strip().lower() for value in values if value.strip()}
+    return {login for login in (normalize_login(value) for value in values) if login}
 
 
 def trusted_logins_from_env(environ=None):
@@ -338,15 +357,9 @@ def trusted_logins_from_env(environ=None):
     return parse_trusted_logins(raw)
 
 
-def _login_of(candidate):
-    if isinstance(candidate, dict):
-        candidate = candidate.get("login")
-    return candidate if isinstance(candidate, str) else ""
-
-
 def is_trusted_login(candidate, trusted):
     """Return whether a login or GitHub author object is explicitly trusted."""
-    login = _login_of(candidate).strip().lower()
+    login = normalize_login(candidate)
     return bool(login) and login in parse_trusted_logins(trusted)
 
 
@@ -383,8 +396,8 @@ def pr_is_trusted(pr, trusted, repo_owner):
         return False
     if not is_trusted_login(pr.get("author"), trusted):
         return False
-    owner = _login_of(repo_owner).strip().lower()
-    head_owner = _login_of(pr.get("headRepositoryOwner")).strip().lower()
+    owner = normalize_login(repo_owner)
+    head_owner = normalize_login(pr.get("headRepositoryOwner"))
     return bool(owner) and bool(head_owner) and head_owner == owner
 
 
@@ -440,11 +453,12 @@ def prioritize_issues(issues, prio):
 
 
 def has_marker_comments(comments, marker, author=None):
-    if author is not None and not author:
+    expected = normalize_login(author) if author is not None else None
+    if author is not None and not expected:
         return False
     return any(
         marker in (c.get("body") or "")
-        and (author is None or (c.get("author") or {}).get("login") == author)
+        and (expected is None or normalize_login(c.get("author")) == expected)
         for c in (comments or [])
     )
 
