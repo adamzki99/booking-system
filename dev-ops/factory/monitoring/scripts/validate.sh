@@ -349,17 +349,26 @@ if test and test[0] == 'CMD-SHELL':
     sys.exit(1)
 PY
 
-# Langfuse v4 creates projected MergeTree tables. ClickHouse requires enough
-# background mutation slots for its default free-entry thresholds.
+# Langfuse v4 projected-table DDL is validated against ClickHouse's default
+# free-entry thresholds even when low-memory.xml overrides them. Also honor any
+# larger thresholds configured locally.
 run python3 - <<'PY'
-from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
 
 root = ET.parse('dev-ops/factory/monitoring/clickhouse/config.d/low-memory.xml').getroot()
 pool = int(root.findtext('background_pool_size'))
 ratio = int(root.findtext('background_merges_mutations_concurrency_ratio'))
-required = 25  # default number_of_free_entries_in_pool_to_execute_optimize_entire_partition
+merge_tree = root.find('merge_tree')
+thresholds = [
+    int(merge_tree.findtext(name, default='0'))
+    for name in (
+        'number_of_free_entries_in_pool_to_execute_mutation',
+        'number_of_free_entries_in_pool_to_lower_max_size_of_merge',
+        'number_of_free_entries_in_pool_to_execute_optimize_entire_partition',
+    )
+]
+required = max(25, *thresholds)
 if pool * ratio < required:
     print(f'ClickHouse background mutation capacity {pool * ratio} is below {required}', file=sys.stderr)
     sys.exit(1)

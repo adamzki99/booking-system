@@ -422,15 +422,22 @@ the upgrade and rollback window.
    `dev-ops/factory/monitoring`, after `docker compose down`:
 
    ```sh
+   set -euo pipefail
+   umask 077
    stamp=$(date -u +%Y%m%dT%H%M%SZ)
    backup_dir="${HOME}/.local/state/factory-monitoring/backups/langfuse-${stamp}"
-   mkdir -p "$backup_dir"
-   volume="$(docker compose config --format json | jq -r '.volumes["langfuse-postgres-data"].name')"
+   install -d -m 700 "$backup_dir"
+   volume="$(docker compose config --format json | jq -er '.volumes["langfuse-postgres-data"].name | select(type == "string" and length > 0)')"
    target_volume="${volume}-18-${stamp}"
+   dump_container="factory-monitoring-postgres-dump-${stamp}"
+   upgrade_container="factory-monitoring-postgres-upgrade-${stamp}"
+   cleanup() {
+     docker rm -f "$dump_container" "$upgrade_container" >/dev/null 2>&1 || true
+   }
+   trap cleanup EXIT
 
    docker volume inspect "$volume"
    docker volume create "$target_volume"
-   dump_container=factory-monitoring-postgres-dump
    docker run -d --name "$dump_container" \
      -e PGDATA=/var/lib/postgresql/data \
      -v "$volume:/var/lib/postgresql/data" \
@@ -447,7 +454,6 @@ the upgrade and rollback window.
    test -s "$backup_dir/langfuse.sql"
 
    # Restore into a new volume. The original cluster remains untouched.
-   upgrade_container=factory-monitoring-postgres-upgrade
    docker run -d --name "$upgrade_container" --network none \
      -e POSTGRES_USER=upgrade \
      -e POSTGRES_PASSWORD="$(openssl rand -hex 24)" \
