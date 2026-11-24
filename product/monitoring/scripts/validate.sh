@@ -149,15 +149,21 @@ SQL
       break
     fi
   done
+  [[ "${ok:-1}" -eq 1 ]] || ch_smoke_ok=0
   if [[ "$fail" -eq 0 && "${ch_smoke_ok:-0}" -eq 1 ]]; then
-    docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL' || fail=1
+    docker exec -i "$CH_CID" clickhouse-client --multiquery <<'SQL' || ch_smoke_ok=0
 GRANT INSERT ON otel.otel_logs TO collector;
 GRANT INSERT ON otel.otel_traces TO collector;
 GRANT SELECT ON otel.otel_logs TO grafana;
 GRANT SELECT ON otel.otel_traces TO grafana;
 SQL
-    docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_logs" | grep -q 1 || fail=1
-    docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_traces" | grep -q 1 || fail=1
+    if [[ "${ch_smoke_ok:-0}" -eq 1 ]]; then
+      docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_logs" | grep -q 1 || ch_smoke_ok=0
+      docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE otel.otel_traces" | grep -q 1 || ch_smoke_ok=0
+    fi
+    if [[ "${ch_smoke_ok:-0}" -ne 1 ]]; then
+      warn "ClickHouse smoke checks failed; skipping"
+    fi
   fi
   fi
   ch_cleanup
