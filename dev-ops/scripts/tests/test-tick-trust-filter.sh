@@ -43,6 +43,8 @@ def issue(number):
 if args[:2] == ["repo", "view"]:
     if option("--jq") == ".nameWithOwner":
         print("owner/repo")
+    elif option("--jq") == ".owner.login":
+        print("owner")
     else:
         print(json.dumps({"nameWithOwner": "owner/repo", "owner": {"login": "owner"}}))
 elif args[:2] == ["issue", "list"]:
@@ -93,9 +95,13 @@ elif args[:2] == ["pr", "view"]:
     else:
         print(json.dumps(item))
 elif args and args[0] == "api" and "--paginate" in args:
-    issues = fixture.get("issues", [])
-    pages = [issues[index:index + 100] for index in range(0, len(issues), 100)]
-    print(json.dumps(pages))
+    if "--slurp" in args:
+        print("unknown flag: --slurp", file=sys.stderr)
+        raise SystemExit(2)
+    if fixture.get("fail_issue_discovery"):
+        print("issue discovery failed", file=sys.stderr)
+        raise SystemExit(1)
+    print(json.dumps(fixture.get("issues", [])))
 elif args[:2] == ["api", "graphql"]:
     print(json.dumps({"data": {"user": {"projectsV2": {"nodes": []}}, "organization": {"projectsV2": {"nodes": []}}}}))
 else:
@@ -109,6 +115,15 @@ if [[ "${1:-}" == "--version" ]]; then
   printf 'test\n'
   exit 0
 fi
+count=0
+if [[ -f "$OPENCODE_COUNT" ]]; then count="$(cat "$OPENCODE_COUNT")"; fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$OPENCODE_COUNT"
+if [[ "${OPENCODE_ERROR_FIRST:-0}" == "1" && "$count" -eq 1 ]]; then
+  printf '%s\n' '{"type":"step_start","sessionID":"ses_limit","part":{"id":"prt_1"}}'
+  printf '%s\n' '{"type":"error","sessionID":"ses_limit","error":{"type":"provider.error","message":"request failed","status":429}}'
+  exit 0
+fi
 while [[ $# -gt 0 ]]; do
   if [[ "$1" == "--file" ]]; then
     cp "$2" "$PROMPT_LOG"
@@ -117,7 +132,8 @@ while [[ $# -gt 0 ]]; do
   fi
   shift
 done
-exit 0
+printf '%s\n' '{"type":"step_start","sessionID":"ses_ok","part":{"id":"prt_2"}}'
+printf '%s\n' '{"type":"step_finish","sessionID":"ses_ok","part":{"tokens":{"input":1,"output":1},"cost":0}}'
 SH
 chmod +x "$stubs/gh" "$stubs/opencode"
 
@@ -150,7 +166,7 @@ run_tick() {
   local name="$1" fixture="$2"
   local checkout="$tmp/$name-checkout" events="$tmp/$name-events.jsonl" output="$tmp/$name-output.log"
   : > "$tmp/$name-gh.log"; : > "$tmp/$name-opencode.log"
-  rm -f "$tmp/$name-prompt.txt" "$tmp/$name-prompt-mode.txt"
+  rm -f "$tmp/$name-prompt.txt" "$tmp/$name-prompt-mode.txt" "$tmp/$name-opencode.count"
   mkdir -p "$tmp/home"
   set +e
   HOME="$tmp/home" \
@@ -167,7 +183,8 @@ run_tick() {
     FACTORY_GH_RETRIES=1 \
     FACTORY_OTLP_TRACES_ENDPOINT="" \
     GH_FIXTURE="$fixture" GH_LOG="$tmp/$name-gh.log" \
-    OPENCODE_LOG="$tmp/$name-opencode.log" \
+    OPENCODE_LOG="$tmp/$name-opencode.log" OPENCODE_COUNT="$tmp/$name-opencode.count" \
+    OPENCODE_ERROR_FIRST="${OPENCODE_ERROR_FIRST:-0}" \
     PROMPT_LOG="$tmp/$name-prompt.txt" PROMPT_MODE_LOG="$tmp/$name-prompt-mode.txt" \
     bash "$checkout/dev-ops/factory/tick.sh" >"$output" 2>&1
   RC=$?
@@ -228,6 +245,67 @@ if [[ "$RC" -eq 0 ]]; then pass; else fail "fix-recheck: tick exited $RC"; cat "
 if grep -q " run " "$tmp/fix-recheck-opencode.log"; then fail "fix-recheck: an agent session started"; else pass; fi
 if grep -q '"reason": "untrusted-pr"' "$tmp/fix-recheck-events.jsonl"; then pass; else fail "fix-recheck: untrusted-pr skip event missing"; cat "$tmp/fix-recheck-output.log" >&2; cat "$tmp/fix-recheck-events.jsonl" >&2; fi
 if compgen -G "$tmp/fix-recheck-claims/*.claim" >/dev/null; then fail "fix-recheck: claim was not released"; else pass; fi
+
+# A structured provider error exits 0 but must fail the primary run and use the
+# configured backup model.
+python3 - "$tmp/fix-recheck.json" "$tmp/provider-error.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    fixture = json.load(source)
+fixture["pr_recheck"] = {
+    "isCrossRepository": False,
+    "headRefOid": "sha-70",
+    "author": {"login": "owner"},
+    "headRepositoryOwner": {"login": "owner"},
+}
+with open(sys.argv[2], "w", encoding="utf-8") as target:
+    json.dump(fixture, target)
+PY
+setup_checkout provider-error
+OPENCODE_ERROR_FIRST=1 run_tick provider-error "$tmp/provider-error.json"
+if [[ "$RC" -eq 0 ]]; then pass; else fail "provider-error: tick exited $RC"; cat "$tmp/provider-error-output.log" >&2; fi
+if [[ "$(cat "$tmp/provider-error-opencode.count" 2>/dev/null || echo 0)" -eq 2 ]]; then pass; else fail "provider-error: expected primary and backup invocations"; fi
+if python3 - "$tmp/provider-error-events.jsonl" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    events = [json.loads(line) for line in source if line.strip()]
+primary = [event for event in events if event.get("run_id") and event.get("fallback_level") == "primary"]
+backup = [event for event in events if event.get("run_id") and event.get("fallback_level") == "backup"]
+assert [event["event"] for event in primary] == ["agent.run.started", "agent.run.failed"], primary
+assert primary[-1]["failure_reason"] == "usage_filled", primary[-1]
+assert [event["event"] for event in backup] == ["agent.run.started", "agent.run.completed"], backup
+assert backup[-1]["outcome"] == "ok", backup[-1]
+PY
+then pass; else fail "provider-error: lifecycle events did not record failure and backup success"; fi
+
+# A successful fix must not hide an independent discovery failure.
+python3 - "$tmp/provider-error.json" "$tmp/infra-after-fix.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    fixture = json.load(source)
+fixture["fail_issue_discovery"] = True
+with open(sys.argv[2], "w", encoding="utf-8") as target:
+    json.dump(fixture, target)
+PY
+setup_checkout infra-after-fix
+OPENCODE_ERROR_FIRST=0 run_tick infra-after-fix "$tmp/infra-after-fix.json"
+if [[ "$RC" -eq 1 ]]; then pass; else fail "infra-after-fix: tick exited $RC, expected 1"; fi
+if python3 - "$tmp/infra-after-fix-events.jsonl" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    events = [json.loads(line) for line in source if line.strip()]
+assert any(event.get("event") == "agent.run.completed" and event.get("kind") == "fix" for event in events)
+assert any(event.get("event") == "discovery_failed" for event in events)
+results = [event for event in events if event.get("event") == "tick_result"]
+assert len(results) == 1 and results[0]["result"] == "failure", results
+ends = [event for event in events if event.get("event") == "tick_end"]
+assert len(ends) == 1 and ends[0]["exit_code"] == 1, ends
+PY
+then pass; else fail "infra-after-fix: successful fix hid the discovery failure"; fi
 
 if grep -n -- "--comments" "$ROOT/dev-ops/factory/tick.sh" "$ROOT"/.opencode/agents/*.md; then
   fail "agent instructions still tell agents to fetch comments"

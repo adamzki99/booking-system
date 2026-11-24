@@ -55,7 +55,11 @@ OpenCode; may be 0 for subscription models, never invented),
 `files_changed` (int, when determinable cheaply, otherwise omitted).
 
 Missing fields are omitted, never a crash. A malformed stream yields an empty
-summary.
+summary. A structured OpenCode `type: "error"` record makes the invocation fail
+even when the CLI exits 0, so usage fallback and failure reporting still run.
+Quota fallback uses the structured error type or HTTP 402/429 status as well as
+message text. `exit_code` is the effective status: a structured error record is
+normalized to a non-zero value.
 
 ## Lifecycle events
 
@@ -65,8 +69,8 @@ summary.
 | `issue.assigned` | a claim is acquired and an agent will run on it (`kind`, `agent_id`) |
 | `agent.run.started` | an opencode invocation starts |
 | `agent.tool.called` | one per tool call, parsed from the opencode JSON stream after the run (fields: `run_id`, `tool`, `status`, `duration_ms` if available; skill loads as `tool=skill` with `skill_name`) |
-| `agent.run.completed` | opencode exited 0 |
-| `agent.run.failed` | non-zero exit, timeout, interruption or usage-filled (`failure_reason`, `exit_code`) |
+| `agent.run.completed` | opencode exited 0 and its JSON stream contained no error record |
+| `agent.run.failed` | non-zero exit, structured OpenCode error record, timeout, interruption or usage-filled (`failure_reason`, `exit_code`) |
 
 ## Reconciled GitHub outcome events
 
