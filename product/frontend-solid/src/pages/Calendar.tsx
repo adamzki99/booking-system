@@ -395,11 +395,7 @@ export default function Calendar() {
                 <form class="calendar-form-stack" onSubmit={submitCreate} novalidate>
                   <Show when={createError()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
                   <Show when={createSuccess()}>
-                    {(msg) => (
-                      <output class="ui-alert ui-alert--success">
-                        {msg()}
-                      </output>
-                    )}
+                    {(msg) => <output class="ui-alert ui-alert--success">{msg()}</output>}
                   </Show>
                   <div class="calendar-field">
                     {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
@@ -465,7 +461,7 @@ export default function Calendar() {
                   <span class="calendar-th calendar-th-action" />
                 </div>
 
-                <ul class="calendar-booking-list" >
+                <ul class="calendar-booking-list">
                   <For
                     each={showAll() ? currentBookings() : currentBookings().slice(0, 5)}
                     keyed={(b) => b.id}
@@ -475,7 +471,7 @@ export default function Calendar() {
                       const member = () => currentMembers()[b().userId];
                       const label = () => memberLabel(member(), b());
                       return (
-                        <li class="calendar-booking-item" >
+                        <li class="calendar-booking-item">
                           <div class="calendar-booking-row">
                             <div class="calendar-booking-member">
                               <Avatar size="sm" name={label()} />

@@ -226,11 +226,7 @@ function AccountView(props: { seed: AccountData }) {
 
       <Show when={error()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
       <Show when={notice()}>
-        {(msg) => (
-          <output class="ui-alert ui-alert--success">
-            {msg()}
-          </output>
-        )}
+        {(msg) => <output class="ui-alert ui-alert--success">{msg()}</output>}
       </Show>
 
       <Card>
