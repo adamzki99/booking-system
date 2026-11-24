@@ -31,6 +31,10 @@ CLICKHOUSE_COLLECTOR_PASSWORD=test-collector
 CLICKHOUSE_GRAFANA_PASSWORD=test-grafana
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=test-admin
+GRAFANA_METRICS_PASSWORD=test-metrics
+GRAFANA_BIND_ADDR=127.0.0.1
+OTLP_BIND_ADDR=127.0.0.1
+GRAFANA_ROOT_URL=http://127.0.0.1:13001/
 HOST_NAME=test-host
 GRAFANA_PORT=13001
 OTLP_GRPC_PORT=14317
@@ -247,6 +251,10 @@ fi
 
 run python3 -c "import json,sys,pathlib; [json.load(open(p)) for p in pathlib.Path('product/monitoring').rglob('*.json')]"
 run python3 -c "import yaml,pathlib; [yaml.safe_load(open(p)) for p in pathlib.Path('product/monitoring').rglob('*.yml')] + [yaml.safe_load(open(p)) for p in pathlib.Path('product/monitoring').rglob('*.yaml')]"
+run python3 dev-ops/scripts/check-monitoring-hardening.py \
+  --compose product/monitoring/compose.yaml \
+  --prometheus product/monitoring/prometheus/prometheus.yml \
+  --env-example product/monitoring/.env.example
 
 if [[ $fail -ne 0 ]]; then
   echo "[product-monitoring-validate] FAIL" >&2

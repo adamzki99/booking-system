@@ -22,6 +22,8 @@ run bash dev-ops/scripts/tests/test-tick-planning.sh
 run bash dev-ops/scripts/tests/test-tick-trust-filter.sh
 run bash dev-ops/scripts/tests/test-tick-app-token.sh
 run bash dev-ops/scripts/tests/test-setup-factory-bot.sh
+run bash dev-ops/scripts/tests/test-deploy-environment.sh
+run bash dev-ops/scripts/tests/test-sauna-monitoring-override.sh
 if command -v shellcheck >/dev/null 2>&1; then
   run shellcheck -x dev-ops/factory/tick.sh dev-ops/factory/setup-bot.sh dev-ops/factory/nightly-cleanup.sh
 else

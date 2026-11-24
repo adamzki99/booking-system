@@ -130,7 +130,7 @@ Start monitoring:
 ```sh
 cd monitoring
 cp .env.example .env
-# fill required secrets and ports (defaults: Grafana 3001, OTLP 4328/4327)
+# fill required secrets and ports, including GRAFANA_METRICS_PASSWORD and GRAFANA_ROOT_URL
 docker compose up -d
 ```
 
@@ -141,19 +141,25 @@ docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 ```
 
 `docker-compose.monitoring.yml` is an optional override: it joins `backend`,
-`sidecar`, and optionally `caddy` (profile `caddy`) to `sauna-monitoring-net`
-and sets `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318` so traces,
-metrics, and logs flow to the sauna monitoring collector. The booking stack
-starts normally without this override.
+`sidecar`, and `caddy` to `sauna-monitoring-net` and sets
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318` so traces, metrics, and
+logs flow to the sauna monitoring collector. Caddy stays in the default profile
+so the health-checked host port remains available. The booking stack starts
+normally without this override.
 
 `dev-ops/scripts/deploy-environment.sh` detects `sauna-monitoring-net`: when the
 network exists it adds `docker-compose.monitoring.yml` automatically; when it is
 absent it deploys without monitoring and logs one line. Deploys never fail
 because monitoring is down.
 
-Grafana is bound to `127.0.0.1:${GRAFANA_PORT:-3001}`. Use an SSH tunnel for
-remote access. See [`../../product/monitoring/README.md`](../../product/monitoring/README.md)
-for validation, retention, and security details.
+Grafana and OTLP bind to `127.0.0.1` by default through `GRAFANA_BIND_ADDR` and
+`OTLP_BIND_ADDR`. Use an SSH tunnel for remote access. To keep reaching Grafana
+on the LAN, set `GRAFANA_BIND_ADDR=0.0.0.0` and
+`GRAFANA_ROOT_URL=http://<host>:3001/`; direct access is plain HTTP unless
+fronted by TLS. Set the new required `GRAFANA_METRICS_PASSWORD` before redeploy;
+Prometheus uses it to scrape Grafana's authenticated `/metrics` endpoint. See
+[`../../product/monitoring/README.md`](../../product/monitoring/README.md)
+for validation, retention, account rotation, and security details.
 
 ## Sidecar
 

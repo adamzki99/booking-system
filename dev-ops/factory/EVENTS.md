@@ -13,20 +13,20 @@ schema again requires a new major version and a new `validate_event` check.
 
 ## Common fields (every event)
 
-| Field                    | Type   | Notes                                                                                                                           |
-| ------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `schema_version`         | int    | `2`                                                                                                                             |
-| `event_id`               | string | UUIDv4 for live emissions; deterministic (prompt 02) for reconciled GitHub events. Used for idempotent loading into ClickHouse. |
-| `event`                  | string | event name (see "Lifecycle events" below)                                                                                       |
-| `ts`                     | string | RFC 3339 UTC with milliseconds, `Z` suffix                                                                                      |
-| `service.name`           | string | `factory-tick`                                                                                                                  |
-| `factory_id`             | string | `FACTORY_ID` env, default `factory-1`; identifies one factory host                                                              |
-| `deployment.environment` | string | `FACTORY_ENV` env, default `dev`                                                                                                |
-| `host.name`              | string | hostname of the factory host                                                                                                    |
-| `tick_id`                | string | one scheduler invocation; this is the analysis model's `schedule_id`                                                            |
-| `dry_run`                | bool   | `true` when `tick.sh --dry-run`                                                                                                 |
-| `on_usage_filled`        | string | `backup`                                                                                                                        | `skip` | `fail` (`FACTORY_ON_USAGE_FILLED`) |
-| `repo`                   | string | `owner/name` from `gh repo view` or the git remote; omitted when unknown                                                        |
+| Field                    | Type   | Notes                                                                                                                                                              |
+| ------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schema_version`         | int    | `2`                                                                                                                                                                |
+| `event_id`               | string | UUIDv4 for live emissions; deterministic (prompt 02) for reconciled GitHub events. Used for idempotent loading into ClickHouse.                                    |
+| `event`                  | string | event name (see "Lifecycle events" below)                                                                                                                          |
+| `ts`                     | string | RFC 3339 UTC with milliseconds, `Z` suffix                                                                                                                         |
+| `service.name`           | string | `factory-tick`                                                                                                                                                     |
+| `factory_id`             | string | `FACTORY_ID` env, default `factory-1`; identifies one factory host                                                                                                 |
+| `deployment.environment` | string | For factory events, `FACTORY_ENV` env, default `dev`, identifying the factory host. For `deploy.*` events, the target `ENV_NAME` from `dev-ops/environments.yaml`. |
+| `host.name`              | string | hostname of the factory host                                                                                                                                       |
+| `tick_id`                | string | one scheduler invocation; this is the analysis model's `schedule_id`                                                                                               |
+| `dry_run`                | bool   | `true` when `tick.sh --dry-run`                                                                                                                                    |
+| `on_usage_filled`        | string | `backup`                                                                                                                                                           | `skip` | `fail` (`FACTORY_ON_USAGE_FILLED`) |
+| `repo`                   | string | `owner/name` from `gh repo view` or the git remote; omitted when unknown                                                                                           |
 
 ## Run-scoped fields (every `agent.run.*` event)
 
@@ -109,6 +109,14 @@ same emitter). Deploys may run in a different systemd unit than tick; they use
 `FACTORY_LOG_FILE` with the same default so both land in one file. Concurrent
 appends are safe because each event is a single `write()` of one JSON line in
 append mode.
+
+For deploy events, `deployment.environment` is the selected `ENV_NAME` (`qa` or
+a configured release environment name), not `FACTORY_ENV`. `FACTORY_ENV`
+continues to identify the factory host on tick, agent run, trace, and reconciled
+events. `env_name` remains in `attrs` for compatibility. The collector promotes
+`deployment.environment` to a resource attribute, and ClickHouse maps that
+resource value to `deployment_environment`, so both representations identify the
+same deployment target for new events. Existing events remain unchanged.
 
 | Event              | Fields (in addition to common fields)                                                               |
 | ------------------ | --------------------------------------------------------------------------------------------------- |

@@ -39,7 +39,7 @@
         "type": "grafana-clickhouse-datasource",
         "uid": "clickhouse-factory"
       },
-      "description": "Selected run from factory.runs.",
+      "description": "Newest run by default, or the selected run from factory.runs. Empty selections return no rows.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -124,7 +124,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT\n  run_id, factory_id, tick_id, kind, agent_id, agent_version, prompt_version, model, tier_label,\n  fallback_level, attempt, issue_id, pr_number, repo, session_id, trace_id,\n  started_at, ended_at, outcome, failure_reason, duration_ms,\n  input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens,\n  cost_usd, tool_calls, tool_errors, files_changed, exit_code, error_fingerprint\nFROM factory.runs\nWHERE run_id = ${run_id:singlequote}\nLIMIT 1",
+          "rawSql": "SELECT\n  run_id, factory_id, tick_id, kind, agent_id, agent_version, prompt_version, model, tier_label,\n  fallback_level, attempt, issue_id, pr_number, repo, session_id, trace_id,\n  started_at, ended_at, outcome, failure_reason, duration_ms,\n  input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens,\n  cost_usd, tool_calls, tool_errors, files_changed, exit_code, error_fingerprint\nFROM factory.runs\nWHERE run_id = nullIf(arrayElement(CAST([${run_id:singlequote}], 'Array(String)'), 1), '')\nLIMIT 1",
           "refId": "A"
         }
       ],
@@ -202,7 +202,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT ts, event, status, kind, agent_id, model, session_id, trace_id, duration_ms, failure_reason, error_fingerprint, attrs\nFROM factory.events FINAL\nWHERE run_id = ${run_id:singlequote}\nORDER BY ts ASC\nLIMIT 500",
+          "rawSql": "SELECT ts, event, status, kind, agent_id, model, session_id, trace_id, duration_ms, failure_reason, error_fingerprint, attrs\nFROM factory.events FINAL\nWHERE run_id = nullIf(arrayElement(CAST([${run_id:singlequote}], 'Array(String)'), 1), '')\nORDER BY ts ASC\nLIMIT 500",
           "refId": "A"
         }
       ],
@@ -242,7 +242,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "traces",
-          "rawSql": "SELECT\n  TraceId AS traceID,\n  SpanId AS spanID,\n  ParentSpanId AS parentSpanID,\n  ServiceName AS serviceName,\n  SpanName AS operationName,\n  Timestamp AS startTime,\n  Duration / 1000000 AS duration,\n  arrayMap(k -> map('key', k, 'value', SpanAttributes[k]), mapKeys(SpanAttributes)) AS tags,\n  arrayMap(k -> map('key', k, 'value', ResourceAttributes[k]), mapKeys(ResourceAttributes)) AS serviceTags,\n  if(StatusCode = 'STATUS_CODE_ERROR' OR StatusCode = 'Error' OR StatusCode = '2', 2, 0) AS statusCode\nFROM otel.otel_traces\nWHERE TraceId = ${trace_id:singlequote}\nORDER BY Timestamp ASC\nLIMIT 1000",
+          "rawSql": "SELECT\n  TraceId AS traceID,\n  SpanId AS spanID,\n  ParentSpanId AS parentSpanID,\n  ServiceName AS serviceName,\n  SpanName AS operationName,\n  Timestamp AS startTime,\n  Duration / 1000000 AS duration,\n  arrayMap(k -> map('key', k, 'value', SpanAttributes[k]), mapKeys(SpanAttributes)) AS tags,\n  arrayMap(k -> map('key', k, 'value', ResourceAttributes[k]), mapKeys(ResourceAttributes)) AS serviceTags,\n  if(StatusCode = 'STATUS_CODE_ERROR' OR StatusCode = 'Error' OR StatusCode = '2', 2, 0) AS statusCode\nFROM otel.otel_traces\nWHERE TraceId = nullIf(arrayElement(CAST([${trace_id:singlequote}], 'Array(String)'), 1), '')\nORDER BY Timestamp ASC\nLIMIT 1000",
           "refId": "A"
         }
       ],
@@ -320,7 +320,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT ts, tool, status, duration_ms, skill_name, run_id, attrs\nFROM factory.tool_calls\nWHERE run_id = ${run_id:singlequote}\nORDER BY ts ASC\nLIMIT 500",
+          "rawSql": "SELECT ts, tool, status, duration_ms, skill_name, run_id, attrs\nFROM factory.tool_calls\nWHERE run_id = nullIf(arrayElement(CAST([${run_id:singlequote}], 'Array(String)'), 1), '')\nORDER BY ts ASC\nLIMIT 500",
           "refId": "A"
         }
       ],
@@ -398,7 +398,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT\n  Timestamp AS ts,\n  SpanName AS span,\n  SpanAttributes['gen_ai.request.model'] AS model,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.input_tokens']) AS input_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.output_tokens']) AS output_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.reasoning_tokens']) AS reasoning_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.cache_read_tokens']) AS cache_read_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.cache_write_tokens']) AS cache_write_tokens,\n  toFloat64OrNull(SpanAttributes['gen_ai.usage.cost_usd']) AS cost_usd,\n  Duration / 1000000 AS duration_ms\nFROM otel.otel_traces\nWHERE TraceId = ${trace_id:singlequote}\n  AND SpanName IN ('opencode.llm.step', 'factory.agent.run')\nORDER BY Timestamp ASC\nLIMIT 200",
+          "rawSql": "SELECT\n  Timestamp AS ts,\n  SpanName AS span,\n  SpanAttributes['gen_ai.request.model'] AS model,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.input_tokens']) AS input_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.output_tokens']) AS output_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.reasoning_tokens']) AS reasoning_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.cache_read_tokens']) AS cache_read_tokens,\n  toInt64OrNull(SpanAttributes['gen_ai.usage.cache_write_tokens']) AS cache_write_tokens,\n  toFloat64OrNull(SpanAttributes['gen_ai.usage.cost_usd']) AS cost_usd,\n  Duration / 1000000 AS duration_ms\nFROM otel.otel_traces\nWHERE TraceId = nullIf(arrayElement(CAST([${trace_id:singlequote}], 'Array(String)'), 1), '')\n  AND SpanName IN ('opencode.llm.step', 'factory.agent.run')\nORDER BY Timestamp ASC\nLIMIT 200",
           "refId": "A"
         }
       ],
@@ -416,7 +416,7 @@
   "templating": {
     "list": [
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -441,7 +441,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -466,7 +466,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -491,7 +491,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -516,16 +516,12 @@
         "type": "query"
       },
       {
-        "current": {
-          "selected": false,
-          "text": "",
-          "value": ""
-        },
         "datasource": {
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse-factory"
         },
         "definition": "SELECT run_id FROM factory.runs WHERE $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 200",
+        "description": "Defaults to the newest run in the selected time range. An empty selection returns no rows.",
         "hide": 0,
         "includeAll": false,
         "label": "Run ID",
@@ -540,23 +536,18 @@
         "type": "query"
       },
       {
-        "current": {
-          "selected": false,
-          "text": "",
-          "value": ""
-        },
         "datasource": {
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse-factory"
         },
-        "definition": "SELECT trace_id FROM factory.runs WHERE run_id = ${run_id:singlequote} LIMIT 1",
+        "definition": "SELECT trace_id FROM factory.runs WHERE run_id = nullIf(arrayElement(CAST([${run_id:singlequote}], 'Array(String)'), 1), '') AND trace_id != '' LIMIT 1",
         "hide": 2,
         "includeAll": false,
         "label": "Trace ID",
         "multi": false,
         "name": "trace_id",
         "options": [],
-        "query": "SELECT trace_id FROM factory.runs WHERE run_id = ${run_id:singlequote} LIMIT 1",
+        "query": "SELECT trace_id FROM factory.runs WHERE run_id = nullIf(arrayElement(CAST([${run_id:singlequote}], 'Array(String)'), 1), '') AND trace_id != '' LIMIT 1",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -566,20 +557,21 @@
       {
         "current": {
           "selected": true,
-          "text": "http://127.0.0.1:3001",
-          "value": "http://127.0.0.1:3001"
+          "text": "__LANGFUSE_PUBLIC_URL__",
+          "value": "__LANGFUSE_PUBLIC_URL__"
         },
+        "description": "Browser-reachable Langfuse base URL, rendered from LANGFUSE_PUBLIC_URL at stack startup with a loopback fallback.",
         "hide": 0,
         "label": "Langfuse URL",
         "name": "langfuse_url",
         "options": [
           {
             "selected": true,
-            "text": "http://127.0.0.1:3001",
-            "value": "http://127.0.0.1:3001"
+            "text": "__LANGFUSE_PUBLIC_URL__",
+            "value": "__LANGFUSE_PUBLIC_URL__"
           }
         ],
-        "query": "http://127.0.0.1:3001",
+        "query": "__LANGFUSE_PUBLIC_URL__",
         "skipUrlSync": false,
         "type": "textbox"
       },

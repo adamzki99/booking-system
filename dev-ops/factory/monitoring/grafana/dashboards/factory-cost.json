@@ -249,7 +249,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT round(sum(coalesce(cost_usd,toDecimal64(0,6))) / nullIf(uniqExactIf(pr_number, event='pr.merged' AND pr_number IS NOT NULL),0),4) AS value\nFROM (\n  SELECT ts, pr_number, event, factory_id, toDecimal64(0,6) AS cost_usd FROM factory.events FINAL WHERE $__timeFilter(ts) AND event='pr.merged'\n  UNION ALL\n  SELECT started_at AS ts, pr_number, outcome AS event, factory_id, coalesce(cost_usd,toDecimal64(0,6)) AS cost_usd FROM factory.runs WHERE $__timeFilter(started_at)\n) t WHERE ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))",
+          "rawSql": "SELECT round(sum(coalesce(reported_cost_usd,toDecimal64(0,6))) / nullIf(uniqExactIf(pr_number, event='pr.merged' AND pr_number IS NOT NULL),0),4) AS value\nFROM (\n  SELECT ts, pr_number, event, factory_id, toDecimal64(0,6) AS reported_cost_usd FROM factory.events FINAL WHERE $__timeFilter(ts) AND event='pr.merged'\n  UNION ALL\n  SELECT started_at AS ts, pr_number, outcome AS event, factory_id, coalesce(cost_usd,toDecimal64(0,6)) AS reported_cost_usd FROM factory.runs WHERE $__timeFilter(started_at)\n) t WHERE ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))",
           "refId": "A"
         }
       ],
@@ -428,7 +428,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "timeseries",
-          "rawSql": "SELECT toStartOfInterval(started_at, INTERVAL 1 day) AS time, sum(coalesce(cost_usd,toDecimal64(0,6))) AS cost_usd FROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote})) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT toStartOfInterval(started_at, INTERVAL 1 day) AS time, sum(coalesce(cost_usd,toDecimal64(0,6))) AS reported_cost_usd FROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote})) GROUP BY time ORDER BY time",
           "refId": "Cost USD"
         }
       ],
@@ -695,7 +695,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT model, count() AS runs, countIf(outcome='completed') AS successes,\n  round(sum(coalesce(cost_usd,toDecimal64(0,6))),4) AS cost_usd,\n  sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)+coalesce(reasoning_tokens,0)+coalesce(cache_read_tokens,0)+coalesce(cache_write_tokens,0)) AS tokens,\n  round(sum(coalesce(cost_usd,toDecimal64(0,6))) / nullIf(countIf(outcome='completed'),0),4) AS cost_per_success\nFROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY model ORDER BY cost_usd DESC LIMIT 50",
+          "rawSql": "SELECT model, count() AS runs, countIf(outcome='completed') AS successes,\n  round(sum(coalesce(cost_usd,toDecimal64(0,6))),4) AS reported_cost_usd,\n  sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)+coalesce(reasoning_tokens,0)+coalesce(cache_read_tokens,0)+coalesce(cache_write_tokens,0)) AS tokens,\n  round(sum(coalesce(cost_usd,toDecimal64(0,6))) / nullIf(countIf(outcome='completed'),0),4) AS cost_per_success\nFROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY model ORDER BY reported_cost_usd DESC LIMIT 50",
           "refId": "A"
         }
       ],
@@ -773,7 +773,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT agent_id, kind, count() AS runs,\n  round(sum(coalesce(cost_usd,toDecimal64(0,6))),4) AS cost_usd,\n  sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)+coalesce(reasoning_tokens,0)+coalesce(cache_read_tokens,0)+coalesce(cache_write_tokens,0)) AS tokens\nFROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY agent_id, kind ORDER BY cost_usd DESC LIMIT 50",
+          "rawSql": "SELECT agent_id, kind, count() AS runs,\n  round(sum(coalesce(cost_usd,toDecimal64(0,6))),4) AS reported_cost_usd,\n  sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)+coalesce(reasoning_tokens,0)+coalesce(cache_read_tokens,0)+coalesce(cache_write_tokens,0)) AS tokens\nFROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY agent_id, kind ORDER BY reported_cost_usd DESC LIMIT 50",
           "refId": "A"
         }
       ],
@@ -868,7 +868,7 @@
   "templating": {
     "list": [
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -893,7 +893,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -918,7 +918,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -943,7 +943,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
