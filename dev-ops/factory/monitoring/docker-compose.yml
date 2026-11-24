@@ -39,7 +39,6 @@ services:
       - clickhouse-logs:/var/log/clickhouse-server
       - ./clickhouse/config.d:/etc/clickhouse-server/config.d:ro
       - ./clickhouse/users.d/users.xml:/etc/clickhouse-server/users.d/users.xml:ro
-      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q 'Ok.'"]
       interval: 10s
@@ -203,7 +202,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+      - "0.0.0.0:${GRAFANA_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health | grep -q 'ok'"]
       interval: 15s
