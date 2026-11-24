@@ -87,7 +87,13 @@ function formatTimeRange(start: string, end: string): string {
 }
 
 function memberLabel(user: User | undefined, _booking: Booking): string {
-  return user?.address ?? "Member";
+  // An empty address is not a usable identity. Fall back to the email, which
+  // every user has, and only then to a generic label.
+  const address = user?.address;
+  if (address?.trim()) return address;
+  const email = user?.email.trim();
+  if (email) return email;
+  return "Member";
 }
 
 function formatTime(d: Date): string {
