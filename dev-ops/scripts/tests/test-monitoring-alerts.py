@@ -43,11 +43,9 @@ def prometheus_expressions(rule):
 
 def test_quota_alert_uses_current_run_events():
     sql = raw_sql(load_rules()["factory-quota-pressure"])
-    assert "agent.run.failed" in sql
-    assert "usage_filled" in sql
-    assert "agent.run.started" in sql
-    assert "fallback_level" in sql
-    assert "free" in sql
+    assert "countIf(event='agent.run.failed' AND failure_reason IN ('usage_filled','usage_filled_skipped')) > 0" in sql
+    assert "countIf(event='agent.run.started' AND fallback_level = 'free') > 2" in sql
+    assert " OR " in sql
     assert "attrs['failure_reason']" not in sql
     assert "attrs['fallback_level']" not in sql
 
