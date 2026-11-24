@@ -19,7 +19,7 @@ Each top-level directory is a "group" within the organization:
 - **Frontend:** Solid (TypeScript, Vite)
 - **Database:** PostgreSQL
 - **HTTP server:** Caddy
-- **APM:** SigNoz
+- **Observability:** OpenTelemetry, ClickHouse, Prometheus, Grafana, and Langfuse for the factory
 - **AuthN/AuthZ:** Authelia
 
 ## Architecture

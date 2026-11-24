@@ -659,8 +659,8 @@ else
 fi
 grep -q '^OTEL_EXPORTER_OTLP_ENDPOINT=$' "$otel_deploy/projects/sauna/.env" \
   && pass || fail "explicit empty OTEL endpoint kept empty"
-if grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4318' "$otel_deploy/projects/sauna/.env"; then
-  fail "explicit empty OTEL endpoint must not be rewritten to signoz"
+if grep -q '^OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318$' "$otel_deploy/projects/sauna/.env"; then
+  fail "explicit empty OTEL endpoint must not be rewritten to a default collector endpoint"
 else
   pass
 fi

@@ -1,5 +1,27 @@
 # Observability and project insights: SigNoz, APM and factory telemetry
 
+## Update (2026-11-23)
+
+SigNoz was replaced by two independent monitoring stacks: the factory stack in
+[`dev-ops/factory/monitoring/`](../../factory/monitoring/README.md) and the
+generic per-project product base in
+[`product/monitoring/`](../../../product/monitoring/README.md) with project
+instances under `projects/<name>/monitoring/`. The old `dev-ops/signoz/` stack
+was removed by prompt 09.
+
+Findings addressed by merged monitoring prompt PRs:
+- Prompt 01 ([#399](https://github.com/adamzki99/booking-system/pull/399)): OBS-05, OBS-11 (session/event model fixes; raw output not emitted as events).
+- Prompt 02 ([#400](https://github.com/adamzki99/booking-system/pull/400)): OBS-01 partial (delivery outcome reconciliation), OBS-06 partial (deploy events).
+- Prompt 03 ([#401](https://github.com/adamzki99/booking-system/pull/401)): OBS-02, OBS-09 partial, OBS-10 partial, OBS-12, OBS-13.
+- Prompt 04 ([#408](https://github.com/adamzki99/booking-system/pull/408)): OBS-01 partial, OBS-03 partial, OBS-04, OBS-09 partial (dashboards and alerts provisioned).
+- Prompt 05 ([#409](https://github.com/adamzki99/booking-system/pull/409)): OBS-10 partial (optional Langfuse trace correlation/profile).
+- Prompt 06 ([#410](https://github.com/adamzki99/booking-system/pull/410)): OBS-06 partial deployment wiring; booking compose no longer depends on SigNoz network.
+- Prompt 07 ([#412](https://github.com/adamzki99/booking-system/pull/412)): OBS-06, OBS-07, OBS-08, OBS-09 partial, OBS-11, OBS-14.
+- Prompt 08 ([#413](https://github.com/adamzki99/booking-system/pull/413)): generic product dashboards and alert rules (product monitoring baseline).
+
+Remaining findings should be read against the new stack; this report remains a
+point-in-time review of the pre-replacement state.
+
 **Scope:**
 - **SigNoz stack:** `dev-ops/signoz/**` (compose, collector config, ClickHouse config, server prometheus/opamp config, README)
 - **Factory telemetry:** `dev-ops/factory/otel-collector.yaml`; event emission in `dev-ops/factory/tick.sh` and `dev-ops/factory/lib/factory.py`; `factory-tick.logrotate`

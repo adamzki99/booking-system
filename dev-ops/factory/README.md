@@ -292,4 +292,4 @@ set for quota fallback.
 - `discover_fix_candidates.py`, `discover_build_candidates.py` - discovery logic.
 - `nightly-cleanup.sh` - worktree/log/claim retention cleanup.
 - `factory-tick.logrotate` - JSONL logrotate example.
-- `otel-collector.yaml` - optional SigNoz/log shipping config.
+- `otel-collector.yaml` - optional remote shipper config for factory JSONL events.
