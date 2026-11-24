@@ -45,8 +45,10 @@ jobs:
               - '.github/workflows/sidecar-ci.yml'
               - '.github/workflows/ci.yml'
             monitoring:
-              - 'dev-ops/factory/monitoring/**'
-              - 'dev-ops/factory/otel-collector.yaml'
+              - 'dev-ops/factory/**'
+              - 'dev-ops/scripts/tests/test-setup-factory-bot.sh'
+              - 'dev-ops/scripts/tests/test-tick-app-token.sh'
+              - 'dev-ops/scripts/tests/test-mint-github-app-token.py'
               - 'product/monitoring/**'
               - 'projects/sauna/monitoring/**'
               - '.github/workflows/monitoring-ci.yml'

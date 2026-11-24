@@ -2,6 +2,46 @@
 
 The automation that turns GitHub issues into merged PRs.
 
+## Set up a new factory host
+
+Run the guided installer from a checkout of this repository:
+
+```sh
+dev-ops/factory/setup-bot.sh
+```
+
+The installer asks for the GitHub App id, private key file, repository, trusted
+human login(s), cron schedule, worktree location, session timeout (1 to 3300
+seconds), and sandbox preference. It then:
+
+- validates a short-lived installation token and derives the exact `[bot]` login,
+- stores the private key and generated environment outside the checkout with
+  restrictive permissions,
+- creates a dedicated Python environment with PyJWT and PyYAML,
+- configures HTTPS Git authentication and bot commit attribution,
+- runs `tick.sh --dry-run`, and
+- installs or refreshes one marked entry in the current user's crontab.
+
+Create the GitHub App first at <https://github.com/settings/apps> and install it
+on this repository only. Grant Contents, Issues, and Pull requests read/write,
+plus Actions, Checks, and Metadata read. Do not grant Workflows or
+Administration. Only the repository owner applies `owner approved`.
+
+The Linux host needs `git`, `gh`, `opencode`, Python 3 with venv support,
+`flock`, `timeout`, and cron. OpenCode must already be authenticated for the
+model provider used by [`models.yaml`](models.yaml).
+
+Use `--dry-run` to inspect the plan without writing files or contacting GitHub.
+Use `--non-interactive` with explicit flags for automated provisioning. Cron
+schedules use the host's local time. The generated files default to:
+
+- `${XDG_CONFIG_HOME:-$HOME/.config}/booking-system-factory/`
+- `${XDG_DATA_HOME:-$HOME/.local/share}/booking-system-factory/venv/`
+- `${XDG_STATE_HOME:-$HOME/.local/state}/factory/`
+
+Prefer running the scheduled job as a dedicated Unix user without personal
+GitHub, SSH, Docker, or deployment credentials.
+
 ## How it works
 
 1. [`tick.sh`](tick.sh) runs on a 1-hour interval (e.g. via cron) and fetches
@@ -247,15 +287,23 @@ How events reach it:
   `file_storage` and exports OTLP/HTTP to `FACTORY_OTLP_ENDPOINT`.
 
 Cron (keep human output separate):
+
+Use [`setup-bot.sh`](setup-bot.sh) to install a marked, idempotent entry that
+loads the private factory environment. For a manual installation, the command
+inside that environment is:
+
 ```
-0 * * * * /path/to/repo/dev-ops/factory/tick.sh >> "$HOME/.local/state/factory/tick.log" 2>&1
+0 * * * * /path/to/config/run-tick.sh >> "$HOME/.local/state/factory/tick.log" 2>&1
 ```
 
 ## Security expectations
 
 - **Least-privilege GitHub token:** prefer a GitHub App installation token minted
-  per tick via `FACTORY_GITHUB_APP_ID` and a private key. `tick.sh` exports it as
-  `GH_TOKEN`/`GITHUB_TOKEN` for `gh` and sessions; the token is never logged.
+  per tick and refreshed before every agent invocation via
+  `FACTORY_GITHUB_APP_ID` and a private key. `tick.sh` exports it as
+  `GH_TOKEN`/`GITHUB_TOKEN` for `gh`, Git credential helpers, and sessions; the
+  token is never logged. Use [`setup-bot.sh`](setup-bot.sh) to validate the App,
+  store its key privately, and configure bot commit attribution.
   Set `FACTORY_TRUSTED_LOGINS` to the owner login and any approved bot logins so
   only trusted authors' issues, PRs, and comments drive the factory. With it and
   `FACTORY_LOGIN` unset, discovery returns no candidates and the factory goes
@@ -303,6 +351,8 @@ set for quota fallback.
 ## Files
 
 - `tick.sh` - factory tick orchestrator.
+- `setup-bot.sh` - guided GitHub App, Git identity, dependency, and cron setup.
+- `requirements.txt` - Python dependencies for token minting and ticks.
 - `models.yaml` - label→model mapping.
 - `lib/factory.py` - validation, classification, event helpers, claim helpers.
 - `discover_fix_candidates.py`, `discover_build_candidates.py` - discovery logic.

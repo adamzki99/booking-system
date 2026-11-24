@@ -1,6 +1,6 @@
 # GitHub Actions workflows
 
-`ci.yml` is the single entry point for pull requests and pushes to `main`. It runs a `changes` job (pinned `dorny/paths-filter`) and calls the reusable suite workflows, gating backend, frontend and sidecar on the filter outputs. `ci-gate` is the only required check: it always runs and fails only when a needed job failed or was cancelled; skipped suites pass. New suites must be added to `ci-gate`'s `needs:` list.
+`ci.yml` is the single entry point for pull requests and pushes to `main`. It runs a `changes` job (pinned `dorny/paths-filter`) and calls the reusable suite workflows, gating backend, frontend, sidecar, and monitoring/factory validation on the filter outputs. `ci-gate` is the only required check: it always runs and fails only when a needed job failed or was cancelled; skipped suites pass. New suites must be added to `ci-gate`'s `needs:` list.
 
 Path-filtered workflows for this monorepo-style layout. Keep workflows minimal and avoid coupling product CI to deployment-specific sidecar behavior except where explicitly testing a deployment package.
 
@@ -9,8 +9,8 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** every `pull_request`, push to `main`, and `workflow_dispatch`.
 
 **Jobs:**
-- **Detect changed paths** (`changes`): uses `dorny/paths-filter` to decide which of backend, frontend and sidecar run.
-- **Backend CI**, **Frontend CI**, **Sidecar CI**: reusable workflow calls, gated on the filter outputs.
+- **Detect changed paths** (`changes`): uses `dorny/paths-filter` to decide which of backend, frontend, sidecar, and monitoring/factory validation run.
+- **Backend CI**, **Frontend CI**, **Sidecar CI**, **Monitoring CI**: reusable workflow calls, gated on the filter outputs. `dev-ops/factory/**` changes run factory validation, including the bot setup script tests.
 - **Security**, **Semgrep**: reusable workflow calls that always run.
 - **ci-gate**: always runs; fails if any needed job failed or was cancelled. This is the only required check.
 

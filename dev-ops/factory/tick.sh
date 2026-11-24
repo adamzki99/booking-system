@@ -9,8 +9,8 @@ set -euo pipefail
 # cron (and other minimal environments) may not include ~/.opencode/bin on PATH
 export PATH="${HOME}/.opencode/bin:${PATH}"
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd -P)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 cd "$REPO_ROOT"
 
 MODELS_CONFIG="${MODELS_CONFIG:-$SCRIPT_DIR/models.yaml}"
@@ -52,7 +52,7 @@ FACTORY_OTLP_TRACE_TIMEOUT="${FACTORY_OTLP_TRACE_TIMEOUT:-10}"
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 
 # repo = owner/name from gh or the git remote (best effort, never fatal).
-FACTORY_REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo unknown)"
+# Resolved after minting so a fresh factory host does not need ambient gh auth.
 
 umask 077
 mkdir -p "$(dirname "$FACTORY_LOG_FILE")" "$FACTORY_SESSION_LOG_DIR" "$FACTORY_CLAIM_DIR" 2>/dev/null || true
@@ -233,7 +233,11 @@ mint_factory_github_token() {
     (umask 077; printf '%s' "$FACTORY_GITHUB_APP_PRIVATE_KEY" > "$tmp_key")
     key_file="$tmp_key"
   fi
-  [[ -n "$key_file" && -f "$key_file" ]] || die "FACTORY_GITHUB_APP_ID set but no readable private key (FACTORY_GITHUB_APP_PRIVATE_KEY_FILE/FACTORY_GITHUB_APP_PRIVATE_KEY)"
+  if [[ -z "$key_file" || ! -f "$key_file" ]]; then
+    [[ -z "$tmp_key" ]] || rm -f "$tmp_key"
+    printf '[factory-tick] ERROR: FACTORY_GITHUB_APP_ID set but no readable private key\n' >&2
+    return 1
+  fi
   local repo_arg=""
   if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
     repo_arg="--repo $GITHUB_REPOSITORY"
@@ -248,12 +252,16 @@ mint_factory_github_token() {
     --repo-root "$REPO_ROOT" 2>/tmp/factory-mint-err)" || {
       local err; err="$(cat /tmp/factory-mint-err 2>/dev/null || true)"
       rm -f /tmp/factory-mint-err
-      [[ -n "$tmp_key" ]] && rm -f "$tmp_key"
-      die "failed to mint factory GitHub App token: $err"
+      [[ -z "$tmp_key" ]] || rm -f "$tmp_key"
+      printf '[factory-tick] ERROR: failed to mint factory GitHub App token: %s\n' "$err" >&2
+      return 1
     }
   rm -f /tmp/factory-mint-err
-  [[ -n "$tmp_key" ]] && rm -f "$tmp_key"
-  [[ -n "$token" ]] || die "minted empty factory token"
+  [[ -z "$tmp_key" ]] || rm -f "$tmp_key"
+  if [[ -z "$token" ]]; then
+    printf '[factory-tick] ERROR: minted empty factory token\n' >&2
+    return 1
+  fi
   export GH_TOKEN="$token"
   export GITHUB_TOKEN="$token"
   log "factory GitHub App token minted (login filter: ${FACTORY_LOGIN:-unset})"
@@ -290,7 +298,8 @@ command -v python3 >/dev/null || die "python3 is required"
 python3 -c 'import yaml' 2>/dev/null || die "PyYAML is required (pip install pyyaml)"
 
 # Mint a least-privilege factory token (if configured) before any gh/git work.
-mint_factory_github_token
+mint_factory_github_token || die "could not mint factory GitHub App token"
+FACTORY_REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo unknown)"
 export FACTORY_LOGIN FACTORY_TRUSTED_LOGINS
 
 # Discovery and prompt context trust the configured logins plus the factory
@@ -1036,6 +1045,21 @@ for c in factory.parse_tool_calls(sys.stdin.read()):
 ' "$SCRIPT_DIR/lib" 2>/dev/null || true)
 }
 
+record_token_refresh_failure() {
+  local kind="$1" ref="$2" run_id="$3" model="$4" trace_id="$5"
+  local issue_id="$6" pr_number="$7" fallback_level="$8"
+  local duration_ms=$(( $(date +%s%3N) - FACTORY_LAST_RUN_START_MS ))
+  emit_event agent.run.failed run_id="$run_id" attempt=1 fallback_level="$fallback_level" \
+    kind="$kind" model="$model" issue_id="$issue_id" pr_number="$pr_number" session_id="" \
+    trace_id="$trace_id" exit_code=1 duration_ms="$duration_ms" outcome="failed" failure_reason="auth"
+  log "could not refresh GitHub App token for $kind session #$ref"
+  case "$kind" in
+    plan) RUNS_PLAN_FAILED=$((RUNS_PLAN_FAILED + 1)) ;;
+    build) RUNS_BUILD_FAILED=$((RUNS_BUILD_FAILED + 1)) ;;
+    fix) RUNS_FIX_FAILED=$((RUNS_FIX_FAILED + 1)) ;;
+  esac
+}
+
 # start_session # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 backup_model, $7 prompt, $8 tier_label, $9 area_labels
 #
 # Emits v2 agent.run.* lifecycle events. Each opencode invocation is a distinct
@@ -1078,6 +1102,13 @@ start_session() { # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 b
     backup_model="${backup:-}"
 
   local out status=0
+  # Refresh in the parent shell so both the agent and later tick operations
+  # receive a token that is valid for the full session timeout.
+  if ! mint_factory_github_token; then
+    record_token_refresh_failure "$kind" "$ref" "$run_id" "$model" "$trace_id" "$issue_id" "$pr_number" "primary"
+    finalize_session_log "$logfile" 0
+    return 1
+  fi
   set +e
   set -o pipefail
   out="$(run_opencode "$title" "$model" "$agent" "$prompt" 2>&1 | tee "$logfile")"
@@ -1196,6 +1227,12 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
       trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               backup_model="${backup:-}"
           fi
+          # Refresh in the parent before the backup invocation as well.
+          if ! mint_factory_github_token; then
+            record_token_refresh_failure "$kind" "$ref" "$run_id" "$backup" "$trace_id" "$issue_id" "$pr_number" "backup"
+            finalize_session_log "$logfile" 0
+            return 1
+          fi
           set +e
           set -o pipefail
           bout="$(run_opencode "$title (backup)" "$backup" "$agent" "$prompt" 2>&1 | tee -a "$logfile")"
@@ -1300,6 +1337,12 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
               model="$FREE_MODEL" issue="$ref" session_id="" \
       trace_id="$trace_id" tier_label="${tier_label:-}" area_labels="${area_labels:-}" \
               backup_model="${backup:-}"
+          fi
+          # Refresh in the parent before the last-resort invocation.
+          if ! mint_factory_github_token; then
+            record_token_refresh_failure "$kind" "$ref" "$run_id" "$FREE_MODEL" "$trace_id" "$issue_id" "$pr_number" "free"
+            finalize_session_log "$logfile" 0
+            return 1
           fi
           set +e
           set -o pipefail
@@ -1496,36 +1539,34 @@ check_guardrail_drift() {
 # Run all factory work in an isolated git worktree so the primary checkout
 # (and any in-progress user work) is never touched by build/fix sessions.
 FACTORY_WORKTREE="${FACTORY_WORKTREE:-${REPO_ROOT%/*}/booking-system-factory-worktree}"
+FACTORY_WORKTREE="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$FACTORY_WORKTREE")"
+[[ "$FACTORY_WORKTREE" != "$REPO_ROOT" && "$FACTORY_WORKTREE" != "$REPO_ROOT/"* ]] \
+  || die "FACTORY_WORKTREE must be outside the primary checkout: $FACTORY_WORKTREE"
 if [[ ! -e "$FACTORY_WORKTREE/.git" ]]; then
   git worktree add --detach "$FACTORY_WORKTREE" origin/main 2>/dev/null \
-    || log "warning: could not create factory worktree; continuing in $REPO_ROOT"
+    || die "could not create isolated factory worktree: $FACTORY_WORKTREE"
 fi
-if [[ -d "$FACTORY_WORKTREE" ]]; then
-  # Keep remote refs current so sessions branch from the latest origin/main
-  # rather than a stale local base.
-  if ! gh_run_capture "git_fetch_worktree" git -C "$FACTORY_WORKTREE" fetch --quiet --prune origin; then
-    log "warning: git fetch origin failed in worktree; continuing with cached refs (category=${GH_CATEGORY:-other})"
-    emit_event git_fetch_failed category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
-    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
-  fi
-  # Never discard in-progress agent work: only reset/clean when the worktree
-  # is already clean. Interrupted per-issue worktrees are preserved.
-  if [[ -z "$(git -C "$FACTORY_WORKTREE" status --porcelain 2>/dev/null)" ]]; then
-    git -C "$FACTORY_WORKTREE" checkout -f --detach origin/main >/dev/null 2>&1 || true
-    git -C "$FACTORY_WORKTREE" reset --hard origin/main >/dev/null 2>&1 || true
-    git -C "$FACTORY_WORKTREE" clean -fdx >/dev/null 2>&1 || true
-  else
-    log "preserving in-progress changes in $FACTORY_WORKTREE; skipping reset/clean"
-    emit_event dirty_worktree_skipped_reset worktree="$FACTORY_WORKTREE" reason="worktree dirty"
-  fi
-  cd "$FACTORY_WORKTREE"
+[[ -d "$FACTORY_WORKTREE" && -e "$FACTORY_WORKTREE/.git" ]] \
+  || die "factory worktree is not a git worktree: $FACTORY_WORKTREE"
+
+# Keep remote refs current so sessions branch from the latest origin/main
+# rather than a stale local base.
+if ! gh_run_capture "git_fetch_worktree" git -C "$FACTORY_WORKTREE" fetch --quiet --prune origin; then
+  log "warning: git fetch origin failed in worktree; continuing with cached refs (category=${GH_CATEGORY:-other})"
+  emit_event git_fetch_failed category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
+  case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
+fi
+# Never discard in-progress agent work: only reset/clean when the worktree
+# is already clean. Interrupted per-issue worktrees are preserved.
+if [[ -z "$(git -C "$FACTORY_WORKTREE" status --porcelain 2>/dev/null)" ]]; then
+  git -C "$FACTORY_WORKTREE" checkout -f --detach origin/main >/dev/null 2>&1 || true
+  git -C "$FACTORY_WORKTREE" reset --hard origin/main >/dev/null 2>&1 || true
+  git -C "$FACTORY_WORKTREE" clean -fdx >/dev/null 2>&1 || true
 else
-  if ! gh_run_capture "git_fetch_primary" git fetch --quiet --prune origin; then
-    log "warning: git fetch origin failed; continuing with cached refs (category=${GH_CATEGORY:-other})"
-    emit_event git_fetch_failed category="${GH_CATEGORY:-other}" exit_code="${GH_RC:-1}"
-    case "${GH_CATEGORY:-}" in auth|permission|rate_limit|transient) INFRA_FAILURE=1 ;; esac
-  fi
+  log "preserving in-progress changes in $FACTORY_WORKTREE; skipping reset/clean"
+  emit_event dirty_worktree_skipped_reset worktree="$FACTORY_WORKTREE" reason="worktree dirty"
 fi
+cd "$FACTORY_WORKTREE"
 
 # Fail before discovery or any session if guardrail files drifted from the
 # owner-moved configuration tag (issue #164).
