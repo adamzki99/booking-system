@@ -165,6 +165,45 @@ def test_issue_events_and_determinism():
     assert closed["state_reason"] == "completed"
 
 
+def test_fetch_factory_prs_hydrates_only_factory_branches(monkeypatch):
+    calls = []
+    summaries = [
+        {
+            "number": number,
+            "headRefName": "factory/issue-7" if number == 42 else f"feature/{number}",
+            "createdAt": "2026-11-20T10:00:00Z",
+            "updatedAt": "2026-11-21T12:00:00Z",
+            "mergedAt": None,
+            "closedAt": None,
+        }
+        for number in range(1, 201)
+    ]
+
+    def fake_gh_json(*args):
+        calls.append(args)
+        if args[:2] == ("pr", "list"):
+            fields = args[args.index("--json") + 1].split(",")
+            if {"reviews", "statusCheckRollup", "commits"}.intersection(fields):
+                raise RuntimeError("GraphQL node limit exceeded")
+            return summaries
+        if args[:2] == ("pr", "view"):
+            assert args[2] == "42"
+            return SANITIZED_PR
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    monkeypatch.setattr(ro, "gh_json", fake_gh_json)
+
+    prs = ro.fetch_factory_prs("o/r")
+
+    assert prs == [SANITIZED_PR]
+    list_calls = [call for call in calls if call[:2] == ("pr", "list")]
+    view_calls = [call for call in calls if call[:2] == ("pr", "view")]
+    assert len(list_calls) == 1
+    assert len(view_calls) == 1
+    events = ro.events_for_pr(prs[0], "o/r", "factory-bot", "2026-11-22T00:00:00Z")
+    assert {"pr.review", "pr.checks", "pr.merged"}.issubset({event["event"] for event in events})
+
+
 def test_watermark_roundtrip(tmp_path):
     state = tmp_path / "reconcile.state"
     assert ro.load_watermark(str(state)) is None
