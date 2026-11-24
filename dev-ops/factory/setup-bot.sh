@@ -125,7 +125,7 @@ prompt_yes_no() {
 expand_path() {
   local path="$1"
   case "$path" in
-    "~/"*) path="$HOME/${path#\~/}" ;;
+    '~/'*) path="$HOME/${path#\~/}" ;;
     "~") path="$HOME" ;;
   esac
   [[ "$path" == /* ]] || path="$PWD/$path"
@@ -422,7 +422,7 @@ if ! APP_SLUG="$("$PYTHON_BIN" "$MINT_SCRIPT" \
   die "could not read the GitHub App slug"
 fi
 [[ "$APP_SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "GitHub App returned an invalid slug"
-BOT_LOGIN="$APP_SLUG[bot]"
+BOT_LOGIN="${APP_SLUG}[bot]"
 if ! BOT_ID="$(GH_TOKEN="$APP_TOKEN" gh api "users/$BOT_LOGIN" --jq '.id')"; then
   die "could not read the GitHub App bot user id"
 fi
