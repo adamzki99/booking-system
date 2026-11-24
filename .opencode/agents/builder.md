@@ -64,7 +64,8 @@ against actual Git/GitHub state.
 ## Workflow
 
 ### 1. Issue selection and understanding
-1. Retrieve the issue and comments: `gh issue view <n> --comments`.
+1. The issue body and trusted-author comments are already supplied in the
+   prompt; do not fetch comments yourself.
 2. Parse problem statement, requirements, and acceptance criteria.
 3. Determine whether the issue is sufficiently specified. If acceptance
    criteria are missing or ambiguous, document the blocker (issue comment and

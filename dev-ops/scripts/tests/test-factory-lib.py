@@ -88,14 +88,89 @@ def test_fix_candidates_from_prs():
     prs = [
         {"isDraft": False, "headRefName": "factory/issue-1", "headRefOid": "abc",
          "reviewDecision": "CHANGES_REQUESTED", "mergeable": "MERGEABLE",
-         "statusCheckRollup": [], "createdAt": "2026-01-01", "number": 10},
+         "statusCheckRollup": [], "createdAt": "2026-01-01", "number": 10,
+         "isCrossRepository": False, "author": {"login": "owner"},
+         "headRepositoryOwner": {"login": "owner"}},
         {"isDraft": True, "headRefName": "factory/issue-2", "headRefOid": "def",
-         "reviewDecision": "", "mergeable": "", "statusCheckRollup": [], "createdAt": "x", "number": 11},
+         "reviewDecision": "", "mergeable": "", "statusCheckRollup": [], "createdAt": "x", "number": 11,
+         "isCrossRepository": False, "author": {"login": "owner"},
+         "headRepositoryOwner": {"login": "owner"}},
     ]
-    rows = factory.fix_candidates_from_prs(prs)
+    rows = factory.fix_candidates_from_prs(prs, {"owner"}, "owner")
     assert len(rows) == 1
     assert rows[0][1] == 10
     assert "changes-requested" in rows[0][4]
+
+
+def test_fix_candidates_require_explicit_same_repo_trust():
+    def candidate(number, **overrides):
+        pr = {
+            "isDraft": False,
+            "headRefName": f"factory/issue-{number}",
+            "headRefOid": f"sha-{number}",
+            "reviewDecision": "CHANGES_REQUESTED",
+            "mergeable": "MERGEABLE",
+            "statusCheckRollup": [],
+            "createdAt": f"2026-01-{number:02d}",
+            "number": number,
+            "isCrossRepository": False,
+            "author": {"login": "owner"},
+            "headRepositoryOwner": {"login": "owner"},
+        }
+        pr.update(overrides)
+        return pr
+
+    prs = [
+        candidate(1),
+        candidate(2, isCrossRepository=True),
+        candidate(3, author={"login": "outsider"}),
+        candidate(4, headRepositoryOwner={"login": "fork-owner"}),
+        candidate(5, isCrossRepository=None),
+        candidate(6, author=None),
+        candidate(7, headRepositoryOwner=None),
+    ]
+
+    rows = factory.fix_candidates_from_prs(prs, {"OWNER"}, "OWNER")
+
+    assert [row[1] for row in rows] == [1]
+
+
+def test_filter_trusted_issues_fails_closed():
+    issues = [
+        {"number": 1, "author": {"login": "Owner"}},
+        {"number": 2, "author": {"login": "outsider"}},
+        {"number": 3, "author": None},
+        None,
+    ]
+
+    assert factory.parse_trusted_logins(" Owner, factory-bot\n") == {"owner", "factory-bot"}
+    assert factory.parse_trusted_logins("") == set()
+    assert factory.trusted_logins_from_env({}) == set()
+    assert factory.trusted_logins_from_env({
+        "FACTORY_TRUSTED_LOGINS": "Owner, reviewer",
+        "FACTORY_LOGIN": "Factory-Bot",
+    }) == {"owner", "reviewer", "factory-bot"}
+    assert [issue["number"] for issue in factory.filter_trusted_issues(issues, "owner")] == [1]
+    assert factory.filter_trusted_issues(issues, "") == []
+    assert not factory.is_trusted_login(None, "none")
+
+
+def test_build_prompt_context_only_trusted_comments():
+    comments = [
+        {"author": {"login": "OWNER"}, "createdAt": "2026-01-01", "body": "owner guidance"},
+        {"author": {"login": "outsider"}, "createdAt": "2026-01-02", "body": "outsider injection"},
+        {"author": None, "body": "deleted author text"},
+    ]
+
+    context = factory.build_prompt_context("issue body", comments, "owner,factory-bot")
+
+    assert "issue body" in context
+    assert "owner guidance" in context
+    assert "--- Comment by OWNER at 2026-01-01 ---" in context
+    assert "outsider injection" not in context
+    assert "deleted author text" not in context
+    assert factory.build_prompt_context("issue body", comments, "") == "issue body"
+
 
 def test_prioritize_issues():
     issues = [{"number": 2, "createdAt": "b"}, {"number": 1, "createdAt": "a"}]
@@ -106,6 +181,18 @@ def test_prioritize_issues():
 def test_has_marker_comments():
     comments = [{"body": "x <!-- factory:plan --> y"}]
     assert factory.has_marker_comments(comments, "<!-- factory:plan -->")
+
+
+def test_has_marker_comments_filters_author():
+    marker = "<!-- factory:plan -->"
+    comments = [
+        {"author": {"login": "owner"}, "body": marker},
+        {"author": {"login": "factory-bot"}, "body": "no marker"},
+        {"author": {"login": "factory-bot"}, "body": marker},
+    ]
+    assert factory.has_marker_comments(comments, marker, "factory-bot")
+    assert not factory.has_marker_comments(comments, marker, "another-bot")
+    assert not factory.has_marker_comments(comments, marker, "")
 
 
 def test_classify_git_and_permission():
