@@ -48,7 +48,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 
 **Jobs:**
 - **Dependency review** (PRs only): uses `actions/dependency-review-action`. Requires GitHub Dependency Graph to be enabled for the repository.
-- **Go vulnerability scan**: runs `govulncheck ./...` in `product/backend`.
+- **Go vulnerability scan**: runs `govulncheck ./...` in both `product/backend` and `projects/sauna/sidecar`. A finding in either module fails the Security job and therefore `ci-gate`.
 
 **Triage owner:** repository maintainers / dev-ops. Configure `CODEOWNERS`, security contacts, or a `SECURITY.md` as the team grows so vulnerability findings have a clear owner.
 
@@ -114,10 +114,10 @@ cd ../..
 docker build -f product/backend/Dockerfile product/backend
 docker build -f projects/sauna/sidecar/Dockerfile projects/sauna/sidecar
 
-# Vulnerability scan
-cd product/backend
+# Vulnerability scans
 go install golang.org/x/vuln/cmd/govulncheck@latest
-govulncheck ./...
+(cd product/backend && govulncheck ./...)
+(cd projects/sauna/sidecar && govulncheck ./...)
 
 # CI canary lifecycle (stubbed gh, no network)
 bash dev-ops/scripts/tests/test-ci-canary.sh
