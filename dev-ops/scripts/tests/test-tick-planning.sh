@@ -104,12 +104,18 @@ elif args[:2] == ["label", "list"]:
 elif args[:2] == ["api", "graphql"]:
     print(json.dumps({"data": {"user": {"projectsV2": {"nodes": []}}, "organization": {"projectsV2": {"nodes": []}}}}))
 elif args and args[0] == "api" and any("issues?" in arg for arg in args):
+    if "--slurp" in args:
+        print("unknown flag: --slurp", file=sys.stderr)
+        raise SystemExit(2)
     if fixture.get("fail_issue_discovery"):
         print("issue discovery failed", file=sys.stderr)
         raise SystemExit(1)
     issues = trusted_fixture_items(fixture.get("issues", []))
-    pages = [issues[index:index + 100] for index in range(0, len(issues), 100)]
-    print(json.dumps(pages))
+    if fixture.get("concatenated_issue_pages"):
+        pages = [issues[index:index + 100] for index in range(0, len(issues), 100)]
+        sys.stdout.write("".join(json.dumps(page) for page in pages))
+    else:
+        print(json.dumps(issues))
 else:
     print("[]")
 PY
@@ -215,6 +221,20 @@ assert_no_event() {
   fi
 }
 
+assert_metrics_modes() {
+  local name="$1" dir="$2"
+  if [[ "$(stat -c '%a' "$dir" 2>/dev/null || true)" == "755" ]]; then
+    pass
+  else
+    fail "$name: metrics directory is not mode 755"
+  fi
+  if [[ "$(stat -c '%a' "$dir/factory_tick.prom" 2>/dev/null || true)" == "644" ]]; then
+    pass
+  else
+    fail "$name: metrics file is not mode 644"
+  fi
+}
+
 cat > "$tmp/non-bot-marker.json" <<'JSON'
 {
   "issues": [
@@ -299,10 +319,11 @@ cat > "$tmp/failed-candidates.json" <<'JSON'
   "prs": []
 }
 JSON
-if run_tick failed-candidates "$tmp/failed-candidates.json"; then
+if run_tick failed-candidates "$tmp/failed-candidates.json" 1; then
   assert_actions failed-candidates "$tmp/failed-candidates-events.jsonl" "3,4" ""
   assert_event failed-candidates "$tmp/failed-candidates-events.jsonl" marker_skip
   assert_event failed-candidates "$tmp/failed-candidates-events.jsonl" plan_skipped
+  assert_event failed-candidates "$tmp/failed-candidates-events.jsonl" discovery_failed
 fi
 
 cat > "$tmp/discovery-failure.json" <<'JSON'
@@ -335,10 +356,16 @@ for number in range(1, 206):
         "comments": [],
     })
 with open(sys.argv[1], "w", encoding="utf-8") as fixture_file:
-    json.dump({"issues": issues, "build_issues": [], "prs": []}, fixture_file)
+    json.dump({"issues": issues, "build_issues": [], "prs": [], "concatenated_issue_pages": True}, fixture_file)
 PY
 if run_tick pagination "$tmp/pagination.json"; then
   assert_actions pagination "$tmp/pagination-events.jsonl" "205,204" ""
+  if grep -q -- '--slurp' "$gh_log"; then
+    fail "pagination: tick used unsupported --slurp"
+  else
+    pass
+  fi
+  assert_metrics_modes pagination "$tmp/pagination-metrics"
 fi
 
 echo "PASS=$PASS FAIL=$FAIL"
