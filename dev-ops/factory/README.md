@@ -52,6 +52,11 @@ created. The system owner steers the project by interacting with issues only.
   trusts no plan marker.
 - **Owner-approved gate is respected.** Only the repository owner applies
   `owner approved`; build selection requires it.
+- **Trusted authors only.** Plan/build discovery accepts issues only from
+  `FACTORY_TRUSTED_LOGINS` (plus `FACTORY_LOGIN` when set). Fix discovery also
+  requires a same-repository PR from a trusted author and re-checks that trust
+  immediately before the session. Prompt context includes comments only from
+  trusted authors. An empty trusted set discovers nothing and trusts no comments.
 - **No auto-merge bypass.** Sessions must not disable tests, weaken gates, edit
   CI to bypass failures, or merge around required checks/protections/reviews.
 
@@ -83,6 +88,7 @@ tick.sh --help
 | `FACTORY_PRESERVE_SESSION_LOGS` | `on-failure` | `on-failure` (delete on success), `always`, `never`. |
 | `FACTORY_CONTAINER_MODE` | `0` | `1` enables bwrap per-session sandbox; falls back to host if bwrap unavailable. |
 | `FACTORY_LOGIN` | (unset) | Login of the factory bot/app identity. Plan markers from other authors are ignored; when unset, no plan marker is trusted. Also used to attribute factory work. |
+| `FACTORY_TRUSTED_LOGINS` | (unset) | Comma/whitespace separated GitHub logins whose issues, PRs, and comments may drive the factory. Includes `FACTORY_LOGIN` when set. Empty discovers nothing and trusts no comments (fail closed). |
 | `FACTORY_GITHUB_APP_ID` | (unset) | GitHub App id used to mint a short-lived least-privilege installation token per tick. |
 | `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE` | (unset) | Path to the app private key PEM (preferred over inline key). |
 | `FACTORY_GITHUB_APP_PRIVATE_KEY` | (unset) | Inline app private key PEM (avoid; prefer file). |
@@ -249,7 +255,10 @@ Cron (keep human output separate):
 - **Least-privilege GitHub token:** prefer a GitHub App installation token minted
   per tick via `FACTORY_GITHUB_APP_ID` and a private key. `tick.sh` exports it as
   `GH_TOKEN`/`GITHUB_TOKEN` for `gh` and sessions; the token is never logged.
-  Set `FACTORY_LOGIN` to the app's bot login so marker comments and PRs are
+  Set `FACTORY_TRUSTED_LOGINS` to the owner login and any approved bot logins so
+  only trusted authors' issues, PRs, and comments drive the factory. With it and
+  `FACTORY_LOGIN` unset, discovery returns no candidates and the factory goes
+  idle. Set `FACTORY_LOGIN` to the app's bot login so marker comments and PRs are
   attributable to the factory identity. Planning ignores plan markers from any
   other author, and trusts none when this value is unset. Avoid org-wide or
   admin scopes. Never print tokens; pass via environment, not argv.

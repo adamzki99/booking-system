@@ -42,6 +42,13 @@ def issue(number):
     return next((item for item in fixture.get("issues", []) if item["number"] == number), {})
 
 
+def trusted_fixture_items(items):
+    for item in items:
+        if isinstance(item, dict):
+            item.setdefault("author", {"login": "owner"})
+    return items
+
+
 if args[:2] == ["repo", "view"]:
     if option("--jq") == ".nameWithOwner":
         print("owner/repo")
@@ -52,6 +59,7 @@ elif args[:2] == ["issue", "list"]:
         print("issue discovery failed", file=sys.stderr)
         raise SystemExit(1)
     items = fixture.get("build_issues", []) if option("--label") else fixture.get("issues", [])
+    items = trusted_fixture_items(items)
     limit = int(option("--limit") or 0)
     print(json.dumps(items[:limit] if limit else items))
 elif args[:2] == ["issue", "view"]:
@@ -99,7 +107,7 @@ elif args and args[0] == "api" and any("issues?" in arg for arg in args):
     if fixture.get("fail_issue_discovery"):
         print("issue discovery failed", file=sys.stderr)
         raise SystemExit(1)
-    issues = fixture.get("issues", [])
+    issues = trusted_fixture_items(fixture.get("issues", []))
     pages = [issues[index:index + 100] for index in range(0, len(issues), 100)]
     print(json.dumps(pages))
 else:
@@ -151,6 +159,7 @@ run_tick() {
     FACTORY_SESSION_LOG_DIR="$tmp/$name-sessions" \
     FACTORY_CLAIM_DIR="$tmp/$name-claims" \
     FACTORY_LOGIN="factory-bot" \
+    FACTORY_TRUSTED_LOGINS="owner" \
     FACTORY_GH_RETRIES=1 \
     FACTORY_OTLP_TRACES_ENDPOINT="" \
     GH_FIXTURE="$fixture" GH_LOG="$gh_log" OPENCODE_LOG="$opencode_log" \
