@@ -29,6 +29,10 @@ node-exporter + factory textfile metrics -> Prometheus -> Grafana
 collector/clickhouse/grafana/prometheus self-metrics -> Prometheus
 ```
 
+The collector image is distroless and has no `/bin/sh` or `wget`, so the stack
+does not define an invalid Docker healthcheck. Collector availability is checked
+through its Prometheus target and through factory event ingestion.
+
 Grafana dashboards and alert rules are provisioned from git. Langfuse is available
 as an optional profile. This stack is independent of any external APM vendor.
 
