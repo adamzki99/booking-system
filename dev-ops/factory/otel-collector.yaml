@@ -3,8 +3,8 @@
 # monitoring stack (dev-ops/factory/monitoring/).
 #
 # It tails the factory JSONL log and ships logs over OTLP/HTTP to the
-# factory monitoring collector. This file replaces the old SigNoz-oriented
-# shipper; it does not send a SigNoz ingestion key.
+# factory monitoring collector. It is intended for remote factory hosts that
+# need to forward JSONL events to the monitoring stack.
 #
 # Environment variables:
 #   FACTORY_LOG_DIR        - directory containing tick.jsonl (default below)

@@ -29,9 +29,8 @@ node-exporter + factory textfile metrics -> Prometheus -> Grafana
 collector/clickhouse/grafana/prometheus self-metrics -> Prometheus
 ```
 
-Grafana dashboards and alert rules are provisioned from git (prompt 04). Langfuse
-is added by prompt 05. SigNoz removal is handled by prompt 09; this stack does not
-depend on SigNoz.
+Grafana dashboards and alert rules are provisioned from git. Langfuse is available
+as an optional profile. This stack is independent of any external APM vendor.
 
 ## Pinned versions
 
@@ -123,8 +122,7 @@ or duplicate data, and `start_at: beginning` for first-run backfill.
 
 If `tick.sh` runs on another machine, use `dev-ops/factory/otel-collector.yaml`
 as a remote shipper. It tails the same JSONL with `file_storage`, applies the same
-parsing/redaction, and exports OTLP/HTTP to `FACTORY_OTLP_ENDPOINT`. It does not
-send a SigNoz ingestion key.
+parsing/redaction, and exports OTLP/HTTP to `FACTORY_OTLP_ENDPOINT`.
 
 ### Rotation/copytruncate
 
