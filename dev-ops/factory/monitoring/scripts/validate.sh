@@ -225,6 +225,20 @@ if missing:
 print(f'alerting ok: {len(uids)} rules')
 PYALERT
 
+# The pinned collector image is distroless. A CMD-SHELL healthcheck cannot run
+# because /bin/sh is absent, even though the collector itself is healthy.
+run python3 - <<'PY'
+import pathlib
+import sys
+import yaml
+compose = yaml.safe_load(pathlib.Path('dev-ops/factory/monitoring/docker-compose.yml').read_text())
+healthcheck = compose['services']['otel-collector'].get('healthcheck') or {}
+test = healthcheck.get('test') or []
+if test and test[0] == 'CMD-SHELL':
+    print('otel-collector healthcheck requires /bin/sh, which is absent from the distroless image', file=sys.stderr)
+    sys.exit(1)
+PY
+
 # Basic YAML/JSON sanity for configs that should always be parseable.
 run python3 -c "import json,sys,pathlib; [json.load(open(p)) for p in pathlib.Path('dev-ops/factory/monitoring').rglob('*.json')]"
 run python3 -c "import yaml,sys,pathlib; [yaml.safe_load(open(p)) for p in pathlib.Path('dev-ops/factory/monitoring').rglob('*.yml')] + [yaml.safe_load(open(p)) for p in pathlib.Path('dev-ops/factory/monitoring').rglob('*.yaml')]"

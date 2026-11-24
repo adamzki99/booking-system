@@ -39,6 +39,7 @@ OTLP_GRPC_PORT=14317
 OTLP_HTTP_PORT=14318
 FACTORY_LOG_DIR=$LOG_DIR
 FACTORY_METRICS_DIR=$METRICS_DIR
+FACTORY_MONITORING_NETWORK=factory-monitoring-smoke-$$-net
 CLICKHOUSE_TTL_DAYS=400
 PROMETHEUS_RETENTION_TIME=1d
 PROMETHEUS_RETENTION_SIZE=256MB
@@ -72,6 +73,19 @@ JSONL
 
 echo "[smoke] starting stack..."
 "${COMPOSE[@]}" up -d
+
+collector_cid=$("${COMPOSE[@]}" ps -q otel-collector)
+collector_health=""
+for _ in $(seq 1 30); do
+  collector_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$collector_cid")"
+  if [[ "$collector_health" == "healthy" || "$collector_health" == "none" ]]; then break; fi
+  sleep 2
+done
+if [[ "$collector_health" != "healthy" && "$collector_health" != "none" ]]; then
+  echo "[smoke] collector healthcheck failed: $collector_health" >&2
+  "${COMPOSE[@]}" logs otel-collector >&2 || true
+  exit 1
+fi
 
 echo "[smoke] waiting for clickhouse..."
 for _ in $(seq 1 120); do
@@ -119,6 +133,7 @@ done
 targets=$("${COMPOSE[@]}" exec -T prometheus wget -qO- 'http://127.0.0.1:9090/api/v1/targets' || true)
 echo "$targets" | grep -q node-exporter || { echo "[smoke] node-exporter target missing" >&2; exit 1; }
 echo "$targets" | python3 -c 'import sys,json; d=json.load(sys.stdin); active=d.get("data",{}).get("activeTargets",[]); ne=[t for t in active if t.get("labels",{}).get("job")=="node-exporter"]; print(ne[0]["health"] if ne else "missing")' | grep -q up || echo "[smoke] WARN: node-exporter target not up yet"
+echo "$targets" | python3 -c 'import sys,json; d=json.load(sys.stdin); active=d.get("data",{}).get("activeTargets",[]); collector=[t for t in active if t.get("labels",{}).get("job")=="otel-collector"]; print(collector[0]["health"] if collector else "missing")' | grep -q up || { echo "[smoke] otel-collector target is not up" >&2; exit 1; }
 
 # metric query
 for _ in $(seq 1 60); do

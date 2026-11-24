@@ -216,8 +216,9 @@ tick writes a Prometheus textfile atomically to
 `${FACTORY_METRICS_DIR}/factory_tick.prom` (`factory_tick_last_run_timestamp_seconds`,
 `factory_tick_last_success_timestamp_seconds`, `factory_tick_last_duration_seconds`,
 `factory_tick_last_exit_code`, `factory_tick_runs_last{kind,outcome}` and
-`factory_telemetry_errors_last`). Mount this directory into a node-exporter
-textfile collector.
+`factory_telemetry_errors_last`). The metrics directory is mode `0755` and the
+textfile is mode `0644` so node-exporter can read it. The event JSONL remains
+private. Mount this directory into a node-exporter textfile collector.
 
 Events never contain raw session output, regardless of
 `FACTORY_LOG_SESSION_OUTPUT`. The 16 KiB tail is kept only in the local

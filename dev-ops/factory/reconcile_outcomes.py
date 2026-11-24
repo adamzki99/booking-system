@@ -427,33 +427,41 @@ def gh_text(*args: str) -> str:
 
 
 def fetch_factory_prs(repo: str, since: str | None = None) -> list[dict[str, Any]]:
-    # Fetch all PRs; filter to factory/issue-* heads. Include fields needed for events.
-    fields = ",".join([
+    # Keep the list query lightweight. Requesting nested reviews, checks, and
+    # commits for every PR can exceed GitHub's GraphQL node limit before the
+    # factory/issue-* filter is applied.
+    summary_fields = ",".join([
+        "number", "headRefName", "createdAt", "closedAt", "mergedAt", "updatedAt",
+    ])
+    detail_fields = ",".join([
         "number", "id", "headRefName", "headRefOid", "createdAt", "closedAt", "mergedAt", "updatedAt",
         "state", "isDraft", "additions", "deletions", "changedFiles",
         "reviews", "statusCheckRollup", "commits", "author",
     ])
-    prs = gh_json("pr", "list", "--state", "all", "--limit", "200", "--json", fields)
-    if not isinstance(prs, list):
+    summaries = gh_json("pr", "list", "--state", "all", "--limit", "200", "--json", summary_fields)
+    if not isinstance(summaries, list):
         return []
     out = []
-    for pr in prs:
-        if not isinstance(pr, dict):
-            continue
-        if not is_factory_pr(pr):
+    for summary in summaries:
+        if not isinstance(summary, dict) or not is_factory_pr(summary):
             continue
         if since:
             timestamps = [
-                _iso(pr.get("updatedAt")),
-                _iso(pr.get("mergedAt")),
-                _iso(pr.get("closedAt")),
-                _iso(pr.get("createdAt")),
+                _iso(summary.get("updatedAt")),
+                _iso(summary.get("mergedAt")),
+                _iso(summary.get("closedAt")),
+                _iso(summary.get("createdAt")),
             ]
             # include if any known timestamp is >= since or if we can't tell
             known = [t for t in timestamps if t]
             if known and max(known) < since:
                 continue
-        out.append(pr)
+        number = _int_or_none(summary.get("number"))
+        if number is None:
+            continue
+        detail = gh_json("pr", "view", str(number), "--json", detail_fields)
+        if isinstance(detail, dict):
+            out.append(detail)
     return out
 
 
