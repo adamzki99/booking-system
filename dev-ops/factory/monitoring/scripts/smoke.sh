@@ -131,6 +131,12 @@ pr=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT count(
 echo "[smoke] pr.merged count=$pr"
 [ "$pr" -eq 1 ] || { echo "[smoke] expected pr.merged" >&2; exit 1; }
 
+quota_failures=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT countIf(event='agent.run.failed' AND failure_reason IN ('usage_filled','usage_filled_skipped')) FROM factory.events FINAL WHERE ts >= now() - INTERVAL 24 HOUR AND event IN ('agent.run.failed','agent.run.started')")
+[ "$quota_failures" -eq 1 ] || { echo "[smoke] quota failure fixture missing" >&2; exit 1; }
+free_two=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT if(countIf(event='agent.run.started' AND fallback_level = 'free') > 2, 1, 0) FROM factory.events FINAL WHERE ts >= now() - INTERVAL 24 HOUR AND event IN ('agent.run.failed','agent.run.started') AND run_id IN ('run-free-1','run-free-2')")
+[ "$free_two" -eq 0 ] || { echo "[smoke] two free fallbacks incorrectly triggered quota pressure" >&2; exit 1; }
+free_three=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT if(countIf(event='agent.run.started' AND fallback_level = 'free') > 2, 1, 0) FROM factory.events FINAL WHERE ts >= now() - INTERVAL 24 HOUR AND event IN ('agent.run.failed','agent.run.started') AND run_id IN ('run-free-1','run-free-2','run-free-3')")
+[ "$free_three" -eq 1 ] || { echo "[smoke] three free fallbacks did not trigger quota pressure" >&2; exit 1; }
 quota=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT if(countIf(event='agent.run.failed' AND failure_reason IN ('usage_filled','usage_filled_skipped')) > 0 OR countIf(event='agent.run.started' AND fallback_level = 'free') > 2, 1, 0) AS value FROM factory.events FINAL WHERE ts >= now() - INTERVAL 24 HOUR AND event IN ('agent.run.failed','agent.run.started')")
 [ "$quota" -eq 1 ] || { echo "[smoke] quota alert query did not match failure fixtures" >&2; exit 1; }
 
@@ -139,6 +145,9 @@ telemetry=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT
 
 ingestion=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT if(countIf(event='tick_end' AND ts >= now() - INTERVAL 2 HOUR) = 0, 1, 0) AS value FROM factory.events FINAL WHERE ts >= now() - INTERVAL 2 HOUR")
 [ "$ingestion" -eq 0 ] || { echo "[smoke] recent tick_end incorrectly flagged ingestion as stale" >&2; exit 1; }
+# A recent heartbeat with no ingested tick_end must satisfy the stale condition.
+ingestion_stale=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT if(countIf(event='tick_end' AND ts >= now() - INTERVAL 2 HOUR) = 0, 1, 0) AS value FROM (SELECT now() AS ts, 'tick_start' AS event)")
+[ "$ingestion_stale" -eq 1 ] || { echo "[smoke] missing recent tick_end did not flag ingestion as stale" >&2; exit 1; }
 
 # Prometheus target and metric
 echo "[smoke] waiting for prometheus..."
@@ -150,7 +159,14 @@ done
 targets=$("${COMPOSE[@]}" exec -T prometheus wget -qO- 'http://127.0.0.1:9090/api/v1/targets' || true)
 echo "$targets" | grep -q node-exporter || { echo "[smoke] node-exporter target missing" >&2; exit 1; }
 echo "$targets" | python3 -c 'import sys,json; d=json.load(sys.stdin); active=d.get("data",{}).get("activeTargets",[]); ne=[t for t in active if t.get("labels",{}).get("job")=="node-exporter"]; print(ne[0]["health"] if ne else "missing")' | grep -q up || echo "[smoke] WARN: node-exporter target not up yet"
-echo "$targets" | python3 -c 'import sys,json; d=json.load(sys.stdin); active=d.get("data",{}).get("activeTargets",[]); collector=[t for t in active if t.get("labels",{}).get("job")=="otel-collector"]; print(collector[0]["health"] if collector else "missing")' | grep -q up || { echo "[smoke] otel-collector target is not up" >&2; exit 1; }
+collector_up=0
+for _ in $(seq 1 60); do
+  targets=$("${COMPOSE[@]}" exec -T prometheus wget -qO- 'http://127.0.0.1:9090/api/v1/targets' || true)
+  collector_health="$(echo "$targets" | python3 -c 'import sys,json; d=json.load(sys.stdin); active=d.get("data",{}).get("activeTargets",[]); c=[t for t in active if t.get("labels",{}).get("job")=="otel-collector"]; print(c[0]["health"] if c else "missing")')"
+  if [[ "$collector_health" == "up" ]]; then collector_up=1; break; fi
+  sleep 2
+done
+[ "$collector_up" -eq 1 ] || { echo "[smoke] otel-collector target is not up" >&2; exit 1; }
 
 # metric query
 for _ in $(seq 1 60); do
@@ -180,6 +196,7 @@ assert_prom_expr() {
 }
 assert_prom_expr '(factory_tick_last_exit_code != bool 0) or vector(0)' 1
 assert_prom_expr '(factory_telemetry_errors_last > bool 0) or vector(0)' 0
+# Recent heartbeat input for the ingestion-stale alert paired with the no-tick_end probe above.
 assert_prom_expr '((time() - factory_tick_last_run_timestamp_seconds) < bool 7200) or vector(0)' 1
 
 # Grafana health and datasources

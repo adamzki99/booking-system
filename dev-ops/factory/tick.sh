@@ -316,10 +316,10 @@ TICK_START_SEC="$(date +%s)"
 
 on_exit() {
   local rc=$?
+  emit_event tick_end exit_code="$rc" duration_ms="$(( $(date +%s%3N 2>/dev/null || echo "$TICK_START_MS") - TICK_START_MS ))" telemetry_errors="$TELEMETRY_ERRORS"
   if [[ "$TICK_LOCK_SKIPPED" -eq 0 ]]; then
     write_metrics_file "$rc"
   fi
-  emit_event tick_end exit_code="$rc" duration_ms="$(( $(date +%s%3N 2>/dev/null || echo "$TICK_START_MS") - TICK_START_MS ))" telemetry_errors="$TELEMETRY_ERRORS"
   exit "$rc"
 }
 trap on_exit EXIT
