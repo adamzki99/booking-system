@@ -197,7 +197,7 @@ export default function Login() {
                       variant="accent"
                       size="lg"
                       class="login-submit"
-                      disabled={busy() || !email().trim()}
+                      disabled={busy() || !isValidEmail(email())}
                     >
                       Sign in
                     </Button>
@@ -280,7 +280,7 @@ export default function Login() {
                       variant="accent"
                       size="lg"
                       class="login-submit"
-                      disabled={busy() || !email().trim()}
+                      disabled={busy() || !isValidEmail(email())}
                     >
                       Request code
                     </Button>
