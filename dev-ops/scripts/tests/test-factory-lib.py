@@ -241,6 +241,21 @@ def test_usage_filled_reason():
     assert filled
     assert reason
 
+
+def test_usage_filled_from_structured_error():
+    samples = [
+        '{"type":"error","error":{"type":"provider.error","message":"request failed","status":429}}',
+        '{"type":"error","error":{"type":"provider.go-limit","status":429}}',
+        '{"type":"error","error":{"type":"provider.error","message":"payment required","status":402}}',
+    ]
+    for text in samples:
+        filled, reason = factory.is_usage_filled(text)
+        assert filled and reason, text
+    filled, _ = factory.is_usage_filled(
+        '{"type":"error","error":{"type":"provider.error","message":"request failed","status":500}}'
+    )
+    assert not filled
+
 def test_classify_matrix():
     assert factory.classify_gh_error("HTTP 404 not found") == "not_found"
     assert factory.classify_gh_error("") == "empty"
@@ -425,6 +440,18 @@ def test_parse_opencode_stream_tool_error_and_skills():
     assert d["steps"] == 1
     assert d["input_tokens"] == 1
     assert d["cost_usd"] == 0.5
+
+
+def test_parse_opencode_stream_reports_provider_error_without_raw_message():
+    text = (
+        '{"type":"step_start","sessionID":"ses_limit","part":{"id":"prt_1"}}\n'
+        '{"type":"error","sessionID":"ses_limit","error":{"type":"provider.go-limit","message":"monthly usage limit reached","status":429}}\n'
+    )
+    d = factory.parse_opencode_stream(text)
+    assert d["session_id"] == "ses_limit"
+    assert d["error_type"] == "provider.go-limit"
+    assert d["error_status"] == 429
+    assert "monthly usage limit reached" not in d.values()
 
 
 # ---------------------------------------------------------------------------

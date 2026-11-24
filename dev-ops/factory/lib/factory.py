@@ -196,6 +196,13 @@ def is_usage_filled(text):
         return True, "quota exceeded"
     if "usage" in out and "exceed" in out:
         return True, "usage exceeded"
+    summary = parse_opencode_stream(text)
+    error_type = str(summary.get("error_type") or "").lower()
+    error_status = summary.get("error_status")
+    if "limit" in error_type or "quota" in error_type:
+        return True, error_type
+    if error_status in (402, 429):
+        return True, f"http {error_status}"
     return False, ""
 
 
@@ -553,7 +560,7 @@ def parse_opencode_stream(text):
     Missing fields are simply absent from the result; a malformed stream never
     raises. Returns keys: session_id, steps, input_tokens, output_tokens,
     reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-    tool_calls, tool_errors, skills_loaded.
+    tool_calls, tool_errors, skills_loaded, error_type, error_status.
     """
     result = {}
     if not text:
@@ -570,6 +577,8 @@ def parse_opencode_stream(text):
     tool_errors = 0
     skills_loaded = []
     seen_skills = set()
+    error_type = None
+    error_status = None
 
     for line in text.splitlines():
         line = line.strip()
@@ -592,6 +601,17 @@ def parse_opencode_stream(text):
                 session_id = sid
         otype = obj.get("type")
         part = obj.get("part") or {}
+        if otype == "error" and error_type is None:
+            error = obj.get("error") or {}
+            if isinstance(error, dict):
+                error_type = str(error.get("type") or "unknown")
+                status = error.get("status")
+                if isinstance(status, int) and not isinstance(status, bool):
+                    error_status = status
+                elif isinstance(status, str) and status.isdigit():
+                    error_status = int(status)
+            else:
+                error_type = "unknown"
         if otype == "step_finish":
             steps += 1
             tokens = part.get("tokens") or {}
@@ -643,6 +663,10 @@ def parse_opencode_stream(text):
         result["tool_errors"] = tool_errors
     if skills_loaded:
         result["skills_loaded"] = skills_loaded
+    if error_type is not None:
+        result["error_type"] = error_type
+    if error_status is not None:
+        result["error_status"] = error_status
     return result
 
 
@@ -846,7 +870,7 @@ def main(argv):
         print(
             "usage: factory.py <validate-models|validate-event|normalize-model|"
             "classify-gh|classify-git|should-retry|is-usage-filled|"
-            "model-for-labels|claim-acquire|claim-release|emit|session-id|"
+            "model-for-labels|claim-acquire|claim-release|emit|session-id|stream-error|"
             "classify-failure|error-fingerprint|trace-id|parse-tool-calls|export-trace|"
             "trusted-logins> ...",
             file=sys.stderr,
@@ -930,6 +954,21 @@ def main(argv):
         return _emit_cli(argv)
     if cmd == "session-id":
         return _session_id_cli(argv)
+    if cmd == "stream-error":
+        path = argv[2] if len(argv) > 2 else "-"
+        if path == "-":
+            text = sys.stdin.read()
+        else:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except OSError:
+                return 1
+        summary = parse_opencode_stream(text)
+        if not summary.get("error_type"):
+            return 1
+        print(summary["error_type"])
+        return 0
     if cmd == "classify-failure":
         # classify-failure <exit_code> [text|-]; text from stdin when "-" or omitted
         if len(argv) < 3:
