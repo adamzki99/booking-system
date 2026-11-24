@@ -205,6 +205,7 @@ export default function Calendar() {
     },
   );
 
+  // oxlint-disable-next-line solid/reactivity -- action handler reads signals only on user invocation
   const submitCreate = action(function* (event: Event) {
     event.preventDefault();
     setCreateError(null);
@@ -243,6 +244,7 @@ export default function Calendar() {
     }
   });
 
+  // oxlint-disable-next-line solid/reactivity -- action handler reads signals only on user invocation
   const submitQuickBook = action(function* () {
     const src = selectedSource();
     const weeks = selectedWeeks();
@@ -303,6 +305,7 @@ export default function Calendar() {
                 </p>
                 <div class="calendar-form-stack">
                   <div class="calendar-field">
+                    {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                     <label class="calendar-label" for="qb-src">
                       Booking to repeat
                     </label>
@@ -392,13 +395,10 @@ export default function Calendar() {
                 <form class="calendar-form-stack" onSubmit={submitCreate} novalidate>
                   <Show when={createError()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
                   <Show when={createSuccess()}>
-                    {(msg) => (
-                      <Alert status="success" role="status">
-                        {msg()}
-                      </Alert>
-                    )}
+                    {(msg) => <output class="ui-alert ui-alert--success">{msg()}</output>}
                   </Show>
                   <div class="calendar-field">
+                    {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                     <label class="calendar-label" for="start">
                       Start
                     </label>
@@ -418,6 +418,7 @@ export default function Calendar() {
                     />
                   </div>
                   <div class="calendar-field">
+                    {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                     <label class="calendar-label" for="end">
                       End
                     </label>
@@ -460,7 +461,7 @@ export default function Calendar() {
                   <span class="calendar-th calendar-th-action" />
                 </div>
 
-                <ul class="calendar-booking-list" role="list">
+                <ul class="calendar-booking-list">
                   <For
                     each={showAll() ? currentBookings() : currentBookings().slice(0, 5)}
                     keyed={(b) => b.id}
@@ -470,7 +471,7 @@ export default function Calendar() {
                       const member = () => currentMembers()[b().userId];
                       const label = () => memberLabel(member(), b());
                       return (
-                        <li class="calendar-booking-item" role="listitem">
+                        <li class="calendar-booking-item">
                           <div class="calendar-booking-row">
                             <div class="calendar-booking-member">
                               <Avatar size="sm" name={label()} />

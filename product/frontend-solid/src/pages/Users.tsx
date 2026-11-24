@@ -86,6 +86,7 @@ export default function Users() {
     setSearchParams({ q: trimmed || undefined }, { replace: true });
   }
 
+  // oxlint-disable-next-line solid/reactivity -- action handler reads signals only on user invocation
   const onAddUser = action(function* (event: Event) {
     event.preventDefault();
     try {
@@ -109,6 +110,7 @@ export default function Users() {
     }
   });
 
+  // oxlint-disable-next-line solid/reactivity -- action handler reads signals only on user invocation
   const onChangeAddress = action(function* (event: Event) {
     event.preventDefault();
     try {
@@ -122,6 +124,7 @@ export default function Users() {
     }
   });
 
+  // oxlint-disable-next-line solid/reactivity -- action handler reads signals only on user invocation
   const onChangeRole = action(function* (event: Event) {
     event.preventDefault();
     try {
@@ -135,6 +138,7 @@ export default function Users() {
     }
   });
 
+  // oxlint-disable-next-line solid/reactivity -- action handler reads signals only on user invocation
   const onBlock = action(function* (event: Event) {
     event.preventDefault();
     try {
@@ -150,6 +154,7 @@ export default function Users() {
     }
   });
 
+  // oxlint-disable-next-line solid/reactivity -- action handler reads signals only on user invocation
   const onBroadcast = action(function* (event: Event) {
     event.preventDefault();
     try {
@@ -186,6 +191,7 @@ export default function Users() {
             <Show when={mutationError()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
 
             <div class="users-field users-search">
+              {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
               <label class="users-label" for="member-search">
                 Search members
               </label>
@@ -238,6 +244,7 @@ export default function Users() {
                             <td class="users-muted">{u().address}</td>
                             <td>{String(u().active)}</td>
                             <Show when={superUser()}>
+                              {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- false positive on td element */}
                               <td>
                                 <Show
                                   when={
@@ -274,6 +281,7 @@ export default function Users() {
                     <CardBody>
                       <div class="users-form-stack">
                         <div class="users-field">
+                          {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                           <label class="users-label" for="new-email">
                             Email
                           </label>
@@ -284,6 +292,7 @@ export default function Users() {
                           />
                         </div>
                         <div class="users-field">
+                          {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                           <label class="users-label" for="new-address">
                             Address
                           </label>
@@ -309,6 +318,7 @@ export default function Users() {
                     <CardBody>
                       <div class="users-form-stack">
                         <div class="users-field">
+                          {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                           <label class="users-label" for="address-user-id">
                             User id
                           </label>
@@ -327,6 +337,7 @@ export default function Users() {
                           </Select>
                         </div>
                         <div class="users-field">
+                          {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                           <label class="users-label" for="address-value">
                             Address
                           </label>
@@ -353,6 +364,7 @@ export default function Users() {
                       <CardBody>
                         <div class="users-form-stack">
                           <div class="users-field">
+                            {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                             <label class="users-label" for="role-user-id">
                               User id
                             </label>
@@ -371,6 +383,7 @@ export default function Users() {
                             </Select>
                           </div>
                           <div class="users-field">
+                            {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                             <label class="users-label" for="role-value">
                               Role
                             </label>
@@ -401,6 +414,7 @@ export default function Users() {
                     <CardBody>
                       <div class="users-form-stack">
                         <div class="users-field">
+                          {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                           <label class="users-label" for="block-start">
                             Start
                           </label>
@@ -412,6 +426,7 @@ export default function Users() {
                           />
                         </div>
                         <div class="users-field">
+                          {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                           <label class="users-label" for="block-end">
                             End
                           </label>
@@ -438,6 +453,7 @@ export default function Users() {
                     <CardBody>
                       <div class="users-form-stack">
                         <div class="users-field">
+                          {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                           <label class="users-label" for="broadcast-subject">
                             Subject
                           </label>
@@ -448,6 +464,7 @@ export default function Users() {
                           />
                         </div>
                         <div class="users-field">
+                          {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- custom Input/Select/Textarea association verified by for/id */}
                           <label class="users-label" for="broadcast-body">
                             Body
                           </label>

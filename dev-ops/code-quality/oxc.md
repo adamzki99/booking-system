@@ -165,20 +165,55 @@ Result: **463 React diagnostics**. Top rules:
 - JS plugins remain alpha in Oxc; later prompts should pin oxlint and retest
   plugin behavior before broad rollout.
 
-### 4.5 Proposed rule set (for later prompts)
+### 4.5 Frontend rule set (prompt 05)
 
-| Area            | Proposal                                                                                 | Reason                                                                               |
-| --------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Correctness     | Keep `correctness` at error/deny                                                         | Catches real defects with low false-positive rate                                    |
-| Suspicious/perf | Start at warn, promote selectively                                                       | Useful signal, but baseline shows noisy/style rules mixed in                         |
-| Solid           | Keep `eslint-plugin-solid/configs/v2` via JS plugin                                      | Required by Solid 2 AGENTS rules                                                     |
-| React           | Do not enable                                                                            | 463 misfires on Solid/modern JSX in baseline                                         |
-| jsx-a11y        | Enable, fix real findings, tune only with reason                                         | A11y findings are actionable but need case review                                    |
-| import          | Enable selectively; avoid noisy side-effect/default-member rules initially               | Side-effect CSS/test imports and default-member style created noise                  |
-| vitest          | Enable selectively; defer `require-mock-type-parameters` unless team wants strict typing | 83 errors, mostly style/churn                                                        |
-| unicorn         | Enable selectively                                                                       | Low-value style findings present                                                     |
-| promise         | Enable selectively                                                                       | Small count; inspect before enforcing                                                |
-| Type-aware      | Enable after backend decision; start with high-value rules                               | Adds real signal (`await-thenable`, `unbound-method`) but also noisy assertion rules |
+Implemented in prompt 05 on `oxlint` 1.95.0 with `oxlint-tsgolint` 7.0.2008.
+The frontend lint command is:
+
+```sh
+oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=error .
+```
+
+| Rule or category                                    | Severity                  | Reason                                                                                                                 |
+| --------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `correctness` category                              | error                     | Catches real defects with low false-positive rate.                                                                     |
+| `suspicious` category                               | error                     | Catches likely bugs; noisy rules are disabled individually below.                                                      |
+| `perf` category                                     | warn                      | Performance hints; promoted to CI failure by `--deny-warnings`.                                                        |
+| `pedantic` and `style` categories                   | off                       | Not enabled by default; add individual rules only with a reason.                                                       |
+| `typescript` plugin                                 | enabled                   | TypeScript-aware lint rules and type-aware checks.                                                                     |
+| `unicorn` plugin                                    | enabled                   | General JS/TS bug and quality rules; noisy style rules disabled below.                                                 |
+| `oxc` plugin                                        | enabled                   | Oxc-specific correctness rules.                                                                                        |
+| `import` plugin                                     | enabled                   | Module graph checks.                                                                                                   |
+| `import/no-cycle`                                   | error                     | Prevents circular dependencies.                                                                                        |
+| `import/no-unresolved`                              | not available             | Not present in oxlint 1.95.0 rules; tracked for later if added upstream.                                               |
+| `import/no-duplicates`                              | error                     | Prevents duplicate imports.                                                                                            |
+| `import/no-self-import`                             | error                     | Prevents a module importing itself.                                                                                    |
+| `import/no-empty-named-blocks`                      | error                     | Removes empty import blocks.                                                                                           |
+| `import/no-unassigned-import`                       | off                       | Side-effect imports are used for CSS and test setup files.                                                             |
+| `import/no-named-as-default`                        | off                       | Style/preference; low value in this codebase.                                                                          |
+| `import/no-named-as-default-member`                 | off                       | Style/preference; low value in this codebase.                                                                          |
+| `promise` plugin                                    | enabled                   | Promise handling checks; noisy UI callback rules disabled below.                                                       |
+| `promise/always-return`                             | off                       | Noisy for UI callbacks and event handlers; mixed value in baseline.                                                    |
+| `promise/catch-or-return`                           | off                       | Noisy for UI callbacks and action handlers; mixed value in baseline.                                                   |
+| `promise/no-callback-in-promise`                    | off                       | Noisy in UI code; low signal for this codebase.                                                                        |
+| `vitest` plugin                                     | enabled                   | Test quality rules, scoped to test files by convention and overrides.                                                  |
+| `vitest/no-focused-tests`                           | error                     | Prevents `.only` tests from landing.                                                                                   |
+| `vitest/expect-expect`                              | error                     | Ensures tests make assertions.                                                                                         |
+| `vitest/no-disabled-tests`                          | warn                      | Flags skipped tests without blocking unrelated work as hard errors.                                                    |
+| `vitest/require-mock-type-parameters`               | off                       | Style/preference; 83 noisy baseline errors with low runtime value.                                                     |
+| `jsx-a11y` plugin                                   | enabled                   | Accessibility findings are treated as real defects.                                                                    |
+| `jsx-a11y/label-has-associated-control`             | error                     | Requires label/control association; configured with `controlComponents: ["Input","Select","Textarea"]` and `depth: 3`. |
+| `react` plugin                                      | not enabled               | React rules misfire on Solid/modern JSX (463 diagnostics in baseline).                                                 |
+| `eslint-plugin-solid/configs/v2` (JS plugin)        | enabled                   | Solid 2 lint rules required by frontend AGENTS.md.                                                                     |
+| `eslint-plugin-testing-library` (JS plugin)         | enabled in test overrides | Testing Library rules for test files; loaded and verified under oxlint 1.95.0.                                         |
+| `no-console`                                        | error in src              | Prevents accidental console output in app code; disabled in tests and config files.                                    |
+| `no-debugger`                                       | error                     | Prevents debugger statements.                                                                                          |
+| `eqeqeq`                                            | error                     | Prevents accidental type-coercing equality.                                                                            |
+| `typescript/no-unsafe-type-assertion`               | off                       | Type-aware rule is too noisy for existing DOM and test-mock assertions; revisit after typed test helpers are improved. |
+| `typescript/no-unnecessary-type-assertion`          | off                       | Type-aware rule produces noisy assertion churn in existing tests; revisit with typed helpers.                          |
+| `--report-unused-disable-directives-severity=error` | error                     | Keeps inline suppressions honest and current.                                                                          |
+
+Inline suppressions remain in source for narrow false positives or tool-friction cases (text-initial Avatar using `role="img"`, Solid custom control label association, and Solid/reactivity action-handler false positives). Each has a reason comment.
 
 ## 5. Formatter churn comparison
 

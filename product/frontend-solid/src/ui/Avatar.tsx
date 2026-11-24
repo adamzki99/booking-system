@@ -33,8 +33,11 @@ export default function Avatar(props: AvatarProps): JSX.Element {
   const ariaLabel = () => props["aria-label"] ?? props.name;
 
   return (
-    <div class={cls()} role="img" aria-label={ariaLabel()}>
-      {label()}
-    </div>
+    <>
+      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- avatar renders text initials, not an image element */}
+      <div class={cls()} role="img" aria-label={ariaLabel()}>
+        {label()}
+      </div>
+    </>
   );
 }

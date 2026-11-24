@@ -257,10 +257,10 @@ export function AppShell(props: AppShellProps) {
                 Bell
               </button>
               {notificationsOpen() && (
-                <div class="app-shell-popover" role="dialog" aria-label="Notifications">
+                <dialog class="app-shell-popover" open aria-label="Notifications">
                   <div class="app-shell-popover-header">Notifications</div>
                   <div class="app-shell-popover-body">No notifications yet.</div>
-                </div>
+                </dialog>
               )}
             </div>
             <div class="app-shell-avatar app-shell-topbar-avatar" aria-hidden="true">
