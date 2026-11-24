@@ -40,7 +40,7 @@ receivers:
       - type: move
         from: attributes.factory_id
         to: resource["factory_id"]
-        if: 'attributes.factory_id != nil'
+        if: "attributes.factory_id != nil"
 
   otlp:
     protocols:

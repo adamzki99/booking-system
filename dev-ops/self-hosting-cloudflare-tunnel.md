@@ -126,7 +126,7 @@ With the tunnel override, `SITE_ADDRESS` is `http://localhost`. Without this,
 a bare public hostname would make Caddy obtain a certificate via ACME on `:443`,
 which fails behind an outbound-only tunnel.
 
-To keep behavior **HTTPS-compliant**, ensure the stack treats the *public* request
+To keep behavior **HTTPS-compliant**, ensure the stack treats the _public_ request
 as HTTPS:
 
 - **Forwarded headers:** `cloudflared`/Cloudflare send forwarding headers (including

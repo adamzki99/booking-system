@@ -142,7 +142,15 @@ service:
   pipelines:
     traces/otlp:
       receivers: [otlp]
-      processors: [memory_limiter, resourcedetection, transform/resource, transform/redact, filter/health, batch]
+      processors:
+        [
+          memory_limiter,
+          resourcedetection,
+          transform/resource,
+          transform/redact,
+          filter/health,
+          batch,
+        ]
       exporters: [clickhouse/traces]
     logs/otlp:
       receivers: [otlp]

@@ -38,14 +38,14 @@ as an optional profile. This stack is independent of any external APM vendor.
 
 ## Pinned versions
 
-| Component | Image | Version | Notes |
-|---|---|---:|---|
-| OpenTelemetry Collector Contrib | `otel/opentelemetry-collector-contrib` | `0.165.0` | filelog + clickhouse exporter + health_check |
-| ClickHouse | `clickhouse/clickhouse-server` | `26.10.4.207` | single node, no ZooKeeper |
-| Prometheus | `prom/prometheus` | `v3.16.0` | local TSDB |
-| Node Exporter | `prom/node-exporter` | `v1.13.1` | host + textfile collector |
-| Grafana OSS | `grafana/grafana` | `13.3.1` | provisioned datasources |
-| Grafana ClickHouse plugin | `grafana-clickhouse-datasource` | `4.23.5` | pinned via `GF_PLUGINS_PREINSTALL` |
+| Component                       | Image                                  |       Version | Notes                                        |
+| ------------------------------- | -------------------------------------- | ------------: | -------------------------------------------- |
+| OpenTelemetry Collector Contrib | `otel/opentelemetry-collector-contrib` |     `0.165.0` | filelog + clickhouse exporter + health_check |
+| ClickHouse                      | `clickhouse/clickhouse-server`         | `26.10.4.207` | single node, no ZooKeeper                    |
+| Prometheus                      | `prom/prometheus`                      |     `v3.16.0` | local TSDB                                   |
+| Node Exporter                   | `prom/node-exporter`                   |     `v1.13.1` | host + textfile collector                    |
+| Grafana OSS                     | `grafana/grafana`                      |      `13.3.1` | provisioned datasources                      |
+| Grafana ClickHouse plugin       | `grafana-clickhouse-datasource`        |      `4.23.5` | pinned via `GF_PLUGINS_PREINSTALL`           |
 
 Check versions on vendor release pages/registries before bumping.
 
@@ -96,11 +96,11 @@ Run commands from `dev-ops/factory/monitoring/`.
 
 ## Endpoints (127.0.0.1 only)
 
-| Endpoint | Default | Notes |
-|---|---|---|
-| Grafana UI | `127.0.0.1:${GRAFANA_PORT:-3000}` | admin password from `.env`, anonymous off |
-| OTLP gRPC | `127.0.0.1:${OTLP_GRPC_PORT:-4317}` | for local/remote OTLP senders |
-| OTLP HTTP | `127.0.0.1:${OTLP_HTTP_PORT:-4318}` | for local/remote OTLP senders |
+| Endpoint   | Default                             | Notes                                     |
+| ---------- | ----------------------------------- | ----------------------------------------- |
+| Grafana UI | `127.0.0.1:${GRAFANA_PORT:-3000}`   | admin password from `.env`, anonymous off |
+| OTLP gRPC  | `127.0.0.1:${OTLP_GRPC_PORT:-4317}` | for local/remote OTLP senders             |
+| OTLP HTTP  | `127.0.0.1:${OTLP_HTTP_PORT:-4318}` | for local/remote OTLP senders             |
 
 Prometheus and ClickHouse are not published by default. Reach them via:
 
@@ -152,6 +152,7 @@ month, with TTL from `CLICKHOUSE_TTL_DAYS` (default 400). Views use `FINAL`/`arg
 to avoid duplicate double-counting.
 
 Users:
+
 - `collector`: INSERT on `otel.otel_logs`, `otel.otel_traces`, `factory.events`; SELECT on `otel.otel_logs` for MV internals.
 - `grafana`: SELECT on `factory.*`, `otel.otel_traces`, `otel.otel_logs`; `readonly=2` profile with query limits.
 
@@ -200,13 +201,13 @@ SQL-managed access entities are added later, include them in the backup plan.
 
 Suggested starting limits (small shared host, ~3.2 GB RAM total):
 
-| Service | Memory limit |
-|---|---:|
-| clickhouse | 768m |
-| grafana | 256m |
-| prometheus | 256m |
-| otel-collector | 192m |
-| node-exporter | 64m |
+| Service                   |         Memory limit |
+| ------------------------- | -------------------: |
+| clickhouse                |                 768m |
+| grafana                   |                 256m |
+| prometheus                |                 256m |
+| otel-collector            |                 192m |
+| node-exporter             |                  64m |
 | clickhouse-init/check-env | one-shot, negligible |
 
 Total always-on monitoring budget: ~1.54 GB. Update `dev-ops/README.md` with real
@@ -220,15 +221,15 @@ Provisioned from `grafana/dashboards/*.json` (generated from
 have stable UIDs, include template variables `factory_id`, `agent_id`, `model`,
 `kind`, and a time range, and use bounded ClickHouse queries with `$__timeFilter(...)`.
 
-| UID | Dashboard | Answers |
-|---|---|---|
-| `factory-overview` | Factory overview | Issues processed/completed, run success rate, active agents, avg pickup-to-merge, tokens/cost, throughput over time, last tick age, current queue snapshot, recent merged PRs. |
-| `factory-agents` | Agent performance | Per agent/version/model: runs, success rate, duration, cost/successful issue, fallback share, PR touch count; prompt version breakdown; leaderboard by merged PRs per run hour (EVENTS.md agent efficiency). |
-| `factory-execution` | Execution analytics | Runs/hour, duration p50/p90, top tools, skill loads, failures by reason/fingerprint, issues with most runs, retries/fallbacks/operational events, stuck runs. |
-| `factory-cost` | Cost and efficiency | Reported cost and tokens by time/model/agent/kind; cost per merged PR and tokens per merged PR (approx); usage-filled/backup/free share. Cost is as reported by OpenCode and may be 0 for subscription models. |
-| `factory-quality` | Quality and outcomes | PR acceptance rate, human intervention proxy, lead time p50/p90, first-pass success, rework/abandonment, CI/check outcomes, review comments. |
-| `factory-host` | Factory host | Host CPU/memory/disk/load, collector records, per-container memory (if cAdvisor metrics present), ClickHouse disk by table (best effort), Prometheus TSDB size. |
-| `factory-run-detail` | Factory run detail | Deep dive for one run: run summary, factory events, trace waterfall (otel_traces), tool calls, tokens/cost per step, and Langfuse trace link when Langfuse profile is enabled. |
+| UID                  | Dashboard            | Answers                                                                                                                                                                                                        |
+| -------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `factory-overview`   | Factory overview     | Issues processed/completed, run success rate, active agents, avg pickup-to-merge, tokens/cost, throughput over time, last tick age, current queue snapshot, recent merged PRs.                                 |
+| `factory-agents`     | Agent performance    | Per agent/version/model: runs, success rate, duration, cost/successful issue, fallback share, PR touch count; prompt version breakdown; leaderboard by merged PRs per run hour (EVENTS.md agent efficiency).   |
+| `factory-execution`  | Execution analytics  | Runs/hour, duration p50/p90, top tools, skill loads, failures by reason/fingerprint, issues with most runs, retries/fallbacks/operational events, stuck runs.                                                  |
+| `factory-cost`       | Cost and efficiency  | Reported cost and tokens by time/model/agent/kind; cost per merged PR and tokens per merged PR (approx); usage-filled/backup/free share. Cost is as reported by OpenCode and may be 0 for subscription models. |
+| `factory-quality`    | Quality and outcomes | PR acceptance rate, human intervention proxy, lead time p50/p90, first-pass success, rework/abandonment, CI/check outcomes, review comments.                                                                   |
+| `factory-host`       | Factory host         | Host CPU/memory/disk/load, collector records, per-container memory (if cAdvisor metrics present), ClickHouse disk by table (best effort), Prometheus TSDB size.                                                |
+| `factory-run-detail` | Factory run detail   | Deep dive for one run: run summary, factory events, trace waterfall (otel_traces), tool calls, tokens/cost per step, and Langfuse trace link when Langfuse profile is enabled.                                 |
 
 Regenerate dashboards:
 
@@ -255,6 +256,7 @@ database and `langfuse` user (created by `clickhouse-init` when
 verify Langfuse v3 migrations against your pinned version before upgrading.
 
 Security/privacy defaults:
+
 - UI published on `127.0.0.1:${LANGFUSE_PORT:-3001}` only.
 - All secrets from `.env`; no defaults. `langfuse-check-env` fails startup if required secrets are empty.
 - Langfuse telemetry/phone-home disabled (`TELEMETRY_ENABLED=false`).
@@ -273,20 +275,20 @@ If no real contact is configured, alerts still evaluate and appear in Grafana;
 delivery may fail to the default no-op endpoints. Notification policy groups by
 `alertname` and repeats at most every 4 hours.
 
-| Alert | Condition (default) | Severity | Runbook |
-|---|---|---|---|
-| Factory silent | No successful tick for 2h (`time() - factory_tick_last_success_timestamp_seconds > 7200`) | critical | Check factory timer/service, tick logs, and textfile metric freshness in `FACTORY_METRICS_DIR`. Confirm deploy/tick jobs are running. |
-| Factory failing | Run failure rate > 50% over 6h with >=3 runs, or any `discovery_failed` | critical | Inspect Execution Analytics, failed runs, `discovery_failed`, `gh_op_failed`, auth/quota/rate-limit errors. Do not weaken gates. |
-| Factory tick failed | `factory_tick_last_exit_code != 0` | critical | Inspect the latest `tick_end` and failure events in the factory log. |
-| Factory guardrail drift | Any `guardrail_drift` in last 2h | critical | Stop and inspect guardrail drift event. Diff `AGENTS.md`, `opencode.jsonc`, `.opencode/agents/` against `factory-config` tag before any merge. |
-| Factory stuck run | Any row in `factory.stuck_runs` (>3900s started, no end) | warning | Inspect stuck run details, session logs, OpenCode process, host load. Diagnose before killing processes; preserve logs. |
-| Factory issue looping | Same issue has >3 runs in 24h | warning | Inspect issue runs/failures/PR feedback. May need human clarification, issue split, or factory fix; do not blindly retry. |
-| Factory quota pressure | Any `agent.run.failed` with `failure_reason` `usage_filled` or `usage_filled_skipped`, or more than 2 `agent.run.started` runs with `fallback_level=free` in 24h | warning | Check Cost & Efficiency and Execution dashboards. Confirm OpenCode quota, fallback behavior, and whether backup/free models are acceptable. |
-| Factory deploy failed/stale | Any `deploy.failed` in 26h, or QA deploy started but no `deploy.completed` in 26h | critical | Check deploy logs, QA timer, `deploy-environment.sh` output, and QA deployment GitHub issue. Fix cause before rerun. |
-| Factory telemetry broken | `factory_telemetry_errors_last > 0`, or `telemetry_errors > 0` on latest tick_end in 24h | warning | Check collector logs, ClickHouse ingestion, filelog offsets, `FACTORY_LOG_DIR` mount, and telemetry error metrics. |
-| Factory event ingestion stale | A tick ran in the last 2h, but no `tick_end` reached ClickHouse in that window | warning | Check the local JSONL file, collector offsets, exporter errors, and ClickHouse health. |
-| Factory host memory high | Host memory > 90% for 10m | warning | Check host dashboard and container memory. Reduce retention/scrape or stop nonessential services; do not start optional monitoring on an exhausted host. |
-| Factory host disk high | Any filesystem > 85% for 10m | warning | Check disk dashboard, ClickHouse/Prometheus volumes, Docker logs/artifacts. Clean safely; preserve evidence. |
+| Alert                         | Condition (default)                                                                                                                                              | Severity | Runbook                                                                                                                                                  |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Factory silent                | No successful tick for 2h (`time() - factory_tick_last_success_timestamp_seconds > 7200`)                                                                        | critical | Check factory timer/service, tick logs, and textfile metric freshness in `FACTORY_METRICS_DIR`. Confirm deploy/tick jobs are running.                    |
+| Factory failing               | Run failure rate > 50% over 6h with >=3 runs, or any `discovery_failed`                                                                                          | critical | Inspect Execution Analytics, failed runs, `discovery_failed`, `gh_op_failed`, auth/quota/rate-limit errors. Do not weaken gates.                         |
+| Factory tick failed           | `factory_tick_last_exit_code != 0`                                                                                                                               | critical | Inspect the latest `tick_end` and failure events in the factory log.                                                                                     |
+| Factory guardrail drift       | Any `guardrail_drift` in last 2h                                                                                                                                 | critical | Stop and inspect guardrail drift event. Diff `AGENTS.md`, `opencode.jsonc`, `.opencode/agents/` against `factory-config` tag before any merge.           |
+| Factory stuck run             | Any row in `factory.stuck_runs` (>3900s started, no end)                                                                                                         | warning  | Inspect stuck run details, session logs, OpenCode process, host load. Diagnose before killing processes; preserve logs.                                  |
+| Factory issue looping         | Same issue has >3 runs in 24h                                                                                                                                    | warning  | Inspect issue runs/failures/PR feedback. May need human clarification, issue split, or factory fix; do not blindly retry.                                |
+| Factory quota pressure        | Any `agent.run.failed` with `failure_reason` `usage_filled` or `usage_filled_skipped`, or more than 2 `agent.run.started` runs with `fallback_level=free` in 24h | warning  | Check Cost & Efficiency and Execution dashboards. Confirm OpenCode quota, fallback behavior, and whether backup/free models are acceptable.              |
+| Factory deploy failed/stale   | Any `deploy.failed` in 26h, or QA deploy started but no `deploy.completed` in 26h                                                                                | critical | Check deploy logs, QA timer, `deploy-environment.sh` output, and QA deployment GitHub issue. Fix cause before rerun.                                     |
+| Factory telemetry broken      | `factory_telemetry_errors_last > 0`, or `telemetry_errors > 0` on latest tick_end in 24h                                                                         | warning  | Check collector logs, ClickHouse ingestion, filelog offsets, `FACTORY_LOG_DIR` mount, and telemetry error metrics.                                       |
+| Factory event ingestion stale | A tick ran in the last 2h, but no `tick_end` reached ClickHouse in that window                                                                                   | warning  | Check the local JSONL file, collector offsets, exporter errors, and ClickHouse health.                                                                   |
+| Factory host memory high      | Host memory > 90% for 10m                                                                                                                                        | warning  | Check host dashboard and container memory. Reduce retention/scrape or stop nonessential services; do not start optional monitoring on an exhausted host. |
+| Factory host disk high        | Any filesystem > 85% for 10m                                                                                                                                     | warning  | Check disk dashboard, ClickHouse/Prometheus volumes, Docker logs/artifacts. Clean safely; preserve evidence.                                             |
 
 ## Alert contact env vars
 

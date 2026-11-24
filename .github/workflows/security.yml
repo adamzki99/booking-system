@@ -3,12 +3,11 @@ name: Security
 on:
   workflow_call:
   schedule:
-    - cron: '17 6 * * 1' # weekly, Monday 06:17 UTC
+    - cron: "17 6 * * 1" # weekly, Monday 06:17 UTC
   workflow_dispatch:
 
 permissions:
   contents: read
-
 
 jobs:
   dependency-review:

@@ -24,6 +24,7 @@ Do not introduce a different UI framework, styling system, router, bundler, or l
 3. **Deployment boundaries**: keep deployment-specific branding, copy, and assets in `projects/<name>/`; extract reusable visual patterns into generic theme tokens/components only when they are useful across deployments.
 
 For the sauna deployment, canonical normal-user mockups live at:
+
 - `projects/sauna/docs/mocks/sauna_booking_website_normal_user_mock_desktop.html`
 - `projects/sauna/docs/mocks/sauna_booking_website_normal_user_mock_mobile.html`
 

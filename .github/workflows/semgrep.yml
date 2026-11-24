@@ -4,11 +4,10 @@ on:
   workflow_call:
   workflow_dispatch:
   schedule:
-    - cron: '23 4 * * *' # daily full scan (randomized time)
+    - cron: "23 4 * * *" # daily full scan (randomized time)
 
 permissions:
   contents: read
-
 
 jobs:
   semgrep:

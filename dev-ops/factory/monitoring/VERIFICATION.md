@@ -13,27 +13,27 @@ This audit was read-first, with Docker smoke checks where feasible on the curren
 
 ## Fresh-start / smoke checks
 
-| Check | Result | Evidence / notes |
-|---|---|---|
-| Factory stack fresh start + smoke (`dev-ops/factory/monitoring/scripts/smoke.sh`) | PASS | Ran in throwaway project `factory-monitoring-smoke-701879`; used fresh temp env with random smoke passwords. Events ingested (FINAL count 12, raw 12), duplicate event_id collapsed as expected by smoke assertions, run count 1, timestamp equality matched, pr.merged present, Prometheus healthy and metric `factory_tick_last_run_timestamp_seconds` present, Grafana healthy, datasources `clickhouse-factory` and `prometheus-factory` healthy (clickhouse-factory had transient 404s during startup then passed), dashboards present (`factory-overview, factory-agents, factory-execution, factory-cost, factory-quality, factory-host, factory-run-detail`), 10 alert rules provisioned, key dashboard queries returned rows. Stack torn down. |
-| Product instance smoke (sauna) | PARTIAL PASS | Started `projects/sauna/monitoring/compose.yaml` with throwaway env (`MONITORING_PROJECT=sauna`, ports 13001/14327/14328). `product/monitoring/scripts/smoke.sh` sent telemetrygen traces/logs and OTLP metric payload, found trace in ClickHouse, Grafana healthy. Dashboard query checks: `product-traces/logs-metric-presence`, `product-usage`, `product-event-sourcing`, `product-runtime` passed; `product-overview` rate query failed with empty result for `sum(rate({__name__=~"http_server_request_duration_seconds_count|http_server_duration_milliseconds_count|events_appended_total|commands_handled_total"}[15m]))`. Likely smoke timing/rate-window issue (single counter sample), not a missing dashboard; recorded as gap. Stack torn down. |
-| Product instance smoke (throwaway example) | FAIL (setup) | Attempted `product/monitoring/compose.yaml` with `MONITORING_PROJECT=example`, ports 13002/14337/14338. ClickHouse init failed: `/docker-entrypoint-initdb.d/001-otel.sql` ran with raw placeholders and errored on `__LOGS_TTL_DAYS__` (`UNKNOWN_IDENTIFIER`). `clickhouse-init` service exists, but the ClickHouse image entrypoint also runs initdb SQL before the placeholder substitution path completes in this startup sequence. Stack torn down. This blocks a clean side-by-side two-instance smoke on this host/run. |
-| Sauna booking stack without monitoring comes up | NOT RUN | Not executed in this session. Would require bringing up full sauna compose stack and images on a shared host; risk/time constraints. Reported as unverified. |
-| Sauna booking stack with monitoring override, telemetry arrives | NOT RUN | Depends on booking stack startup; not executed. |
-| Docker stats after 10 minutes idle | NOT RUN (10 min) | Captured point-in-time stats while sauna monitoring instance was up: `sauna-monitoring-clickhouse-1` ~169.4MiB/768MiB (22.06%), prometheus/grafana/otel-collector not captured in that snapshot. Not an idle-10-minute measurement. |
+| Check                                                                             | Result           | Evidence / notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Factory stack fresh start + smoke (`dev-ops/factory/monitoring/scripts/smoke.sh`) | PASS             | Ran in throwaway project `factory-monitoring-smoke-701879`; used fresh temp env with random smoke passwords. Events ingested (FINAL count 12, raw 12), duplicate event_id collapsed as expected by smoke assertions, run count 1, timestamp equality matched, pr.merged present, Prometheus healthy and metric `factory_tick_last_run_timestamp_seconds` present, Grafana healthy, datasources `clickhouse-factory` and `prometheus-factory` healthy (clickhouse-factory had transient 404s during startup then passed), dashboards present (`factory-overview, factory-agents, factory-execution, factory-cost, factory-quality, factory-host, factory-run-detail`), 10 alert rules provisioned, key dashboard queries returned rows. Stack torn down. |
+| Product instance smoke (sauna)                                                    | PARTIAL PASS     | Started `projects/sauna/monitoring/compose.yaml` with throwaway env (`MONITORING_PROJECT=sauna`, ports 13001/14327/14328). `product/monitoring/scripts/smoke.sh` sent telemetrygen traces/logs and OTLP metric payload, found trace in ClickHouse, Grafana healthy. Dashboard query checks: `product-traces/logs-metric-presence`, `product-usage`, `product-event-sourcing`, `product-runtime` passed; `product-overview` rate query failed with empty result for `sum(rate({**name**=~"http_server_request_duration_seconds_count                                                                                                                                                                                                                     | http_server_duration_milliseconds_count | events_appended_total | commands_handled_total"}[15m]))`. Likely smoke timing/rate-window issue (single counter sample), not a missing dashboard; recorded as gap. Stack torn down. |
+| Product instance smoke (throwaway example)                                        | FAIL (setup)     | Attempted `product/monitoring/compose.yaml` with `MONITORING_PROJECT=example`, ports 13002/14337/14338. ClickHouse init failed: `/docker-entrypoint-initdb.d/001-otel.sql` ran with raw placeholders and errored on `__LOGS_TTL_DAYS__` (`UNKNOWN_IDENTIFIER`). `clickhouse-init` service exists, but the ClickHouse image entrypoint also runs initdb SQL before the placeholder substitution path completes in this startup sequence. Stack torn down. This blocks a clean side-by-side two-instance smoke on this host/run.                                                                                                                                                                                                                          |
+| Sauna booking stack without monitoring comes up                                   | NOT RUN          | Not executed in this session. Would require bringing up full sauna compose stack and images on a shared host; risk/time constraints. Reported as unverified.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Sauna booking stack with monitoring override, telemetry arrives                   | NOT RUN          | Depends on booking stack startup; not executed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Docker stats after 10 minutes idle                                                | NOT RUN (10 min) | Captured point-in-time stats while sauna monitoring instance was up: `sauna-monitoring-clickhouse-1` ~169.4MiB/768MiB (22.06%), prometheus/grafana/otel-collector not captured in that snapshot. Not an idle-10-minute measurement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## Factory dashboard question mapping
 
-| Question | Dashboard | Panel / evidence |
-|---|---|---|
+| Question                                          | Dashboard                                                                                    | Panel / evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Issues picked up / completed / failed / abandoned | Factory Overview (`factory-overview.json`) and Quality and Outcomes (`factory-quality.json`) | Overview: "Issues processed (24h)", "Issues completed (24h)", "Issues processed (7d)", "Merged PRs (7d)", "Throughput over time", "Recent completed issues / PRs". Quality: "PR acceptance rate", "Merged PRs", "PR outcomes over time", "Rework / abandonment" table (completed/abandoned/completed_with_rework/rework_rate_pct/first_pass). "Failed" is represented by run outcomes/failure views and quality rework/abandonment, not a single "failed issues" stat; partial. |
-| Most productive agents | Agent Performance (`factory-agents.json`) | "Agent / version / model performance" table, "Leaderboard (merged PRs per run hour)" table, "Success/failure by agent". |
-| Pickup-to-merge time | Factory Overview (`factory-overview.json`) and Quality and Outcomes (`factory-quality.json`) | Overview: "Avg pickup to merge". Quality: "Lead time p50 (h)", "Lead time p50/p90 (hours)". |
-| Iterations per issue | Execution Analytics (`factory-execution.json`) and Quality/issue views | "Issues with most runs" table; `factory.issues.runs_count`/`fix_runs` support iterations. No single panel titled "iterations per issue", but data is present. |
-| Best model, prompt or agent configuration | Agent Performance (`factory-agents.json`) and Cost and Efficiency (`factory-cost.json`) | Agents: "Agent / version / model performance", "Prompt version breakdown". Cost: "Cost/tokens by model", "Cost/tokens by agent/kind". |
-| Tokens and cost per issue | Cost and Efficiency (`factory-cost.json`) and issue views | Cost dashboard has totals/cost-per-merged-PR/tokens-per-merged-PR; `factory.issues` view includes `total_cost_usd` and `total_tokens`. No dedicated "per issue" table panel on Cost dashboard; data available via ClickHouse/Grafana explore. |
-| Stuck, retrying or looping agents | Execution Analytics (`factory-execution.json`) | "Stuck runs", "Stuck runs detail", "Retries / fallback / operational events", "Issues with most runs". Also alert rules provisioned for stuck run/looping. |
-| Productivity trend over time | Factory Overview (`factory-overview.json`) and Agent Performance (`factory-agents.json`) | Overview: "Throughput over time", "Run outcomes over time". Agents: "Success/failure by agent" timeseries. |
+| Most productive agents                            | Agent Performance (`factory-agents.json`)                                                    | "Agent / version / model performance" table, "Leaderboard (merged PRs per run hour)" table, "Success/failure by agent".                                                                                                                                                                                                                                                                                                                                                         |
+| Pickup-to-merge time                              | Factory Overview (`factory-overview.json`) and Quality and Outcomes (`factory-quality.json`) | Overview: "Avg pickup to merge". Quality: "Lead time p50 (h)", "Lead time p50/p90 (hours)".                                                                                                                                                                                                                                                                                                                                                                                     |
+| Iterations per issue                              | Execution Analytics (`factory-execution.json`) and Quality/issue views                       | "Issues with most runs" table; `factory.issues.runs_count`/`fix_runs` support iterations. No single panel titled "iterations per issue", but data is present.                                                                                                                                                                                                                                                                                                                   |
+| Best model, prompt or agent configuration         | Agent Performance (`factory-agents.json`) and Cost and Efficiency (`factory-cost.json`)      | Agents: "Agent / version / model performance", "Prompt version breakdown". Cost: "Cost/tokens by model", "Cost/tokens by agent/kind".                                                                                                                                                                                                                                                                                                                                           |
+| Tokens and cost per issue                         | Cost and Efficiency (`factory-cost.json`) and issue views                                    | Cost dashboard has totals/cost-per-merged-PR/tokens-per-merged-PR; `factory.issues` view includes `total_cost_usd` and `total_tokens`. No dedicated "per issue" table panel on Cost dashboard; data available via ClickHouse/Grafana explore.                                                                                                                                                                                                                                   |
+| Stuck, retrying or looping agents                 | Execution Analytics (`factory-execution.json`)                                               | "Stuck runs", "Stuck runs detail", "Retries / fallback / operational events", "Issues with most runs". Also alert rules provisioned for stuck run/looping.                                                                                                                                                                                                                                                                                                                      |
+| Productivity trend over time                      | Factory Overview (`factory-overview.json`) and Agent Performance (`factory-agents.json`)     | Overview: "Throughput over time", "Run outcomes over time". Agents: "Success/failure by agent" timeseries.                                                                                                                                                                                                                                                                                                                                                                      |
 
 Factory smoke confirmed dashboards provisioned and key queries returned rows against fixture data.
 
@@ -41,112 +41,112 @@ Factory smoke confirmed dashboards provisioned and key queries returned rows aga
 
 Fixture used (same shape as factory smoke): 1 build run completed for issue 42 (cost 0.01, tokens 100+50+10+5+2=167, fix_runs 0), issue approved, PR 99 merged, issue closed completed.
 
-| Metric | Definition (from views/dashboards) | Hand computation | View/output comparison | Result |
-|---|---|---:|---|---|
-| First-pass success rate | `factory.issues.first_pass = fix_runs = 0 AND merged_at IS NOT NULL`; Quality panel: `round(countIf(first_pass)*100.0/nullIf(countIf(state='completed'),0),1)` | 1 completed issue, fix_runs 0, merged -> first_pass true = 100.0% | Not executed against live ClickHouse view in this audit because ad-hoc factory ClickHouse init requires placeholder substitution (`__CLICKHOUSE_TTL_DAYS__` in `001-db.sql`); factory smoke/validate scripts cover this path. Hand computation matches view definition. | PASS (definition/hand), view query not re-run ad hoc |
-| Cost per merged PR | Cost panel: `sum(coalesce(cost_usd,toDecimal64(0,6))) / nullIf(uniqExactIf(pr_number, event='pr.merged' AND pr_number IS NOT NULL),0)` over selected window | 1 merged PR, cost 0.01 -> 0.01 | Same caveat as above; hand computation matches formula. | PASS (definition/hand), view query not re-run ad hoc |
-| Rework rate | Quality "Rework / abandonment": `completed_with_rework = countIf(state='completed' AND fix_runs > 0)`, `rework_rate_pct = ...*100.0/nullIf(countIf(state='completed'),0),1` | 1 completed, fix_runs 0 -> rework_rate_pct 0.0 | Same caveat; hand computation matches formula. | PASS (definition/hand), view query not re-run ad hoc |
+| Metric                  | Definition (from views/dashboards)                                                                                                                                          |                                                  Hand computation | View/output comparison                                                                                                                                                                                                                                                  | Result                                               |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| First-pass success rate | `factory.issues.first_pass = fix_runs = 0 AND merged_at IS NOT NULL`; Quality panel: `round(countIf(first_pass)*100.0/nullIf(countIf(state='completed'),0),1)`              | 1 completed issue, fix_runs 0, merged -> first_pass true = 100.0% | Not executed against live ClickHouse view in this audit because ad-hoc factory ClickHouse init requires placeholder substitution (`__CLICKHOUSE_TTL_DAYS__` in `001-db.sql`); factory smoke/validate scripts cover this path. Hand computation matches view definition. | PASS (definition/hand), view query not re-run ad hoc |
+| Cost per merged PR      | Cost panel: `sum(coalesce(cost_usd,toDecimal64(0,6))) / nullIf(uniqExactIf(pr_number, event='pr.merged' AND pr_number IS NOT NULL),0)` over selected window                 |                                    1 merged PR, cost 0.01 -> 0.01 | Same caveat as above; hand computation matches formula.                                                                                                                                                                                                                 | PASS (definition/hand), view query not re-run ad hoc |
+| Rework rate             | Quality "Rework / abandonment": `completed_with_rework = countIf(state='completed' AND fix_runs > 0)`, `rework_rate_pct = ...*100.0/nullIf(countIf(state='completed'),0),1` |                    1 completed, fix_runs 0 -> rework_rate_pct 0.0 | Same caveat; hand computation matches formula.                                                                                                                                                                                                                          | PASS (definition/hand), view query not re-run ad hoc |
 
 ## Fix list (F-01..F-20, OBS-01..OBS-14)
 
 Status is based on merged PR bodies, current code, and this audit. "Fixed" means implemented in merged PR(s) unless noted; "deferred"/"partial" reflects PR notes or remaining gaps.
 
-| ID | Status | Evidence | Notes |
-|---|---|---|---|
-| F-01 | Fixed | PR #399 | Session id parsing. |
-| F-02 | Fixed | PR #399 | Session id leak between sessions/retries. |
-| F-03 | Fixed | PR #399 | Agent recorded on session events. |
-| F-04 | Fixed | PR #399 | Typed event fields / coercion. |
-| F-05 | Fixed | PR #399 | Duplicated schema logic consolidated. |
-| F-06 | Fixed | PR #399 | Events dropped silently -> telemetry_errors. |
-| F-07 | Fixed | PR #399 | Misleading gh_op_retry removed. |
-| F-08 | Fixed | PR #399 | Session output not emitted in events. |
-| F-09 | Not found in PR findings | N/A | No explicit F-09 entry found in merged monitoring PR bodies; report gap. |
-| F-10 | Fixed | PR #410 | Booking compose starts without SigNoz. |
-| F-11 | Fixed | PR #410 | deploy-environment.sh preserves explicit OTEL endpoint. |
-| F-12 | Fixed | PR #410 | Docs drift updated. |
-| F-13 | Partial | PR #410 | Deployment wiring sets OTEL_RESOURCE_ATTRIBUTES; Go-side handling noted for prompt 07. |
-| F-14 | Fixed | PR #412 | Telemetry resource includes env-sourced attributes. |
-| F-15 | Fixed | PR #412 | Telemetry init order/failure path fixed. |
-| F-16 | Fixed | PR #412 | Server spans use matched route patterns / http.route. |
-| F-17 | Fixed | PR #412 | /healthz excluded from tracing. |
-| F-18 | Fixed | PR #412 | iCal feed tokens not recorded in span names/attributes. |
-| F-19 | Fixed | PR #412 | notifications.pending observable gauge. |
-| F-20 | Fixed | PR #412 | Sidecar client transport wrapped with otelhttp. |
-| OBS-01 | Partial | PRs #400/#408/#409 | Factory events enriched and dashboards expose cost/outcomes/flow; tick-level trace optional/deferred in #409. |
-| OBS-02 | Partial | PR #401 | Factory monitoring stack + remote shipper docs; full remote/ops validation not re-run. |
-| OBS-03 | Partial | PR #408 | Dashboards/alerts/retention/schema provisioned as code; user/SSO provisioning deferred. |
-| OBS-04 | Fixed | PR #408 | Alert rules provisioned and documented. |
-| OBS-05 | Fixed | PR #399 | Session id/agent metadata. |
-| OBS-06 | Partial | PRs #400/#410/#412 | Deploy events and resource attributes/version/env addressed; F-13 Go-side noted. |
-| OBS-07 | Fixed | PR #412 | http.route and sidecar transport. |
-| OBS-08 | Fixed | PR #412 | Command/event/projection/business/rate-limit/sidecar/email metrics added. |
-| OBS-09 | Partial | PRs #401/#408/#412 | Host metrics/cAdvisor optional tradeoffs remain; Caddy internal metrics target added conservatively. |
-| OBS-10 | Partial | PRs #401/#409 | ClickHouse/trace path ready; tick/discovery/reconcile spans deferred. |
-| OBS-11 | Fixed | PRs #399/#412 | Session output not in events; iCal tokens absent from spans. |
-| OBS-12 | Fixed | PR #401 | Stable host.name from HOST_NAME env. |
-| OBS-13 | Fixed | PR #401 | filelog file_storage offsets and gotime layout; smoke validated. |
-| OBS-14 | Fixed | PR #412 | Sidecar tracing; frontend RUM still optional/not implemented. |
+| ID     | Status                   | Evidence           | Notes                                                                                                         |
+| ------ | ------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| F-01   | Fixed                    | PR #399            | Session id parsing.                                                                                           |
+| F-02   | Fixed                    | PR #399            | Session id leak between sessions/retries.                                                                     |
+| F-03   | Fixed                    | PR #399            | Agent recorded on session events.                                                                             |
+| F-04   | Fixed                    | PR #399            | Typed event fields / coercion.                                                                                |
+| F-05   | Fixed                    | PR #399            | Duplicated schema logic consolidated.                                                                         |
+| F-06   | Fixed                    | PR #399            | Events dropped silently -> telemetry_errors.                                                                  |
+| F-07   | Fixed                    | PR #399            | Misleading gh_op_retry removed.                                                                               |
+| F-08   | Fixed                    | PR #399            | Session output not emitted in events.                                                                         |
+| F-09   | Not found in PR findings | N/A                | No explicit F-09 entry found in merged monitoring PR bodies; report gap.                                      |
+| F-10   | Fixed                    | PR #410            | Booking compose starts without SigNoz.                                                                        |
+| F-11   | Fixed                    | PR #410            | deploy-environment.sh preserves explicit OTEL endpoint.                                                       |
+| F-12   | Fixed                    | PR #410            | Docs drift updated.                                                                                           |
+| F-13   | Partial                  | PR #410            | Deployment wiring sets OTEL_RESOURCE_ATTRIBUTES; Go-side handling noted for prompt 07.                        |
+| F-14   | Fixed                    | PR #412            | Telemetry resource includes env-sourced attributes.                                                           |
+| F-15   | Fixed                    | PR #412            | Telemetry init order/failure path fixed.                                                                      |
+| F-16   | Fixed                    | PR #412            | Server spans use matched route patterns / http.route.                                                         |
+| F-17   | Fixed                    | PR #412            | /healthz excluded from tracing.                                                                               |
+| F-18   | Fixed                    | PR #412            | iCal feed tokens not recorded in span names/attributes.                                                       |
+| F-19   | Fixed                    | PR #412            | notifications.pending observable gauge.                                                                       |
+| F-20   | Fixed                    | PR #412            | Sidecar client transport wrapped with otelhttp.                                                               |
+| OBS-01 | Partial                  | PRs #400/#408/#409 | Factory events enriched and dashboards expose cost/outcomes/flow; tick-level trace optional/deferred in #409. |
+| OBS-02 | Partial                  | PR #401            | Factory monitoring stack + remote shipper docs; full remote/ops validation not re-run.                        |
+| OBS-03 | Partial                  | PR #408            | Dashboards/alerts/retention/schema provisioned as code; user/SSO provisioning deferred.                       |
+| OBS-04 | Fixed                    | PR #408            | Alert rules provisioned and documented.                                                                       |
+| OBS-05 | Fixed                    | PR #399            | Session id/agent metadata.                                                                                    |
+| OBS-06 | Partial                  | PRs #400/#410/#412 | Deploy events and resource attributes/version/env addressed; F-13 Go-side noted.                              |
+| OBS-07 | Fixed                    | PR #412            | http.route and sidecar transport.                                                                             |
+| OBS-08 | Fixed                    | PR #412            | Command/event/projection/business/rate-limit/sidecar/email metrics added.                                     |
+| OBS-09 | Partial                  | PRs #401/#408/#412 | Host metrics/cAdvisor optional tradeoffs remain; Caddy internal metrics target added conservatively.          |
+| OBS-10 | Partial                  | PRs #401/#409      | ClickHouse/trace path ready; tick/discovery/reconcile spans deferred.                                         |
+| OBS-11 | Fixed                    | PRs #399/#412      | Session output not in events; iCal tokens absent from spans.                                                  |
+| OBS-12 | Fixed                    | PR #401            | Stable host.name from HOST_NAME env.                                                                          |
+| OBS-13 | Fixed                    | PR #401            | filelog file_storage offsets and gotime layout; smoke validated.                                              |
+| OBS-14 | Fixed                    | PR #412            | Sidecar tracing; frontend RUM still optional/not implemented.                                                 |
 
 ## Security checks
 
-| Check | Result | Evidence |
-|---|---|---|
-| All UI/ingest ports on 127.0.0.1 | PASS (static) | `docker-compose`/compose files bind Grafana/OTLP ports to `127.0.0.1:${...}` in factory and product monitoring. Prometheus/ClickHouse not published by default in factory stack. |
-| No default passwords | PASS (static) | `.env.example` files have empty required secrets; compose uses required env interpolation/check-env patterns. |
-| No secrets/session output in events | PASS (static) | Searched for `output_tail` event emission in factory code paths; PR #399/F-08 addressed. Did not find `output_tail` as emitted event field in factory event emission path. A full dry-run event-file grep for `password/@/token` was not executed against a fresh live tick event file in this audit. |
-| iCal tokens absent from spans | PASS (code/PR) | PR #412/F-18 states feed route `/calendar/{token}` and span name/url attrs do not record token. |
-| Langfuse content export off by default | PASS (static/config intent) | Langfuse is optional profile; prompt 05 noted trace/content separation. Did not run Langfuse profile smoke in this audit. |
+| Check                                  | Result                      | Evidence                                                                                                                                                                                                                                                                                              |
+| -------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| All UI/ingest ports on 127.0.0.1       | PASS (static)               | `docker-compose`/compose files bind Grafana/OTLP ports to `127.0.0.1:${...}` in factory and product monitoring. Prometheus/ClickHouse not published by default in factory stack.                                                                                                                      |
+| No default passwords                   | PASS (static)               | `.env.example` files have empty required secrets; compose uses required env interpolation/check-env patterns.                                                                                                                                                                                         |
+| No secrets/session output in events    | PASS (static)               | Searched for `output_tail` event emission in factory code paths; PR #399/F-08 addressed. Did not find `output_tail` as emitted event field in factory event emission path. A full dry-run event-file grep for `password/@/token` was not executed against a fresh live tick event file in this audit. |
+| iCal tokens absent from spans          | PASS (code/PR)              | PR #412/F-18 states feed route `/calendar/{token}` and span name/url attrs do not record token.                                                                                                                                                                                                       |
+| Langfuse content export off by default | PASS (static/config intent) | Langfuse is optional profile; prompt 05 noted trace/content separation. Did not run Langfuse profile smoke in this audit.                                                                                                                                                                             |
 
 ## Resource use
 
 Point-in-time `docker stats --no-stream` while sauna monitoring smoke stack was running (not 10-minute idle):
 
-| Container | Mem usage / limit | Mem % |
-|---|---:|---:|
+| Container                     | Mem usage / limit |  Mem % |
+| ----------------------------- | ----------------: | -----: |
 | sauna-monitoring-clickhouse-1 | 169.4MiB / 768MiB | 22.06% |
 
 Other sauna monitoring containers were not captured in that snapshot. Factory smoke stack was cleaned up before this snapshot. This does not satisfy the "after 10 minutes idle" requirement; reported as partial.
 
 ## Repo hygiene
 
-| Check | Result | Evidence |
-|---|---|---|
-| No `signoz` references outside historical reports | FAIL (expected while PR 09 open) | `dev-ops/signoz/` directory exists. References remain in `.github/dependabot.yml` (`/dev-ops/signoz`) and `dev-ops/scripts/tests/test-deploy-environment.sh` expects `signoz-otel-collector` in a negative assertion. PR #414 is open. |
-| No em-dashes | PASS (scanned scope) | `git grep -n -F "$(printf '\342\200\224')"` returned no matches in `dev-ops/factory/monitoring`, `product/monitoring`, `projects/sauna/monitoring`. Full-repo scan not run; touched files in this PR are clean. |
-| Dependabot covers new compose directories | PASS | `.github/dependabot.yml` includes `dev-ops/factory/monitoring`, `product/monitoring`, `projects/sauna/monitoring` docker-compose entries (also still includes `dev-ops/signoz`). |
-| Monitoring CI runs on right paths and is part of ci-gate | FIXED in this PR | `ci.yml` includes monitoring job in `ci-gate` needs. Path filter now includes `product/monitoring/**` and `projects/sauna/monitoring/**` in addition to factory monitoring paths. `monitoring-ci.yml` already validates factory, product, and sauna instance. |
+| Check                                                    | Result                           | Evidence                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No `signoz` references outside historical reports        | FAIL (expected while PR 09 open) | `dev-ops/signoz/` directory exists. References remain in `.github/dependabot.yml` (`/dev-ops/signoz`) and `dev-ops/scripts/tests/test-deploy-environment.sh` expects `signoz-otel-collector` in a negative assertion. PR #414 is open.                        |
+| No em-dashes                                             | PASS (scanned scope)             | `git grep -n -F "$(printf '\342\200\224')"` returned no matches in `dev-ops/factory/monitoring`, `product/monitoring`, `projects/sauna/monitoring`. Full-repo scan not run; touched files in this PR are clean.                                               |
+| Dependabot covers new compose directories                | PASS                             | `.github/dependabot.yml` includes `dev-ops/factory/monitoring`, `product/monitoring`, `projects/sauna/monitoring` docker-compose entries (also still includes `dev-ops/signoz`).                                                                              |
+| Monitoring CI runs on right paths and is part of ci-gate | FIXED in this PR                 | `ci.yml` includes monitoring job in `ci-gate` needs. Path filter now includes `product/monitoring/**` and `projects/sauna/monitoring/**` in addition to factory monitoring paths. `monitoring-ci.yml` already validates factory, product, and sauna instance. |
 
 ## OpenCode compatibility
 
-| Check | Result | Evidence |
-|---|---|---|
-| OpenCode version recorded | PASS | `opencode v2.3.2` |
-| `opencode run --format json` support | PASS (help) | `opencode run --help` shows `--format choice (default, json)`. |
-| `dev-ops/factory/tick.sh --dry-run` | PASS | Ran from worktree; output showed discovery/skip messages and "nothing to do". |
+| Check                                                          | Result               | Evidence                                                                                                                                                                                                                                  |
+| -------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenCode version recorded                                      | PASS                 | `opencode v2.3.2`                                                                                                                                                                                                                         |
+| `opencode run --format json` support                           | PASS (help)          | `opencode run --help` shows `--format choice (default, json)`.                                                                                                                                                                            |
+| `dev-ops/factory/tick.sh --dry-run`                            | PASS                 | Ran from worktree; output showed discovery/skip messages and "nothing to do".                                                                                                                                                             |
 | Usage parser against fresh `opencode run --format json` sample | NOT RUN (live model) | Did not execute a live model run. `dev-ops/factory/validate.sh` passed including `pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-reconcile-outcomes.py` (53 passed), covering parser/schema smoke checks. |
 
 ## Validation performed
 
-| Command | Result |
-|---|---|
-| `git fetch origin` | PASS |
-| `git worktree add -b monitoring/10-verification ... origin/main` | PASS |
-| `opencode --version` | PASS (`v2.3.2`) |
-| `dev-ops/factory/validate.sh` | PASS (53 pytest tests passed) |
-| `dev-ops/factory/monitoring/scripts/validate.sh` | PASS |
-| `product/monitoring/scripts/validate.sh` | PASS |
-| `docker compose -f projects/sauna/monitoring/compose.yaml --env-file <tmp> config -q` | PASS |
-| `bash dev-ops/factory/monitoring/scripts/smoke.sh` | PASS |
-| `bash product/monitoring/scripts/smoke.sh projects/sauna/monitoring/.env.smoke` (sauna instance) | FAIL on one overview rate query; other smoke assertions passed |
-| Example product monitoring instance up + smoke | FAIL during ClickHouse init (`__LOGS_TTL_DAYS__` placeholder / init ordering) |
-| `docker stats --no-stream` (point-in-time) | PASS (captured) |
-| `git grep -n "signoz" -- ...` | FAIL (references remain; PR 09 open) |
-| `git grep -n -F U+2014 -- dev-ops/factory/monitoring product/monitoring projects/sauna/monitoring` | PASS (no matches) |
-| `dev-ops/factory/tick.sh --dry-run` | PASS (nothing to do) |
-| `opencode run --format json` live sample | NOT RUN (would invoke model) |
-| Booking stack without/with monitoring | NOT RUN |
-| 10-minute idle docker stats | NOT RUN |
+| Command                                                                                            | Result                                                                        |
+| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `git fetch origin`                                                                                 | PASS                                                                          |
+| `git worktree add -b monitoring/10-verification ... origin/main`                                   | PASS                                                                          |
+| `opencode --version`                                                                               | PASS (`v2.3.2`)                                                               |
+| `dev-ops/factory/validate.sh`                                                                      | PASS (53 pytest tests passed)                                                 |
+| `dev-ops/factory/monitoring/scripts/validate.sh`                                                   | PASS                                                                          |
+| `product/monitoring/scripts/validate.sh`                                                           | PASS                                                                          |
+| `docker compose -f projects/sauna/monitoring/compose.yaml --env-file <tmp> config -q`              | PASS                                                                          |
+| `bash dev-ops/factory/monitoring/scripts/smoke.sh`                                                 | PASS                                                                          |
+| `bash product/monitoring/scripts/smoke.sh projects/sauna/monitoring/.env.smoke` (sauna instance)   | FAIL on one overview rate query; other smoke assertions passed                |
+| Example product monitoring instance up + smoke                                                     | FAIL during ClickHouse init (`__LOGS_TTL_DAYS__` placeholder / init ordering) |
+| `docker stats --no-stream` (point-in-time)                                                         | PASS (captured)                                                               |
+| `git grep -n "signoz" -- ...`                                                                      | FAIL (references remain; PR 09 open)                                          |
+| `git grep -n -F U+2014 -- dev-ops/factory/monitoring product/monitoring projects/sauna/monitoring` | PASS (no matches)                                                             |
+| `dev-ops/factory/tick.sh --dry-run`                                                                | PASS (nothing to do)                                                          |
+| `opencode run --format json` live sample                                                           | NOT RUN (would invoke model)                                                  |
+| Booking stack without/with monitoring                                                              | NOT RUN                                                                       |
+| 10-minute idle docker stats                                                                        | NOT RUN                                                                       |
 
 ## Open risks / gaps
 

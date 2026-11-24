@@ -136,7 +136,11 @@ services:
       - ./prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy | grep -q 'Prometheus Server is Healthy.'"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:9090/-/healthy | grep -q 'Prometheus Server is Healthy.'",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -242,7 +246,6 @@ services:
           memory: 64m
     networks:
       - monitoring-net
-
 
 volumes:
   clickhouse-data:

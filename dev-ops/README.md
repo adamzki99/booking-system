@@ -92,7 +92,7 @@ shell), so the script uses the first usable path from:
 
 1. `$DEPLOY_LOCK_FILE` - explicit override, used alone with no fallbacks.
 2. `$XDG_STATE_HOME/booking-deploy-<env>.lock`, or
-   `~/.local/state/booking-deploy-<env>.lock` when `XDG_STATE_HOME` is unset  - 
+   `~/.local/state/booking-deploy-<env>.lock` when `XDG_STATE_HOME` is unset -
    the default, deterministic for a given user so a timer run and a cron run
    take the same lock.
 3. `${TMPDIR:-/tmp}/booking-deploy-<env>-<uid>.lock` - per-user fallback.
@@ -126,7 +126,7 @@ CRON_TZ=Europe/Stockholm
 ```
 
 - The `flock` in the deploy script makes manual re-runs safe.
-- The cron redirection opens the log file *before* the script starts, so the
+- The cron redirection opens the log file _before_ the script starts, so the
   deploy user must be able to append to it. Redirect to a user-owned path (as
   above) or provision `/var/log/booking-qa-deploy.log`:
   ```sh
@@ -320,6 +320,7 @@ fully gated without a Semgrep AppSec Platform account or token.
   required status check for `main`.
 
 **Manual steps (owner):**
+
 - [ ] Confirm `ci-gate` stays a required status check in the `main` ruleset.
 
 ## OpenCode skills
@@ -472,9 +473,10 @@ instructed to:
 
 - [Self-hosting with Cloudflare Tunnels (HTTPS-compliant)](self-hosting-cloudflare-tunnel.md)
   - repo preparation, deployment config surface, `cloudflared`/Caddy/Authelia
-  guidance, and a validation checklist. Keep tunnel tokens, hostnames, and other
-  deployment-specific identifiers in `projects/<name>/` config or environment
-  variables, not in `product/`.
+    guidance, and a validation checklist. Keep tunnel tokens, hostnames, and other
+    deployment-specific identifiers in `projects/<name>/` config or environment
+    variables, not in `product/`.
+
 ## Factory monitoring
 
 The persistent factory monitoring stack lives in
@@ -497,31 +499,31 @@ retention, validation, and remote shipper setup.
 
 All compose services in this repo define explicit memory limits (`deploy.resources.limits.memory`) to prevent any single container from exhausting host RAM (see issue #136). Approximate budgets:
 
-| Stack | Service | Memory limit |
-|---|---|---|
-| factory-monitoring | clickhouse | 768m |
-| factory-monitoring | grafana | 256m |
-| factory-monitoring | prometheus | 256m |
-| factory-monitoring | otel-collector | 192m |
-| factory-monitoring | node-exporter | 64m |
-| factory-monitoring (profile langfuse) | langfuse-web | 512m |
-| factory-monitoring (profile langfuse) | langfuse-worker | 512m |
-| factory-monitoring (profile langfuse) | langfuse-postgres | 256m |
-| factory-monitoring (profile langfuse) | langfuse-redis | 96m |
-| factory-monitoring (profile langfuse) | langfuse-minio | 256m |
-| &lt;project&gt;-monitoring (product base, per project) | clickhouse | 768m |
-| &lt;project&gt;-monitoring (product base, per project) | grafana | 256m |
-| &lt;project&gt;-monitoring (product base, per project) | prometheus | 256m |
-| &lt;project&gt;-monitoring (product base, per project) | otel-collector | 192m |
-| &lt;project&gt;-monitoring (profile host) | node-exporter | 64m |
-| &lt;project&gt;-monitoring (profile postgres) | postgres-exporter | 64m |
-| sauna | backend | 512m |
-| sauna | postgres | 256m |
-| sauna | sidecar | 256m |
-| sauna | frontend | 256m |
-| sauna | caddy | 128m |
-| sauna | authelia | 256m |
-| sauna | cloudflared | 128m |
+| Stack                                                  | Service           | Memory limit |
+| ------------------------------------------------------ | ----------------- | ------------ |
+| factory-monitoring                                     | clickhouse        | 768m         |
+| factory-monitoring                                     | grafana           | 256m         |
+| factory-monitoring                                     | prometheus        | 256m         |
+| factory-monitoring                                     | otel-collector    | 192m         |
+| factory-monitoring                                     | node-exporter     | 64m          |
+| factory-monitoring (profile langfuse)                  | langfuse-web      | 512m         |
+| factory-monitoring (profile langfuse)                  | langfuse-worker   | 512m         |
+| factory-monitoring (profile langfuse)                  | langfuse-postgres | 256m         |
+| factory-monitoring (profile langfuse)                  | langfuse-redis    | 96m          |
+| factory-monitoring (profile langfuse)                  | langfuse-minio    | 256m         |
+| &lt;project&gt;-monitoring (product base, per project) | clickhouse        | 768m         |
+| &lt;project&gt;-monitoring (product base, per project) | grafana           | 256m         |
+| &lt;project&gt;-monitoring (product base, per project) | prometheus        | 256m         |
+| &lt;project&gt;-monitoring (product base, per project) | otel-collector    | 192m         |
+| &lt;project&gt;-monitoring (profile host)              | node-exporter     | 64m          |
+| &lt;project&gt;-monitoring (profile postgres)          | postgres-exporter | 64m          |
+| sauna                                                  | backend           | 512m         |
+| sauna                                                  | postgres          | 256m         |
+| sauna                                                  | sidecar           | 256m         |
+| sauna                                                  | frontend          | 256m         |
+| sauna                                                  | caddy             | 128m         |
+| sauna                                                  | authelia          | 256m         |
+| sauna                                                  | cloudflared       | 128m         |
 
 The always-on booking baseline plus persistent dev-ops services already targets
 roughly ~1.7 GB for a single sauna deployment, before any monitoring stack. The
@@ -533,6 +535,7 @@ and a product monitoring instance concurrently does not fit. Adding optional
 Langfuse (~1.63 GB more) makes it far worse.
 
 Options if the budget is exceeded:
+
 - Run only the product monitoring instance where the product runs, and keep the
   factory monitoring stack off on the same host.
 - Keep the `langfuse` profile off by default and start it only for targeted
@@ -541,4 +544,3 @@ Options if the budget is exceeded:
 - Move monitoring to a larger or separate host.
 
 Do not start any monitoring stack as a requirement for booking environments.
-

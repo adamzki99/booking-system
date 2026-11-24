@@ -77,7 +77,7 @@ redeploy.
 
 ## Rate limits
 
-Let's Encrypt production rate limits include (approximate, subject to change  - 
+Let's Encrypt production rate limits include (approximate, subject to change -
 see https://letsencrypt.org/docs/rate-limits/):
 
 - **Certificates per registered domain:** ~50 per week.
@@ -109,7 +109,7 @@ openssl s_client -connect "${SITE_ADDRESS}:443" -servername "${SITE_ADDRESS}" -s
 
 ## Interaction with Cloudflare Tunnel
 
-This is the *direct* TLS mode: the host publishes `80`/`443` and Let's Encrypt
+This is the _direct_ TLS mode: the host publishes `80`/`443` and Let's Encrypt
 validates via HTTP-01. If the origin is instead reachable only through a
 Cloudflare Tunnel (see `dev-ops/self-hosting-cloudflare-tunnel.md`, tracked in
 issue #38), the HTTP-01 challenge cannot reach Caddy and plain Let's Encrypt

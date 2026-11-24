@@ -100,19 +100,19 @@ You are running headless inside OpenCode: no human will answer questions. If you
 
 ## 1. Run context
 
-| Item | Value |
-|---|---|
-| Run ID | {{RUN_ID}} |
-| Environment | {{ENV_NAME}} |
-| Base URL | {{BASE_URL}} |
-| Artifact directory (path as visible to you) | {{ARTIFACT_DIR}} |
-| Repository | {{REPO}} |
-| Issue filing | {{ISSUE_FILING}} |
-| Time budget per role | {{ROLE_TIME_BUDGET_MIN}} minutes |
-| Route cap per role | {{MAX_ROUTES_PER_ROLE}} distinct routes |
-| Known production hosts (deny list) | {{PRODUCTION_HOSTS}} |
-| Expected-behavior references | {{EXPECTED_BEHAVIOR_REFS}} |
-| Artifact URL | {{ARTIFACT_URL}} |
+| Item                                        | Value                                   |
+| ------------------------------------------- | --------------------------------------- |
+| Run ID                                      | {{RUN_ID}}                              |
+| Environment                                 | {{ENV_NAME}}                            |
+| Base URL                                    | {{BASE_URL}}                            |
+| Artifact directory (path as visible to you) | {{ARTIFACT_DIR}}                        |
+| Repository                                  | {{REPO}}                                |
+| Issue filing                                | {{ISSUE_FILING}}                        |
+| Time budget per role                        | {{ROLE_TIME_BUDGET_MIN}} minutes        |
+| Route cap per role                          | {{MAX_ROUTES_PER_ROLE}} distinct routes |
+| Known production hosts (deny list)          | {{PRODUCTION_HOSTS}}                    |
+| Expected-behavior references                | {{EXPECTED_BEHAVIOR_REFS}}              |
+| Artifact URL                                | {{ARTIFACT_URL}}                        |
 
 Roles to audit, in this order:
 
@@ -443,17 +443,25 @@ If, after this, nothing is fileable (no findings, all below threshold, or all du
 
 ```markdown
 <!-- audit-fingerprint: <fingerprint> -->
+
 Part of #<parent number>
 
 Origin: automated agent-run Playwright audit ({{ENV_NAME}}, run {{RUN_ID}}). Not manually verified.
 
 ## Problem
+
 ## Context
+
 Environment, role (by role name, not email), area, route, viewport.
+
 ## Steps to reproduce
+
 ## Observed
+
 ## Expected
+
 ## Nielsen heuristic(s)
+
 ## Evidence
 ```
 

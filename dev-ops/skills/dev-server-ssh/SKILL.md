@@ -52,6 +52,7 @@ audit records.
    command is not executed. Never answer the prompt yourself, feed it input, or
    use `expect`, `script`, or another mechanism to manufacture approval. If no
    human can approve, stop and ask the operator to run the command.
+
 5. Use only this wrapper for remote operations. Do not invoke `ssh`, `scp`,
    `sftp`, or a remote shell directly, and do not ask the operator to bypass the
    wrapper. The wrapper is an approval/audit control, not a sandbox.

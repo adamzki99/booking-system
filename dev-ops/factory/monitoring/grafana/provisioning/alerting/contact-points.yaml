@@ -1,17 +1,17 @@
 apiVersion: 1
 contactPoints:
-- orgId: 1
-  name: factory-default
-  receivers:
-  - uid: factory-webhook
-    type: webhook
-    disableResolveMessage: false
-    settings:
-      url: ${ALERT_WEBHOOK_URL}
-      httpMethod: POST
-  - uid: factory-email
-    type: email
-    disableResolveMessage: false
-    settings:
-      addresses: ${ALERT_EMAIL_TO}
-      singleEmail: false
+  - orgId: 1
+    name: factory-default
+    receivers:
+      - uid: factory-webhook
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: ${ALERT_WEBHOOK_URL}
+          httpMethod: POST
+      - uid: factory-email
+        type: email
+        disableResolveMessage: false
+        settings:
+          addresses: ${ALERT_EMAIL_TO}
+          singleEmail: false

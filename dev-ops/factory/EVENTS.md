@@ -13,39 +13,39 @@ schema again requires a new major version and a new `validate_event` check.
 
 ## Common fields (every event)
 
-| Field | Type | Notes |
-|---|---|---|
-| `schema_version` | int | `2` |
-| `event_id` | string | UUIDv4 for live emissions; deterministic (prompt 02) for reconciled GitHub events. Used for idempotent loading into ClickHouse. |
-| `event` | string | event name (see "Lifecycle events" below) |
-| `ts` | string | RFC 3339 UTC with milliseconds, `Z` suffix |
-| `service.name` | string | `factory-tick` |
-| `factory_id` | string | `FACTORY_ID` env, default `factory-1`; identifies one factory host |
-| `deployment.environment` | string | `FACTORY_ENV` env, default `dev` |
-| `host.name` | string | hostname of the factory host |
-| `tick_id` | string | one scheduler invocation; this is the analysis model's `schedule_id` |
-| `dry_run` | bool | `true` when `tick.sh --dry-run` |
-| `on_usage_filled` | string | `backup` | `skip` | `fail` (`FACTORY_ON_USAGE_FILLED`) |
-| `repo` | string | `owner/name` from `gh repo view` or the git remote; omitted when unknown |
+| Field                    | Type   | Notes                                                                                                                           |
+| ------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `schema_version`         | int    | `2`                                                                                                                             |
+| `event_id`               | string | UUIDv4 for live emissions; deterministic (prompt 02) for reconciled GitHub events. Used for idempotent loading into ClickHouse. |
+| `event`                  | string | event name (see "Lifecycle events" below)                                                                                       |
+| `ts`                     | string | RFC 3339 UTC with milliseconds, `Z` suffix                                                                                      |
+| `service.name`           | string | `factory-tick`                                                                                                                  |
+| `factory_id`             | string | `FACTORY_ID` env, default `factory-1`; identifies one factory host                                                              |
+| `deployment.environment` | string | `FACTORY_ENV` env, default `dev`                                                                                                |
+| `host.name`              | string | hostname of the factory host                                                                                                    |
+| `tick_id`                | string | one scheduler invocation; this is the analysis model's `schedule_id`                                                            |
+| `dry_run`                | bool   | `true` when `tick.sh --dry-run`                                                                                                 |
+| `on_usage_filled`        | string | `backup`                                                                                                                        | `skip` | `fail` (`FACTORY_ON_USAGE_FILLED`) |
+| `repo`                   | string | `owner/name` from `gh repo view` or the git remote; omitted when unknown                                                        |
 
 ## Run-scoped fields (every `agent.run.*` event)
 
-| Field | Type | Notes |
-|---|---|---|
-| `run_id` | string | UUIDv4, one per opencode invocation; a backup or free retry is a new run |
-| `attempt` | int | 1, 2, 3 within one session request |
-| `fallback_level` | string | `primary` | `backup` | `free` |
-| `kind` | string | `plan` | `build` | `fix` |
-| `agent_id` | string | `planner` | `builder` | `fixer` |
-| `agent_version` | string | first 12 hex chars of sha256 of `.opencode/agents/<agent>.md` as checked out in the factory worktree (`unknown` when unreadable) |
-| `prompt_version` | string | sha256 prefix (first 12 hex chars) of the rendered prompt template before issue-specific substitution |
-| `model` | string | model used for the session |
-| `issue_id` | int | for fix sessions, derived from the `factory/issue-<n>` head branch |
-| `pr_number` | int | when known |
-| `session_id` | string | opencode session id, parsed from the JSON stream |
-| `trace_id` | string | 32 hex chars W3C trace id, generated per run (propagated into OpenCode in prompt 05) |
-| `tier_label` | string | selected model tier label |
-| `area_labels` | array of strings | area labels for the session |
+| Field            | Type             | Notes                                                                                                                            |
+| ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `run_id`         | string           | UUIDv4, one per opencode invocation; a backup or free retry is a new run                                                         |
+| `attempt`        | int              | 1, 2, 3 within one session request                                                                                               |
+| `fallback_level` | string           | `primary`                                                                                                                        | `backup`  | `free`  |
+| `kind`           | string           | `plan`                                                                                                                           | `build`   | `fix`   |
+| `agent_id`       | string           | `planner`                                                                                                                        | `builder` | `fixer` |
+| `agent_version`  | string           | first 12 hex chars of sha256 of `.opencode/agents/<agent>.md` as checked out in the factory worktree (`unknown` when unreadable) |
+| `prompt_version` | string           | sha256 prefix (first 12 hex chars) of the rendered prompt template before issue-specific substitution                            |
+| `model`          | string           | model used for the session                                                                                                       |
+| `issue_id`       | int              | for fix sessions, derived from the `factory/issue-<n>` head branch                                                               |
+| `pr_number`      | int              | when known                                                                                                                       |
+| `session_id`     | string           | opencode session id, parsed from the JSON stream                                                                                 |
+| `trace_id`       | string           | 32 hex chars W3C trace id, generated per run (propagated into OpenCode in prompt 05)                                             |
+| `tier_label`     | string           | selected model tier label                                                                                                        |
+| `area_labels`    | array of strings | area labels for the session                                                                                                      |
 
 Usage and cost are emitted on `agent.run.completed` and `agent.run.failed`:
 `duration_ms`, `steps`, `input_tokens`, `output_tokens`, `reasoning_tokens`,
@@ -63,14 +63,14 @@ normalized to a non-zero value.
 
 ## Lifecycle events
 
-| Event | Emitted when |
-|---|---|
-| `issue.detected` | an issue is selected as eligible for planning or building in this tick |
-| `issue.assigned` | a claim is acquired and an agent will run on it (`kind`, `agent_id`) |
-| `agent.run.started` | an opencode invocation starts |
-| `agent.tool.called` | one per tool call, parsed from the opencode JSON stream after the run (fields: `run_id`, `tool`, `status`, `duration_ms` if available; skill loads as `tool=skill` with `skill_name`) |
-| `agent.run.completed` | opencode exited 0 and its JSON stream contained no error record |
-| `agent.run.failed` | non-zero exit, structured OpenCode error record, timeout, interruption or usage-filled (`failure_reason`, `exit_code`) |
+| Event                 | Emitted when                                                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issue.detected`      | an issue is selected as eligible for planning or building in this tick                                                                                                                |
+| `issue.assigned`      | a claim is acquired and an agent will run on it (`kind`, `agent_id`)                                                                                                                  |
+| `agent.run.started`   | an opencode invocation starts                                                                                                                                                         |
+| `agent.tool.called`   | one per tool call, parsed from the opencode JSON stream after the run (fields: `run_id`, `tool`, `status`, `duration_ms` if available; skill loads as `tool=skill` with `skill_name`) |
+| `agent.run.completed` | opencode exited 0 and its JSON stream contained no error record                                                                                                                       |
+| `agent.run.failed`    | non-zero exit, structured OpenCode error record, timeout, interruption or usage-filled (`failure_reason`, `exit_code`)                                                                |
 
 ## Reconciled GitHub outcome events
 
@@ -91,16 +91,16 @@ for when the reconciler saw the fact.
 **No free text:** numbers, ids, states, timestamps and label names only. PR/issue
 titles, bodies and comments are treated as untrusted and never copied into events.
 
-| Event | Fields (in addition to common fields) |
-|---|---|
-| `pr.created` | `pr_number` (int), `issue_id` (int), `created_at` (string), `head_branch` (string), `draft` (bool) |
-| `pr.review` | `pr_number` (int), `review_id` (string), `state` (`approved`\|`changes_requested`\|`commented`), `reviewer_is_owner` (bool), `submitted_at` (string) |
-| `pr.checks` | `pr_number` (int), `head_sha` (string), `conclusion` (`success`\|`failure`\|`pending`\|`mixed`), `failed_checks` (array of check names) for the PR head when it changes |
-| `pr.merged` | `pr_number` (int), `issue_id` (int), `merged_at` (string), `commits` (int), `additions` (int), `deletions` (int), `changed_files` (int), `review_comments` (int), `human_commits` (int, commits not authored by `FACTORY_LOGIN`; a proxy for human intervention) |
-| `pr.closed` | `pr_number` (int), `issue_id` (int), `closed_at` (string, closed without merge) |
-| `issue.approved` | `issue_id` (int), `approved_at` (string, time the `owner approved` label was added, from the issue timeline) |
-| `issue.closed` | `issue_id` (int), `closed_at` (string), `state_reason` (string, when present) |
-| `issue.reopened` | `issue_id` (int), `reopened_at` (string) |
+| Event            | Fields (in addition to common fields)                                                                                                                                                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pr.created`     | `pr_number` (int), `issue_id` (int), `created_at` (string), `head_branch` (string), `draft` (bool)                                                                                                                                                               |
+| `pr.review`      | `pr_number` (int), `review_id` (string), `state` (`approved`\|`changes_requested`\|`commented`), `reviewer_is_owner` (bool), `submitted_at` (string)                                                                                                             |
+| `pr.checks`      | `pr_number` (int), `head_sha` (string), `conclusion` (`success`\|`failure`\|`pending`\|`mixed`), `failed_checks` (array of check names) for the PR head when it changes                                                                                          |
+| `pr.merged`      | `pr_number` (int), `issue_id` (int), `merged_at` (string), `commits` (int), `additions` (int), `deletions` (int), `changed_files` (int), `review_comments` (int), `human_commits` (int, commits not authored by `FACTORY_LOGIN`; a proxy for human intervention) |
+| `pr.closed`      | `pr_number` (int), `issue_id` (int), `closed_at` (string, closed without merge)                                                                                                                                                                                  |
+| `issue.approved` | `issue_id` (int), `approved_at` (string, time the `owner approved` label was added, from the issue timeline)                                                                                                                                                     |
+| `issue.closed`   | `issue_id` (int), `closed_at` (string), `state_reason` (string, when present)                                                                                                                                                                                    |
+| `issue.reopened` | `issue_id` (int), `reopened_at` (string)                                                                                                                                                                                                                         |
 
 ## Deploy events
 
@@ -110,11 +110,11 @@ same emitter). Deploys may run in a different systemd unit than tick; they use
 appends are safe because each event is a single `write()` of one JSON line in
 append mode.
 
-| Event | Fields (in addition to common fields) |
-|---|---|
-| `deploy.started` | `env_name` (string), `branch` (string), `commit` (string), `previous_commit` (string) |
+| Event              | Fields (in addition to common fields)                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------- |
+| `deploy.started`   | `env_name` (string), `branch` (string), `commit` (string), `previous_commit` (string)               |
 | `deploy.completed` | `env_name` (string), `commit` (string), `duration_ms` (int), `health` (string, health check result) |
-| `deploy.failed` | `env_name` (string), `commit` (string), `duration_ms` (int), `failed_step` (string) |
+| `deploy.failed`    | `env_name` (string), `commit` (string), `duration_ms` (int), `failed_step` (string)                 |
 
 The deploy script exports `DEPLOY_COMMIT` and `ENV_NAME` so prompt 06 can pass
 them to the backend as `service.version` and `deployment.environment`.
@@ -158,15 +158,15 @@ The 16 KiB output tail remains only in the local session log file
 
 ## Legacy-to-v2 mapping
 
-| Legacy event (removed) | v2 replacement |
-|---|---|
-| `session_start` | `agent.run.started` |
-| `session_ok` | `agent.run.completed` |
-| `session_failed` | `agent.run.failed` |
-| `backup_ok` | `agent.run.completed` (fallback_level=backup) |
-| `free_retry` (as session start) | `agent.run.started` (fallback_level=free) |
-| `session_skipped_usage` | `agent.run.failed` (failure_reason=usage_filled_skipped) |
-| `usage_filled` (standalone) | folded into `agent.run.failed` (failure_reason=usage_filled) |
+| Legacy event (removed)          | v2 replacement                                               |
+| ------------------------------- | ------------------------------------------------------------ |
+| `session_start`                 | `agent.run.started`                                          |
+| `session_ok`                    | `agent.run.completed`                                        |
+| `session_failed`                | `agent.run.failed`                                           |
+| `backup_ok`                     | `agent.run.completed` (fallback_level=backup)                |
+| `free_retry` (as session start) | `agent.run.started` (fallback_level=free)                    |
+| `session_skipped_usage`         | `agent.run.failed` (failure_reason=usage_filled_skipped)     |
+| `usage_filled` (standalone)     | folded into `agent.run.failed` (failure_reason=usage_filled) |
 
 ## Typed fields
 
@@ -206,32 +206,32 @@ This list must stay in sync with `grep -o 'emit_event [a-z_.]*' dev-ops/factory/
 
 ## State-defining fields for reconciled events
 
-| Event | GitHub node id or number | State-defining field |
-|---|---|---|
-| `pr.created` | PR node id (or PR number) | `created_at` |
-| `pr.review` | review id | mapped `state` (`approved`\|`changes_requested`\|`commented`) |
-| `pr.checks` | PR number | `head_sha:conclusion` |
-| `pr.merged` | PR node id (or PR number) | `merged_at` |
-| `pr.closed` | PR node id (or PR number) | `closed_at` |
-| `issue.approved` | timeline event id (or fallback) | `approved_at` |
-| `issue.closed` | timeline event id (or fallback) | `closed_at` |
-| `issue.reopened` | timeline event id (or fallback) | `reopened_at` |
+| Event            | GitHub node id or number        | State-defining field                                          |
+| ---------------- | ------------------------------- | ------------------------------------------------------------- |
+| `pr.created`     | PR node id (or PR number)       | `created_at`                                                  |
+| `pr.review`      | review id                       | mapped `state` (`approved`\|`changes_requested`\|`commented`) |
+| `pr.checks`      | PR number                       | `head_sha:conclusion`                                         |
+| `pr.merged`      | PR node id (or PR number)       | `merged_at`                                                   |
+| `pr.closed`      | PR node id (or PR number)       | `closed_at`                                                   |
+| `issue.approved` | timeline event id (or fallback) | `approved_at`                                                 |
+| `issue.closed`   | timeline event id (or fallback) | `closed_at`                                                   |
+| `issue.reopened` | timeline event id (or fallback) | `reopened_at`                                                 |
 
 ## Derived metrics
 
 Defined in words and as field arithmetic. Prompt 03/04 build these from
 ClickHouse/Grafana.
 
-| Metric | Definition |
-|---|---|
-| Issue throughput | `issue.closed` with a merged factory PR, per day |
-| First-pass success | issues whose first factory PR merged with no `kind=fix` run / all completed issues |
-| Agent efficiency | merged PRs / sum of `agent.run.*` `duration_ms` in hours |
-| Cost efficiency | sum `cost_usd` of all runs for an issue / merged PRs |
-| Rework rate | completed issues that needed more than one build/fix run / completed issues |
-| Lead time | `issue.approved.approved_at` (or first `agent.run.started`) to `pr.merged.merged_at` |
-| Pickup to merge | first `agent.run.started` for the issue to `pr.merged` |
-| PR acceptance rate | `pr.merged` / (`pr.merged` + `pr.closed`) |
-| Human intervention rate | merged PRs with `human_commits > 0` or an owner `changes_requested` review / merged PRs |
-| Factory utilisation | sum of run `duration_ms` / available time (tick interval times concurrent session slots, a Grafana variable) |
-| Abandoned issues | issues with at least one run, no open PR and no activity for N days, or whose PR was closed unmerged |
+| Metric                  | Definition                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Issue throughput        | `issue.closed` with a merged factory PR, per day                                                             |
+| First-pass success      | issues whose first factory PR merged with no `kind=fix` run / all completed issues                           |
+| Agent efficiency        | merged PRs / sum of `agent.run.*` `duration_ms` in hours                                                     |
+| Cost efficiency         | sum `cost_usd` of all runs for an issue / merged PRs                                                         |
+| Rework rate             | completed issues that needed more than one build/fix run / completed issues                                  |
+| Lead time               | `issue.approved.approved_at` (or first `agent.run.started`) to `pr.merged.merged_at`                         |
+| Pickup to merge         | first `agent.run.started` for the issue to `pr.merged`                                                       |
+| PR acceptance rate      | `pr.merged` / (`pr.merged` + `pr.closed`)                                                                    |
+| Human intervention rate | merged PRs with `human_commits > 0` or an owner `changes_requested` review / merged PRs                      |
+| Factory utilisation     | sum of run `duration_ms` / available time (tick interval times concurrent session slots, a Grafana variable) |
+| Abandoned issues        | issues with at least one run, no open PR and no activity for N days, or whose PR was closed unmerged         |
