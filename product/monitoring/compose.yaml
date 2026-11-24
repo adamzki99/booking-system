@@ -2,7 +2,7 @@ name: ${MONITORING_PROJECT:?set MONITORING_PROJECT in .env}-monitoring
 
 services:
   check-env:
-    image: alpine:3.21.3
+    image: alpine:3.24.4
     command:
       - sh
       - -ec
@@ -26,7 +26,7 @@ services:
       - monitoring-net
 
   clickhouse:
-    image: clickhouse/clickhouse-server:26.9.36.3
+    image: clickhouse/clickhouse-server:26.10.4.207
     restart: unless-stopped
     depends_on:
       check-env:
@@ -60,7 +60,7 @@ services:
       - monitoring-net
 
   clickhouse-init:
-    image: clickhouse/clickhouse-server:26.9.36.3
+    image: clickhouse/clickhouse-server:26.10.4.207
     restart: "no"
     depends_on:
       clickhouse:
@@ -218,7 +218,7 @@ services:
       - monitoring-net
 
   postgres-exporter:
-    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.21.1
     profiles: ["postgres"]
     restart: unless-stopped
     environment:
