@@ -19,6 +19,7 @@ npm ci
 npm run dev
 npm run typecheck
 npm run lint
+npm run lint:fix
 npm test
 npm run build
 npm run preview
@@ -26,7 +27,8 @@ npm run preview
 
 - `npm run dev`: start the Vite development server.
 - `npm run typecheck`: run TypeScript checks with no emit.
-- `npm run lint`: run oxlint with the shared Oxc base config (`dev-ops/code-quality/oxlint.base.json`) and Solid 2 rules from `eslint-plugin-solid`.
+- `npm run lint`: run oxlint with type-aware linting, `--deny-warnings`, unused-disable reporting, shared base config (`dev-ops/code-quality/oxlint.base.json`), Solid 2 rules, and Testing Library rules for tests.
+- `npm run lint:fix`: apply safe oxlint fixes (no dangerous fixes).
 - `npm test`: run the Vitest suite.
 - `npm run build`: run typecheck and create a production build.
 - `npm run preview`: preview the production build locally.
