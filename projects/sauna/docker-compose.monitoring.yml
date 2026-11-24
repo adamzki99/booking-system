@@ -23,8 +23,9 @@ services:
       - default
       - monitoring
 
+  # Keep caddy in the default profile. deploy-environment.sh includes this
+  # override without --profile, and caddy serves the health-checked host port.
   caddy:
-    profiles: ["caddy"]
     networks:
       - default
       - monitoring

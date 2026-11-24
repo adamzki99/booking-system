@@ -11,13 +11,21 @@ services:
         [ -n "$${CLICKHOUSE_COLLECTOR_PASSWORD:-}" ] || { echo "missing required secret: CLICKHOUSE_COLLECTOR_PASSWORD" >&2; exit 1; }
         [ -n "$${CLICKHOUSE_GRAFANA_PASSWORD:-}" ] || { echo "missing required secret: CLICKHOUSE_GRAFANA_PASSWORD" >&2; exit 1; }
         [ -n "$${GRAFANA_ADMIN_PASSWORD:-}" ] || { echo "missing required secret: GRAFANA_ADMIN_PASSWORD" >&2; exit 1; }
+        [ -n "$${GRAFANA_METRICS_PASSWORD:-}" ] || { echo "missing required secret: GRAFANA_METRICS_PASSWORD" >&2; exit 1; }
+        umask 077
+        mkdir -p /etc/prometheus/secrets
+        printf '%s\n' "$${GRAFANA_METRICS_PASSWORD}" > /etc/prometheus/secrets/grafana-metrics-password
+        chown 65534:65534 /etc/prometheus/secrets/grafana-metrics-password
         echo "env ok"
     environment:
       MONITORING_PROJECT: ${MONITORING_PROJECT:?set MONITORING_PROJECT in .env}
       CLICKHOUSE_COLLECTOR_PASSWORD: ${CLICKHOUSE_COLLECTOR_PASSWORD:?set CLICKHOUSE_COLLECTOR_PASSWORD in .env}
       CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?set CLICKHOUSE_GRAFANA_PASSWORD in .env}
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GRAFANA_METRICS_PASSWORD: ${GRAFANA_METRICS_PASSWORD:?set GRAFANA_METRICS_PASSWORD in .env}
     restart: "no"
+    volumes:
+      - grafana-metrics-auth:/etc/prometheus/secrets
     deploy:
       resources:
         limits:
@@ -101,8 +109,8 @@ services:
     volumes:
       - ./otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:
-      - "127.0.0.1:${OTLP_GRPC_PORT:?set OTLP_GRPC_PORT in .env}:4317"
-      - "127.0.0.1:${OTLP_HTTP_PORT:?set OTLP_HTTP_PORT in .env}:4318"
+      - "${OTLP_BIND_ADDR:-127.0.0.1}:${OTLP_GRPC_PORT:?set OTLP_GRPC_PORT in .env}:4317"
+      - "${OTLP_BIND_ADDR:-127.0.0.1}:${OTLP_HTTP_PORT:?set OTLP_HTTP_PORT in .env}:4318"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:13133/ >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -134,6 +142,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/rules:/etc/prometheus/rules:ro
+      - grafana-metrics-auth:/etc/prometheus/secrets:ro
       - prometheus-data:/prometheus
     healthcheck:
       test:
@@ -165,11 +174,17 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://127.0.0.1:${GRAFANA_PORT:?set GRAFANA_PORT in .env}/}
+      GF_METRICS_BASIC_AUTH_USERNAME: prometheus
+      GF_METRICS_BASIC_AUTH_PASSWORD: ${GRAFANA_METRICS_PASSWORD:?set GRAFANA_METRICS_PASSWORD in .env}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
       GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource@4.23.5
       CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?set CLICKHOUSE_GRAFANA_PASSWORD in .env}
       MONITORING_PROJECT: ${MONITORING_PROJECT:?set MONITORING_PROJECT in .env}
@@ -181,7 +196,7 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - ./grafana/dashboards-project:/var/lib/grafana/dashboards-project:ro
     ports:
-      - "0.0.0.0:${GRAFANA_PORT:?set GRAFANA_PORT in .env}:3000"
+      - "${GRAFANA_BIND_ADDR:-127.0.0.1}:${GRAFANA_PORT:?set GRAFANA_PORT in .env}:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health | grep -q 'ok'"]
       interval: 15s
@@ -252,6 +267,7 @@ volumes:
   clickhouse-logs:
   prometheus-data:
   grafana-data:
+  grafana-metrics-auth:
 
 networks:
   monitoring-net:

@@ -47,6 +47,10 @@ jobs:
           CLICKHOUSE_GRAFANA_PASSWORD=test-grafana
           GRAFANA_ADMIN_USER=admin
           GRAFANA_ADMIN_PASSWORD=test-admin
+          GRAFANA_METRICS_PASSWORD=test-metrics
+          GRAFANA_BIND_ADDR=127.0.0.1
+          OTLP_BIND_ADDR=127.0.0.1
+          GRAFANA_ROOT_URL=http://127.0.0.1:13001/
           HOST_NAME=test-host
           GRAFANA_PORT=13001
           OTLP_GRPC_PORT=14327
@@ -57,3 +61,7 @@ jobs:
           PROMETHEUS_RETENTION_SIZE=2GB
           ENV
           docker compose -f projects/sauna/monitoring/compose.yaml --env-file "$TMP_ENV" config -q
+          python3 dev-ops/scripts/check-monitoring-hardening.py \
+            --compose product/monitoring/compose.yaml \
+            --prometheus projects/sauna/monitoring/prometheus/prometheus.yml \
+            --env-example projects/sauna/monitoring/.env.example

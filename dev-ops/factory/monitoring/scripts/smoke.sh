@@ -11,6 +11,8 @@ TMPDIR_SMOKE="$(mktemp -d)"
 LOG_DIR="$TMPDIR_SMOKE/factory-logs"
 METRICS_DIR="$TMPDIR_SMOKE/factory-metrics"
 ENV_FILE="$TMPDIR_SMOKE/.env"
+GRAFANA_METRICS_PASSWORD="smoke-metrics-pass"
+LANGFUSE_PUBLIC_URL="http://smoke-langfuse:3001"
 COMPOSE=(docker compose -f dev-ops/factory/monitoring/docker-compose.yml --env-file "$ENV_FILE" -p "$PROJECT")
 
 cleanup() {
@@ -35,6 +37,12 @@ CLICKHOUSE_COLLECTOR_PASSWORD=smoke-collector-pass
 CLICKHOUSE_GRAFANA_PASSWORD=smoke-grafana-pass
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=smoke-admin-pass
+GRAFANA_METRICS_PASSWORD=$GRAFANA_METRICS_PASSWORD
+GRAFANA_BIND_ADDR=127.0.0.1
+OTLP_BIND_ADDR=127.0.0.1
+GRAFANA_ROOT_URL=http://127.0.0.1:13000/
+LANGFUSE_BIND_ADDR=127.0.0.1
+LANGFUSE_PUBLIC_URL=$LANGFUSE_PUBLIC_URL
 HOST_NAME=smoke-host
 GRAFANA_PORT=13000
 OTLP_GRPC_PORT=14317
@@ -120,6 +128,12 @@ run_count=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT
 echo "[smoke] factory.runs count=$run_count"
 [ "$run_count" -eq 5 ] || { echo "[smoke] expected 5 runs" >&2; exit 1; }
 
+echo "[smoke] rendering and parsing dashboard SQL..."
+clickhouse_cid=$("${COMPOSE[@]}" ps -q clickhouse)
+python3 dev-ops/factory/monitoring/scripts/check_dashboards.py \
+  --clickhouse-container "$clickhouse_cid" \
+  --execute-run-detail
+
 # Timestamp equality check - ts stored should match fixture ts.
 ts1=$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --query "SELECT toString(ts) FROM factory.events FINAL WHERE event_id='11111111111111111111111111111111'")
 expected_ts1=$(date -u -d "$TS5" +"%Y-%m-%d %H:%M:%S.000")
@@ -167,6 +181,14 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 [ "$collector_up" -eq 1 ] || { echo "[smoke] otel-collector target is not up" >&2; exit 1; }
+grafana_up=0
+for _ in $(seq 1 60); do
+  targets=$("${COMPOSE[@]}" exec -T prometheus wget -qO- 'http://127.0.0.1:9090/api/v1/targets' || true)
+  grafana_health="$(echo "$targets" | python3 -c 'import sys,json; d=json.load(sys.stdin); active=d.get("data",{}).get("activeTargets",[]); g=[t for t in active if t.get("labels",{}).get("job")=="grafana"]; print(g[0]["health"] if g else "missing")')"
+  if [[ "$grafana_health" == "up" ]]; then grafana_up=1; break; fi
+  sleep 2
+done
+[ "$grafana_up" -eq 1 ] || { echo "[smoke] grafana target is not up" >&2; exit 1; }
 
 # metric query
 for _ in $(seq 1 60); do
@@ -212,6 +234,14 @@ if ! printf '%s' "$grafana_health" | grep -q ok; then
   exit 1
 fi
 
+metrics_status=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:13000/metrics)
+[ "$metrics_status" = "401" ] || { echo "[smoke] /metrics without auth returned $metrics_status, expected 401" >&2; exit 1; }
+metrics_basic_auth="$(printf 'prometheus:%s' "$GRAFANA_METRICS_PASSWORD" | base64)"
+metrics_auth_status=$(curl -sS -o /dev/null -w '%{http_code}' \
+  -H "Authorization: Basic $metrics_basic_auth" http://127.0.0.1:13000/metrics)
+[ "$metrics_auth_status" = "200" ] || { echo "[smoke] /metrics with auth returned $metrics_auth_status, expected 200" >&2; exit 1; }
+echo "[smoke] Grafana /metrics requires basic auth"
+
 # datasource health (basic auth)
 grafana_basic_auth="$(printf '%s' 'admin:smoke-admin-pass' | base64)"
 for uid in clickhouse-factory prometheus-factory; do
@@ -228,7 +258,10 @@ done
 # Dashboards provisioned
 echo "[smoke] checking dashboards..."
 dash_resp=$(curl -fsS -H "Authorization: Basic $grafana_basic_auth" 'http://127.0.0.1:13000/api/search?type=dash-db&tag=factory')
-echo "$dash_resp" | python3 -c 'import sys,json; d=json.load(sys.stdin); uids={x.get("uid") for x in d}; req={"factory-overview","factory-agents","factory-execution","factory-cost","factory-quality","factory-host"}; missing=req-uids; print("uids",sorted(uids)); sys.exit(1 if missing else 0)' || { echo "[smoke] missing dashboards: $dash_resp" >&2; exit 1; }
+echo "$dash_resp" | python3 -c 'import sys,json; d=json.load(sys.stdin); uids={x.get("uid") for x in d}; req={"factory-overview","factory-agents","factory-execution","factory-cost","factory-quality","factory-host","factory-run-detail"}; missing=req-uids; print("uids",sorted(uids)); sys.exit(1 if missing else 0)' || { echo "[smoke] missing dashboards: $dash_resp" >&2; exit 1; }
+run_detail_resp=$(curl -fsS -H "Authorization: Basic $grafana_basic_auth" 'http://127.0.0.1:13000/api/dashboards/uid/factory-run-detail')
+printf '%s' "$run_detail_resp" | python3 -c 'import sys,json; expected=sys.argv[1]; d=json.load(sys.stdin)["dashboard"]; v=next(x for x in d["templating"]["list"] if x["name"]=="langfuse_url"); actual=v["current"]["value"]; print("langfuse_url",actual); sys.exit(0 if actual==expected else 1)' "$LANGFUSE_PUBLIC_URL" \
+  || { echo "[smoke] provisioned Langfuse URL was not rendered from LANGFUSE_PUBLIC_URL" >&2; exit 1; }
 
 # Alert rules provisioned
 echo "[smoke] checking alert rules..."

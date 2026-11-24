@@ -4,6 +4,7 @@ x-required-env: &required-env
   CLICKHOUSE_COLLECTOR_PASSWORD: ${CLICKHOUSE_COLLECTOR_PASSWORD:?set CLICKHOUSE_COLLECTOR_PASSWORD in .env}
   CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?set CLICKHOUSE_GRAFANA_PASSWORD in .env}
   GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+  GRAFANA_METRICS_PASSWORD: ${GRAFANA_METRICS_PASSWORD:?set GRAFANA_METRICS_PASSWORD in .env}
 
 services:
   check-env:
@@ -15,10 +16,31 @@ services:
         [ -n "$${CLICKHOUSE_COLLECTOR_PASSWORD:-}" ] || { echo "missing required secret: CLICKHOUSE_COLLECTOR_PASSWORD" >&2; exit 1; }
         [ -n "$${CLICKHOUSE_GRAFANA_PASSWORD:-}" ] || { echo "missing required secret: CLICKHOUSE_GRAFANA_PASSWORD" >&2; exit 1; }
         [ -n "$${GRAFANA_ADMIN_PASSWORD:-}" ] || { echo "missing required secret: GRAFANA_ADMIN_PASSWORD" >&2; exit 1; }
+        [ -n "$${GRAFANA_METRICS_PASSWORD:-}" ] || { echo "missing required secret: GRAFANA_METRICS_PASSWORD" >&2; exit 1; }
+        umask 077
+        mkdir -p /etc/prometheus/secrets
+        printf '%s\n' "$${GRAFANA_METRICS_PASSWORD}" > /etc/prometheus/secrets/grafana-metrics-password
+        chown 65534:65534 /etc/prometheus/secrets/grafana-metrics-password
+        public_url="$${LANGFUSE_PUBLIC_URL:-http://127.0.0.1:3001}"
+        umask 022
+        mkdir -p /var/lib/grafana/dashboards
+        find /var/lib/grafana/dashboards -maxdepth 1 -type f -name '*.json' -delete
+        for source in /dashboards/*.json; do
+          [ -f "$$source" ] || continue
+          target="/var/lib/grafana/dashboards/$${source##*/}"
+          while IFS= read -r line || [ -n "$$line" ]; do
+            printf '%s\n' "$${line//__LANGFUSE_PUBLIC_URL__/$$public_url}"
+          done < "$$source" > "$$target"
+        done
         echo "env ok"
     environment:
       <<: *required-env
+      LANGFUSE_PUBLIC_URL: ${LANGFUSE_PUBLIC_URL:-http://127.0.0.1:3001}
     restart: "no"
+    volumes:
+      - grafana-metrics-auth:/etc/prometheus/secrets
+      - ./grafana/dashboards:/dashboards:ro
+      - grafana-dashboards:/var/lib/grafana/dashboards
     networks:
       - factory-monitoring-net
 
@@ -98,8 +120,8 @@ services:
       - otel-file-storage:/var/lib/otelcol/file_storage
       - ${FACTORY_LOG_DIR:-/var/lib/factory-logs}:/var/log/factory:ro
     ports:
-      - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317"
-      - "127.0.0.1:${OTLP_HTTP_PORT:-4318}:4318"
+      - "${OTLP_BIND_ADDR:-127.0.0.1}:${OTLP_GRPC_PORT:-4317}:4317"
+      - "${OTLP_BIND_ADDR:-127.0.0.1}:${OTLP_HTTP_PORT:-4318}:4318"
     # The distroless image has no /bin/sh or wget. Collector availability is
     # monitored through its Prometheus target and factory event ingestion.
     deploy:
@@ -124,6 +146,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/rules:/etc/prometheus/rules:ro
+      - grafana-metrics-auth:/etc/prometheus/secrets:ro
       - prometheus-data:/prometheus
     healthcheck:
       test:
@@ -182,11 +205,17 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://127.0.0.1:${GRAFANA_PORT:-3000}/}
+      GF_METRICS_BASIC_AUTH_USERNAME: prometheus
+      GF_METRICS_BASIC_AUTH_PASSWORD: ${GRAFANA_METRICS_PASSWORD:?set GRAFANA_METRICS_PASSWORD in .env}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
       GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource@4.23.5
       CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?set CLICKHOUSE_GRAFANA_PASSWORD in .env}
       ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-factory-alerts@example.invalid}
@@ -200,9 +229,9 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "0.0.0.0:${GRAFANA_PORT:-3000}:3000"
+      - "${GRAFANA_BIND_ADDR:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health | grep -q 'ok'"]
       interval: 15s
@@ -453,7 +482,7 @@ services:
       LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
     ports:
-      - "127.0.0.1:${LANGFUSE_PORT:-3001}:3000"
+      - "${LANGFUSE_BIND_ADDR:-127.0.0.1}:${LANGFUSE_PORT:-3001}:3000"
     healthcheck:
       test:
         [
@@ -476,6 +505,8 @@ volumes:
   clickhouse-logs:
   prometheus-data:
   grafana-data:
+  grafana-dashboards:
+  grafana-metrics-auth:
   otel-file-storage:
   langfuse-postgres-data:
     name: ${LANGFUSE_POSTGRES_VOLUME:-factory-monitoring_langfuse-postgres-data}

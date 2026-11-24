@@ -64,9 +64,10 @@ include:
 
 ```sh
 MONITORING_PROJECT=<name>
-GRAFANA_PORT=3001      # pick unused 127.0.0.1 ports
+GRAFANA_PORT=3001      # pick unused loopback ports by default
 OTLP_GRPC_PORT=4327
 OTLP_HTTP_PORT=4328
+GRAFANA_ROOT_URL=http://127.0.0.1:3001/
 ```
 
 3. Optional `dashboards/` directory for project-specific Grafana dashboards.
@@ -79,37 +80,76 @@ Start the instance:
 ```sh
 cd projects/<name>/monitoring
 cp .env.example .env
-# fill required secrets
+# fill required secrets, ports, and GRAFANA_ROOT_URL
 docker compose up -d
 ```
+
+### Operator action before redeploy
+
+- Set the new required `GRAFANA_METRICS_PASSWORD` in each project's `.env`. The
+  one-shot `check-env` service writes it to a private file in the
+  `grafana-metrics-auth` volume for Prometheus. Grafana uses the fixed username
+  `prometheus`; the password is not committed or placed directly in
+  `prometheus.yml`.
+- Keep `GRAFANA_BIND_ADDR=127.0.0.1` and `OTLP_BIND_ADDR=127.0.0.1` for local-only
+  access. To keep reaching Grafana or OTLP on the LAN, explicitly set the
+  relevant bind address to `0.0.0.0` and restrict access with a firewall. These
+  services use plain HTTP unless fronted by TLS (Caddy, Tailscale Serve, or an
+  SSH tunnel).
+- Set `GRAFANA_ROOT_URL` to the full browser-reachable Grafana URL, including the
+  trailing slash and any reverse-proxy sub-path. For direct LAN access this is
+  typically `http://<host>:<GRAFANA_PORT>/`; for a TLS proxy use its HTTPS URL.
 
 ## Required env and secrets
 
 All required secrets must be set in `.env`. Startup fails fast if empty.
 
-| Variable                        | Required | Purpose                                                 |
-| ------------------------------- | -------: | ------------------------------------------------------- |
-| `MONITORING_PROJECT`            |      yes | Project name; used for compose project, network, labels |
-| `CLICKHOUSE_COLLECTOR_PASSWORD` |      yes | ClickHouse write user password                          |
-| `CLICKHOUSE_GRAFANA_PASSWORD`   |      yes | ClickHouse read-only user password                      |
-| `GRAFANA_ADMIN_PASSWORD`        |      yes | Grafana admin password                                  |
-| `GRAFANA_PORT`                  |      yes | Grafana UI on 127.0.0.1                                 |
-| `OTLP_GRPC_PORT`                |      yes | OTLP gRPC on 127.0.0.1                                  |
-| `OTLP_HTTP_PORT`                |      yes | OTLP HTTP on 127.0.0.1                                  |
+| Variable                        | Required | Purpose                                                                    |
+| ------------------------------- | -------: | -------------------------------------------------------------------------- |
+| `MONITORING_PROJECT`            |      yes | Project name; used for compose project, network, labels                    |
+| `CLICKHOUSE_COLLECTOR_PASSWORD` |      yes | ClickHouse write user password                                             |
+| `CLICKHOUSE_GRAFANA_PASSWORD`   |      yes | ClickHouse read-only user password                                         |
+| `GRAFANA_ADMIN_PASSWORD`        |      yes | Grafana admin password, used on first database creation only               |
+| `GRAFANA_METRICS_PASSWORD`      |      yes | Basic-auth password for Grafana `/metrics`; username is `prometheus`       |
+| `GRAFANA_PORT`                  |      yes | Grafana UI host port                                                       |
+| `OTLP_GRPC_PORT`                |      yes | OTLP gRPC host port                                                        |
+| `OTLP_HTTP_PORT`                |      yes | OTLP HTTP host port                                                        |
+| `GRAFANA_BIND_ADDR`             |       no | Grafana host bind address; defaults to `127.0.0.1`                         |
+| `OTLP_BIND_ADDR`                |       no | OTLP host bind address; defaults to `127.0.0.1`                            |
+| `GRAFANA_ROOT_URL`              |       no | Full browser-reachable Grafana URL; defaults to loopback on `GRAFANA_PORT` |
 
 See `.env.example` for retention and memory tuning knobs.
 
 ## Security defaults
 
-- All UI/ingest ports bind to `127.0.0.1`.
+- Published UI/ingest ports bind to `127.0.0.1` by default. Override the relevant
+  bind address only when needed; direct LAN access is plain HTTP unless fronted by TLS.
 - No default/hardcoded passwords; required secrets come from `.env`.
-- Grafana anonymous access off, sign-up off, update checks off.
+- Grafana anonymous access off, sign-up off, update checks off, external snapshots
+  off, externally shared dashboards off, and UI plugin administration off.
+- Grafana `/metrics` requires basic auth. Prometheus reads the password from a
+  startup-generated file with owner-only permissions.
 - ClickHouse has a write user (`collector`) and a read-only user (`grafana` with
   query limits).
 - Collector redacts iCal token path segments in `url.path`, `url.full`,
   `http.target`, and `http.route`, drops `user.email`, and drops attributes
   matching token/password/secret/authorization/api key patterns.
 - Collector drops health-check spans (`/healthz`, `/readyz`).
+
+### Grafana accounts and password rotation
+
+`GRAFANA_ADMIN_PASSWORD` is applied only when Grafana first creates its SQLite
+database in the `grafana-data` volume. Changing it later in `.env` does not
+change an existing admin password. Rotate it inside the running container:
+
+```sh
+docker compose exec grafana grafana cli admin reset-admin-password '<new password>'
+```
+
+Use the shared admin account only for administration. For day-to-day dashboard
+use, sign in as admin, open **Administration > Users and access > Users**, invite
+or create a user, and assign the **Viewer** role. Do not provision personal
+credentials in git.
 
 ## Retention
 
@@ -269,11 +309,12 @@ product/monitoring/scripts/validate.sh
 
 The script runs compose config, collector config validation, promtool checks,
 ClickHouse init SQL smoke in a throwaway container, dashboard JSON/YAML parse,
-dashboard and alert generator up-to-date checks, and fails if Docker is
-unavailable (CI has Docker). The throwaway container uses the ClickHouse image
-read from `compose.yaml`. Startup is retried for 60 attempts; a readiness failure
-prints container status and recent logs and fails validation. It also fails if
-deployment-specific names appear in `product/monitoring`.
+dashboard and alert generator up-to-date checks, Grafana/Prometheus hardening
+checks, and fails if Docker is unavailable (CI has Docker). The throwaway
+container uses the ClickHouse image read from `compose.yaml`. Startup is retried
+for 60 attempts; a readiness failure prints container status and recent logs and
+fails validation. It also fails if deployment-specific names appear in
+`product/monitoring`.
 
 Instance smoke test (requires a running configured instance):
 
@@ -283,8 +324,9 @@ product/monitoring/scripts/smoke.sh projects/<name>/monitoring/.env
 
 The smoke test sends synthetic OTLP traces/logs via a pinned `telemetrygen`
 image, sends prompt 07 metric points via OTLP HTTP, waits for traces in
-ClickHouse, checks Grafana health, and queries Prometheus for one key query per
-dashboard.
+ClickHouse, checks Grafana health, asserts Grafana `/metrics` returns 401 without
+credentials and 200 with them, confirms the Prometheus `grafana` target is up,
+and queries Prometheus for one key query per dashboard.
 
 ## Operations
 

@@ -23,7 +23,6 @@ done
 export ENV_NAME
 
 FACTORY_LOG_FILE="${FACTORY_LOG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl}"
-FACTORY_ENV="${FACTORY_ENV:-dev}"
 FACTORY_ID="${FACTORY_ID:-factory-1}"
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 DEPLOY_START_MS="$(date +%s%3N 2>/dev/null || echo 0)"
@@ -42,9 +41,11 @@ deploy_emit() {
   repo="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/](.+/.+?)(\.git)?$#\1#' || true)"
   [[ -n "$repo" ]] || repo="unknown"
   mkdir -p "$(dirname "$FACTORY_LOG_FILE")" 2>/dev/null || true
+  # Deploy events describe the deployment target. Factory tick and run events
+  # use FACTORY_ENV for the factory host, but these events must use ENV_NAME.
   python3 "$factory_py" emit \
     "$event" "$FACTORY_LOG_FILE" "deploy-${ENV_NAME}-${DEPLOY_START_MS}" "$DRY_RUN" "backup" \
-    "$FACTORY_ENV" "$HOSTNAME_VAL" "$FACTORY_ID" "$repo" "$@" >/dev/null 2>&1 || true
+    "$ENV_NAME" "$HOSTNAME_VAL" "$FACTORY_ID" "$repo" "$@" >/dev/null 2>&1 || true
 }
 
 command -v python3 >/dev/null || die "python3 is required"

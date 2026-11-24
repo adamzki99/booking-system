@@ -479,7 +479,7 @@
           },
           "pluginVersion": "4.23.5",
           "queryType": "table",
-          "rawSql": "SELECT\n  r.agent_id,\n  r.agent_version,\n  r.model,\n  uniqExactIf(p.pr_number, p.merged_at IS NOT NULL) AS merged_prs,\n  round(sum(coalesce(r.duration_ms,0))/3600000,3) AS run_hours,\n  round(uniqExactIf(p.pr_number, p.merged_at IS NOT NULL) / nullIf(sum(coalesce(r.duration_ms,0))/3600000,0),3) AS merged_prs_per_run_hour\nFROM factory.runs r\nLEFT JOIN factory.pr_outcomes p ON p.issue_id = r.issue_id AND p.repo = r.repo\nWHERE $__timeFilter(r.started_at) AND ('*' IN (${r.factory_id:singlequote}) OR r.factory_id IN (${r.factory_id:singlequote}))\n  AND ('*' IN (${r.agent_id:singlequote}) OR r.agent_id IN (${r.agent_id:singlequote}))\n  AND ('*' IN (${r.model:singlequote}) OR r.model IN (${r.model:singlequote}))\n  AND ('*' IN (${r.kind:singlequote}) OR r.kind IN (${r.kind:singlequote}))\nGROUP BY r.agent_id, r.agent_version, r.model\nORDER BY merged_prs_per_run_hour DESC\nLIMIT 50",
+          "rawSql": "SELECT\n  r.agent_id,\n  r.agent_version,\n  r.model,\n  uniqExactIf(p.pr_number, p.merged_at IS NOT NULL) AS merged_prs,\n  round(sum(coalesce(r.duration_ms,0))/3600000,3) AS run_hours,\n  round(uniqExactIf(p.pr_number, p.merged_at IS NOT NULL) / nullIf(sum(coalesce(r.duration_ms,0))/3600000,0),3) AS merged_prs_per_run_hour\nFROM factory.runs r\nLEFT JOIN factory.pr_outcomes p ON p.issue_id = r.issue_id AND p.repo = r.repo\nWHERE $__timeFilter(r.started_at) AND ('*' IN (${factory_id:singlequote}) OR r.factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR r.agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR r.model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR r.kind IN (${kind:singlequote}))\nGROUP BY r.agent_id, r.agent_version, r.model\nORDER BY merged_prs_per_run_hour DESC\nLIMIT 50",
           "refId": "A"
         }
       ],
@@ -700,7 +700,7 @@
   "templating": {
     "list": [
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -725,7 +725,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -750,7 +750,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
@@ -775,7 +775,7 @@
         "type": "query"
       },
       {
-        "allValue": "*",
+        "allValue": "'*'",
         "current": {
           "selected": true,
           "text": "All",
