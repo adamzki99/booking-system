@@ -265,6 +265,13 @@ export default function Users() {
                           </tr>
                         )}
                       </For>
+                      <Show when={visibleUsers().length === 0}>
+                        <tr>
+                          <td colspan={superUser() ? 6 : 5} class="users-empty">
+                            {query().trim() ? "No members match your search." : "No members yet."}
+                          </td>
+                        </tr>
+                      </Show>
                     </tbody>
                   </table>
                 </div>

@@ -240,6 +240,33 @@ describe("Users page", () => {
     );
   });
 
+  it("shows a no-results message when a search matches no members", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    renderUsers();
+    await screen.findByRole("cell", { name: "basic@example.com" });
+
+    setInput(screen.getByLabelText("Search members"), "zzzz-no-match");
+
+    expect(await screen.findByText("No members match your search.")).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "basic@example.com" })).not.toBeInTheDocument();
+  });
+
+  it("does not show the empty state when a member matches the search", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    renderUsers("/users?q=super");
+    await screen.findByRole("cell", { name: "super@example.com" });
+    expect(screen.queryByText("No members match your search.")).not.toBeInTheDocument();
+  });
+
+  it("shows an empty-directory message when there are no members", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([]);
+    renderUsers();
+    expect(await screen.findByText("No members yet.")).toBeInTheDocument();
+  });
+
   it("keeps management select options complete while a search filters rows", async () => {
     stubSession(superUser);
     listUsersMock.mockResolvedValue([basicUser, superUser]);
