@@ -244,7 +244,7 @@ services:
       - factory-monitoring-net
 
   langfuse-postgres:
-    image: postgres:17.9
+    image: postgres:18.6
     profiles: ["langfuse"]
     restart: unless-stopped
     depends_on:
@@ -254,10 +254,14 @@ services:
       POSTGRES_USER: langfuse
       POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD:-}
       POSTGRES_DB: langfuse
+      PGDATA: /var/lib/postgresql/data
       TZ: UTC
       PGTZ: UTC
+    entrypoint: ["/usr/local/bin/langfuse-postgres-entrypoint.sh"]
+    command: ["postgres"]
     volumes:
       - langfuse-postgres-data:/var/lib/postgresql/data
+      - ./scripts/langfuse-postgres-entrypoint.sh:/usr/local/bin/langfuse-postgres-entrypoint.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
       interval: 5s
@@ -347,6 +351,8 @@ services:
     depends_on:
       langfuse-check-env:
         condition: service_completed_successfully
+      langfuse-web:
+        condition: service_healthy
       clickhouse:
         condition: service_healthy
       clickhouse-init:
@@ -361,6 +367,7 @@ services:
         condition: service_completed_successfully
     environment: &langfuse-env
       NODE_ENV: production
+      HOSTNAME: 0.0.0.0
       DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD:-}@langfuse-postgres:5432/langfuse
       SALT: ${LANGFUSE_SALT:-}
       ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-}
@@ -372,6 +379,10 @@ services:
       CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-}
       CLICKHOUSE_DB: langfuse
       CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_MIGRATION_V4_WRITE_MODE: ${LANGFUSE_MIGRATION_V4_WRITE_MODE:-legacy}
+      LANGFUSE_MIGRATION_V4_NATIVE_OTEL_BEHAVIOUR: ${LANGFUSE_MIGRATION_V4_NATIVE_OTEL_BEHAVIOUR:-dual_write}
+      LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN: ${LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN:-false}
+      LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL: ${LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL:-false}
       REDIS_HOST: langfuse-redis
       REDIS_PORT: "6379"
       REDIS_AUTH: ${LANGFUSE_REDIS_AUTH:-}
@@ -390,6 +401,16 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- 'http://127.0.0.1:3030/api/health?failIfEventPropagationStuck=true' >/dev/null 2>&1 || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
     deploy:
       resources:
         limits:
@@ -404,8 +425,6 @@ services:
     depends_on:
       langfuse-check-env:
         condition: service_completed_successfully
-      langfuse-worker:
-        condition: service_started
       clickhouse:
         condition: service_healthy
       clickhouse-init:
@@ -437,7 +456,10 @@ services:
       - "127.0.0.1:${LANGFUSE_PORT:-3001}:3000"
     healthcheck:
       test:
-        ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/public/health >/dev/null 2>&1 || exit 1"]
+        [
+          "CMD-SHELL",
+          "wget -qO- 'http://127.0.0.1:3000/api/public/health?failIfDatabaseUnavailable=true' >/dev/null 2>&1 || exit 1",
+        ]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -456,6 +478,7 @@ volumes:
   grafana-data:
   otel-file-storage:
   langfuse-postgres-data:
+    name: ${LANGFUSE_POSTGRES_VOLUME:-factory-monitoring_langfuse-postgres-data}
   langfuse-redis-data:
   langfuse-minio-data:
 
