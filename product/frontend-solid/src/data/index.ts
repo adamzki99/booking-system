@@ -66,7 +66,7 @@ export {
 /** Standard async read: a refreshable memo whose source may be asynchronous. Read under `<Loading>`. */
 export function createAsyncData<T>(source: () => T | Promise<T>): SourceAccessor<T> {
   // Solid 2 async memos suspend/pending when their value is not yet ready.
-  return createMemo(source as () => T) as SourceAccessor<T>;
+  return createMemo<T>(source as () => T);
 }
 
 /**
@@ -93,7 +93,5 @@ export function createOptimisticData<T extends object>(
   source: () => T | Promise<T>,
   seed: T,
 ): ReturnType<typeof createOptimisticStore<T>> {
-  return createOptimisticStore(source as any, seed as any) as ReturnType<
-    typeof createOptimisticStore<T>
-  >;
+  return createOptimisticStore<T>(source as any, seed as any);
 }
