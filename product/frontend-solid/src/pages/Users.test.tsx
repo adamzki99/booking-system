@@ -4,6 +4,7 @@ import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../test-utils";
 import type { User } from "../api/auth";
+import { ApiError } from "../api/client";
 import { addUser, changeUserAddress, changeUserRole, listUsers, removeUser } from "../api/users";
 import { useSession } from "../auth/SessionContext";
 import Users from "./Users";
@@ -230,6 +231,36 @@ describe("Users page", () => {
     setInput(document.getElementById("address-value") as HTMLElement, "New addr");
     fireEvent.click(screen.getByRole("button", { name: "Change address" }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
+  });
+
+  it("shows a friendly message instead of a raw auth error when adding a user", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser]);
+    addUserMock.mockRejectedValue(new ApiError("auth: invalid email", 400));
+    renderUsers();
+    await screen.findByRole("cell", { name: "basic@example.com" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add user" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Enter a valid email address.");
+    expect(alert).not.toHaveTextContent("auth:");
+  });
+
+  it("hides internal error codes for other user-management failures", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    changeUserAddressMock.mockRejectedValue(new ApiError("auth: user is protected", 403));
+    renderUsers();
+    await screen.findByRole("cell", { name: "basic@example.com" });
+
+    setSelect(screen.getByLabelText("User"), "b1");
+    setInput(document.getElementById("address-value") as HTMLElement, "New addr");
+    fireEvent.click(screen.getByRole("button", { name: "Change address" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not change the address. Please try again.");
+    expect(alert).not.toHaveTextContent("auth:");
   });
 
   it("renders an initials avatar for each directory member", async () => {
