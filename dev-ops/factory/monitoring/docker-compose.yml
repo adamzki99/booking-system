@@ -276,7 +276,7 @@ services:
       - factory-monitoring-net
 
   langfuse-redis:
-    image: redis:7.4.8
+    image: redis:8.0.0
     profiles: ["langfuse"]
     restart: unless-stopped
     depends_on:
