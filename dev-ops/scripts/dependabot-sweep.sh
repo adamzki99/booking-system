@@ -55,6 +55,7 @@ fi
 export PATH="$PATH:$HOME/.opencode/bin:$HOME/.local/bin:$HOME/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEFAULT_REPO_SLUG="adamzki99/booking-system"
 if git -C "$SCRIPT_DIR" remote get-url origin >/dev/null 2>&1; then
   origin_url="$(git -C "$SCRIPT_DIR" remote get-url origin)"
@@ -64,6 +65,48 @@ if git -C "$SCRIPT_DIR" remote get-url origin >/dev/null 2>&1; then
 fi
 
 REPO_SLUG="${REPO_SLUG:-$DEFAULT_REPO_SLUG}"
+
+mint_factory_github_token() {
+  # Mint a short-lived GitHub App installation token and export it as GH_TOKEN,
+  # mirroring factory/tick.sh. No-op when app credentials are not configured.
+  if [[ -z "${FACTORY_GITHUB_APP_ID:-}" ]]; then
+    return 0
+  fi
+  local key_file="${FACTORY_GITHUB_APP_PRIVATE_KEY_FILE:-}"
+  local tmp_key=""
+  if [[ -z "$key_file" && -n "${FACTORY_GITHUB_APP_PRIVATE_KEY:-}" ]]; then
+    tmp_key="$(mktemp)"
+    (umask 077; printf '%s' "$FACTORY_GITHUB_APP_PRIVATE_KEY" > "$tmp_key")
+    key_file="$tmp_key"
+  fi
+  if [[ -z "$key_file" || ! -f "$key_file" ]]; then
+    [[ -z "$tmp_key" ]] || rm -f "$tmp_key"
+    printf '[dependabot-sweep] ERROR: FACTORY_GITHUB_APP_ID set but no readable private key\n' >&2
+    return 1
+  fi
+  local token
+  token="$(python3 "$REPO_ROOT/dev-ops/factory/lib/mint_github_app_token.py" \
+    --app-id "$FACTORY_GITHUB_APP_ID" \
+    --key-file "$key_file" \
+    ${FACTORY_GITHUB_INSTALLATION_ID:+--installation-id "$FACTORY_GITHUB_INSTALLATION_ID"} \
+    --repo "$REPO_SLUG" \
+    --repo-root "$REPO_ROOT" 2>/tmp/dependabot-sweep-mint-err)" || {
+      local err; err="$(cat /tmp/dependabot-sweep-mint-err 2>/dev/null || true)"
+      rm -f /tmp/dependabot-sweep-mint-err
+      [[ -z "$tmp_key" ]] || rm -f "$tmp_key"
+      printf '[dependabot-sweep] ERROR: failed to mint factory GitHub App token: %s\n' "$err" >&2
+      return 1
+    }
+  rm -f /tmp/dependabot-sweep-mint-err
+  [[ -z "$tmp_key" ]] || rm -f "$tmp_key"
+  if [[ -z "$token" ]]; then
+    printf '[dependabot-sweep] ERROR: minted empty factory token\n' >&2
+    return 1
+  fi
+  export GH_TOKEN="$token"
+  export GITHUB_TOKEN="$token"
+  log "factory GitHub App token minted"
+}
 STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 WORK_DIR="${WORK_DIR:-$STATE_HOME/dependabot-sweep}"
 REPO_DIR="${REPO_DIR:-$WORK_DIR/repo}"
@@ -72,6 +115,11 @@ PROMPT_FILE="${PROMPT_FILE:-$SCRIPT_DIR/dependabot-sweep-prompt.md}"
 
 MODEL="${MODEL:-opencode-go/kimi-k3}"
 AGENT="${AGENT:-}"
+
+FACTORY_GITHUB_APP_ID="${FACTORY_GITHUB_APP_ID:-}"
+FACTORY_GITHUB_APP_PRIVATE_KEY_FILE="${FACTORY_GITHUB_APP_PRIVATE_KEY_FILE:-}"
+FACTORY_GITHUB_APP_PRIVATE_KEY="${FACTORY_GITHUB_APP_PRIVATE_KEY:-}"
+FACTORY_GITHUB_INSTALLATION_ID="${FACTORY_GITHUB_INSTALLATION_ID:-}"
 
 MAX_PRS="${MAX_PRS:-10}"
 AUTO_MERGE="${AUTO_MERGE:-1}"
@@ -102,6 +150,7 @@ for bin in git gh opencode flock timeout; do
   command -v "$bin" >/dev/null 2>&1 || die "'$bin' not found in PATH ($PATH)"
 done
 [[ -f "$PROMPT_FILE" ]] || die "Prompt file not found: $PROMPT_FILE"
+mint_factory_github_token || die "could not mint factory GitHub App token. Set FACTORY_GITHUB_APP_ID or GH_TOKEN."
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated. Set GH_TOKEN in $ENV_FILE or run 'gh auth login'."
 
 models_out="$(opencode models 2>/dev/null || true)"
