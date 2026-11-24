@@ -78,11 +78,36 @@ describe("Login page", () => {
   it("shows an accessible validation message for malformed email", async () => {
     renderLogin();
 
-    setInput(await screen.findByLabelText("Email"), "user");
-    fireEvent.click(screen.getByRole("button", { name: "Request code" }));
+    const input = await screen.findByLabelText("Email");
+    setInput(input, "user");
+    // Submit is disabled for malformed input, so exercise the form validator.
+    fireEvent.submit(input.closest("form")!);
 
     expect(await screen.findByText(/enter a valid email address/i)).toBeInTheDocument();
     expect(requestCodeMock).not.toHaveBeenCalled();
+  });
+
+  it("enables the request-code action only for a valid email", async () => {
+    renderLogin();
+
+    const button = await screen.findByRole("button", { name: "Request code" });
+    expect(button).toBeDisabled();
+    setInput(screen.getByLabelText("Email"), "not-an-email");
+    expect(button).toBeDisabled();
+    setInput(screen.getByLabelText("Email"), "user@example.com");
+    expect(button).toBeEnabled();
+  });
+
+  it("keeps QA sign-in disabled until the email is valid", async () => {
+    getAuthConfigMock.mockResolvedValue({ qaMode: true });
+    renderLogin();
+
+    const button = await screen.findByRole("button", { name: "Sign in" });
+    expect(button).toBeDisabled();
+    setInput(screen.getByLabelText("Email"), "not-an-email");
+    expect(button).toBeDisabled();
+    setInput(screen.getByLabelText("Email"), "user@example.com");
+    expect(button).toBeEnabled();
   });
 
   it("signs in with the code and redirects to the calendar", async () => {
