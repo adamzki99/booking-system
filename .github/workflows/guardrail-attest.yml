@@ -1,0 +1,91 @@
+name: Guardrail Attestation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.opencode/agents/**'
+      - '.opencode/commands/**'
+      - '.opencode/skills/**'
+      - 'AGENTS.md'
+      - 'opencode.jsonc'
+      - '.github/workflows/guardrail-attest.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit/ref to attest (defaults to the workflow SHA)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: guardrail-attest-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  attest:
+    name: attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: factory-guardrail
+    steps:
+      - name: Resolve target ref
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${DISPATCH_REF:-$GITHUB_SHA}"
+          if [[ -z "$ref" ]]; then
+            echo "ref is required" >&2
+            exit 1
+          fi
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+        env:
+          DISPATCH_REF: ${{ inputs.ref }}
+
+      - name: Checkout target commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.target.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Compute guardrail manifest
+        id: manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/guardrail-attest
+          python3 dev-ops/factory/lib/factory.py guardrail-manifest "$GITHUB_WORKSPACE" "${TARGET_REF}" > /tmp/guardrail-attest/guardrail-manifest.json
+          python3 -m json.tool /tmp/guardrail-attest/guardrail-manifest.json >/dev/null
+          printf 'manifest=/tmp/guardrail-attest/guardrail-manifest.json\n' >> "$GITHUB_OUTPUT"
+        env:
+          TARGET_REF: ${{ steps.target.outputs.ref }}
+
+      - name: Publish approved manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --quiet origin factory-guardrail-approved || true
+          if git show-ref --verify --quiet refs/remotes/origin/factory-guardrail-approved; then
+            git checkout -B factory-guardrail-approved origin/factory-guardrail-approved
+          else
+            git checkout --orphan factory-guardrail-approved
+            git rm -rf --quiet . || true
+          fi
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp "$MANIFEST_FILE" ./guardrail-manifest.json
+          git add guardrail-manifest.json
+          if git diff --cached --quiet -- guardrail-manifest.json; then
+            echo "guardrail manifest unchanged; nothing to publish"
+            exit 0
+          fi
+          git commit -m "chore(factory): approve guardrail manifest for ${TARGET_REF}"
+          git push --force-with-lease origin factory-guardrail-approved
+        env:
+          MANIFEST_FILE: ${{ steps.manifest.outputs.manifest }}
+          TARGET_REF: ${{ steps.target.outputs.ref }}

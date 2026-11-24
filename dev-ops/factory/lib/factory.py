@@ -7,6 +7,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import sys
 import uuid
 
@@ -553,6 +554,172 @@ def session_id_from_stream(text):
 
 
 # ---------------------------------------------------------------------------
+# Guardrail attestation (stronger alternative to mutable tag gate)
+# ---------------------------------------------------------------------------
+
+GUARDRAIL_MANIFEST_SCHEMA_VERSION = 1
+GUARDRAIL_MANIFEST_TYPE = "factory-guardrail-manifest"
+GUARDRAIL_APPROVED_BRANCH = "factory-guardrail-approved"
+GUARDRAIL_APPROVED_REF = f"refs/heads/{GUARDRAIL_APPROVED_BRANCH}"
+GUARDRAIL_MANIFEST_PATH = "guardrail-manifest.json"
+GUARDRAIL_PATHS = [
+    ".opencode/agents",
+    ".opencode/commands",
+    ".opencode/skills",
+    "AGENTS.md",
+    "opencode.jsonc",
+]
+
+
+def guardrail_paths(paths=None):
+    if paths is None:
+        return list(GUARDRAIL_PATHS)
+    return list(paths)
+
+
+def _run_git(repo_dir, args, check=True):
+    proc = subprocess.run(
+        ["git", "-C", str(repo_dir), *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if check and proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise ValueError(f"git {' '.join(args)} failed: {err}")
+    return proc
+
+
+def guardrail_entries(repo_dir, ref, paths=None):
+    """Return sorted git tree entries for guardrail paths at ref.
+
+    Each entry is {"mode": ..., "oid": ..., "path": ...}. Missing paths are
+    represented by no entries; callers compare manifests so additions/removals
+    are detected.
+    """
+    paths = guardrail_paths(paths)
+    proc = _run_git(repo_dir, ["ls-tree", "-r", "--full-tree", str(ref), "--", *paths])
+    entries = []
+    for line in proc.stdout.splitlines():
+        # "<mode> <type> <oid>\t<path>"
+        if not line.strip():
+            continue
+        meta, sep, path = line.partition("\t")
+        if not sep:
+            continue
+        parts = meta.split()
+        if len(parts) != 3:
+            continue
+        mode, typ, oid = parts
+        if typ != "blob":
+            continue
+        entries.append({"mode": mode, "oid": oid, "path": path})
+    entries.sort(key=lambda e: e["path"])
+    return entries
+
+
+def build_guardrail_manifest(repo_dir, ref, paths=None, approved_commit=None, approved_at=None):
+    paths = guardrail_paths(paths)
+    entries = guardrail_entries(repo_dir, ref, paths=paths)
+    commit = approved_commit
+    if not commit:
+        proc = _run_git(repo_dir, ["rev-parse", "--verify", f"{ref}^{{commit}}"], check=False)
+        if proc.returncode == 0:
+            commit = proc.stdout.strip()
+        else:
+            commit = str(ref)
+    manifest = {
+        "schema_version": GUARDRAIL_MANIFEST_SCHEMA_VERSION,
+        "type": GUARDRAIL_MANIFEST_TYPE,
+        "approved_commit": commit,
+        "approved_at": approved_at or datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "guardrail_paths": paths,
+        "entries": entries,
+    }
+    return manifest
+
+
+def load_guardrail_manifest(source):
+    if isinstance(source, dict):
+        obj = source
+    elif isinstance(source, str):
+        if os.path.isfile(source):
+            with open(source, "r", encoding="utf-8") as f:
+                obj = json.load(f)
+        else:
+            obj = json.loads(source)
+    else:
+        raise ValueError("manifest must be dict, JSON string, or file path")
+    if not isinstance(obj, dict):
+        raise ValueError("manifest must be an object")
+    if obj.get("type") != GUARDRAIL_MANIFEST_TYPE:
+        raise ValueError(f"manifest type must be {GUARDRAIL_MANIFEST_TYPE!r}")
+    if obj.get("schema_version") != GUARDRAIL_MANIFEST_SCHEMA_VERSION:
+        raise ValueError(f"unsupported guardrail manifest schema_version: {obj.get('schema_version')!r}")
+    entries = obj.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("manifest entries must be a list")
+    norm_entries = []
+    for e in entries:
+        if not isinstance(e, dict):
+            raise ValueError("manifest entry must be an object")
+        path = e.get("path")
+        oid = e.get("oid")
+        mode = e.get("mode")
+        if not isinstance(path, str) or not isinstance(oid, str) or not isinstance(mode, str):
+            raise ValueError("manifest entry must contain string mode, oid, path")
+        norm_entries.append({"mode": mode, "oid": oid, "path": path})
+    norm_entries.sort(key=lambda e: e["path"])
+    obj = dict(obj)
+    obj["entries"] = norm_entries
+    paths = obj.get("guardrail_paths")
+    if paths is not None:
+        if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+            raise ValueError("manifest guardrail_paths must be a list of strings")
+        obj["guardrail_paths"] = list(paths)
+    return obj
+
+
+def verify_guardrail_manifest(manifest, repo_dir, ref, paths=None):
+    """Compare approved manifest entries against current ref.
+
+    Returns (ok, reason, details).
+    """
+    try:
+        manifest = load_guardrail_manifest(manifest)
+    except Exception as e:
+        return False, "manifest_invalid", str(e)
+    expected_paths = paths if paths is not None else manifest.get("guardrail_paths")
+    try:
+        current = guardrail_entries(repo_dir, ref, paths=expected_paths)
+    except Exception as e:
+        return False, "current_unreadable", str(e)
+    approved = manifest.get("entries", [])
+    if current == approved:
+        return True, "ok", ""
+    # Build a small deterministic diff summary.
+    approved_map = {e["path"]: e for e in approved}
+    current_map = {e["path"]: e for e in current}
+    changes = []
+    for p in sorted(set(approved_map) | set(current_map)):
+        a = approved_map.get(p)
+        c = current_map.get(p)
+        if a == c:
+            continue
+        if a is None:
+            changes.append(f"added:{p}")
+        elif c is None:
+            changes.append(f"removed:{p}")
+        else:
+            changes.append(f"changed:{p}")
+    detail = ",".join(changes[:20])
+    if len(changes) > 20:
+        detail += f",...(+{len(changes)-20})"
+    return False, "manifest_mismatch", detail
+
+
+# ---------------------------------------------------------------------------
 # Opencode stream parsing (Part B usage/cost)
 # ---------------------------------------------------------------------------
 
@@ -877,7 +1044,7 @@ def main(argv):
             "classify-gh|classify-git|should-retry|is-usage-filled|"
             "model-for-labels|claim-acquire|claim-release|emit|session-id|stream-error|"
             "classify-failure|error-fingerprint|trace-id|parse-tool-calls|export-trace|"
-            "trusted-logins> ...",
+            "trusted-logins|guardrail-paths|guardrail-manifest|guardrail-verify> ...",
             file=sys.stderr,
         )
         return 2
@@ -1048,6 +1215,49 @@ def main(argv):
             print(f"OK: {msg}")
             return 0
         print(f"ERR: {msg}", file=sys.stderr)
+        return 1
+    if cmd == "guardrail-paths":
+        for p in guardrail_paths():
+            print(p)
+        return 0
+    if cmd == "guardrail-manifest":
+        # guardrail-manifest <repo_dir> <ref> [approved_commit] [approved_at]
+        if len(argv) < 4:
+            print("usage: factory.py guardrail-manifest <repo_dir> <ref> [approved_commit] [approved_at]", file=sys.stderr)
+            return 2
+        repo_dir = argv[2]
+        ref = argv[3]
+        approved_commit = argv[4] if len(argv) > 4 and argv[4] != "-" else None
+        approved_at = argv[5] if len(argv) > 5 and argv[5] != "-" else None
+        try:
+            manifest = build_guardrail_manifest(repo_dir, ref, approved_commit=approved_commit, approved_at=approved_at)
+        except Exception as e:
+            print(f"ERR: {e}", file=sys.stderr)
+            return 1
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+        return 0
+    if cmd == "guardrail-verify":
+        # guardrail-verify <manifest_file|-> <repo_dir> <ref>
+        if len(argv) < 5:
+            print("usage: factory.py guardrail-verify <manifest_file|-> <repo_dir> <ref>", file=sys.stderr)
+            return 2
+        manifest_source = argv[2]
+        repo_dir = argv[3]
+        ref = argv[4]
+        try:
+            if manifest_source == "-":
+                manifest = json.load(sys.stdin)
+            else:
+                with open(manifest_source, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+        except Exception as e:
+            print(f"drift\tmanifest_unreadable\t{e}")
+            return 1
+        ok, reason, detail = verify_guardrail_manifest(manifest, repo_dir, ref)
+        if ok:
+            print("ok\tok\t")
+            return 0
+        print(f"drift\t{reason}\t{detail}")
         return 1
     print(f"unknown command: {cmd}", file=sys.stderr)
     return 2

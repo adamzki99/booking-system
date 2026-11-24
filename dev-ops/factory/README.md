@@ -118,7 +118,8 @@ tick.sh --help
 | `FACTORY_CLAIM_TTL`                                  | `7200`                                                 | Claim lease TTL seconds.                                                                                                                                                                         |
 | `FACTORY_CLAIM_DIR`                                  | `/tmp/factory-claims`                                  | Atomic lease directory.                                                                                                                                                                          |
 | `FACTORY_WORKTREE`                                   | sibling `<repo>-factory-worktree`                      | Isolated factory worktree.                                                                                                                                                                       |
-| `FACTORY_CONFIG_TAG`                                 | `factory-config`                                       | Owner-moved git tag holding the signed-off guardrail snapshot.                                                                                                                                   |
+| `FACTORY_GUARDRAIL_APPROVED_BRANCH`                  | `factory-guardrail-approved`                           | Branch holding the owner-approved guardrail manifest (`guardrail-manifest.json`). Updated by the environment-gated guardrail attestation workflow.                                                |
+| `FACTORY_GUARDRAIL_MANIFEST_PATH`                   | `guardrail-manifest.json`                              | Manifest file path on the approved branch.                                                                                                                                                       |
 | `FACTORY_LOG_FILE`                                   | `${XDG_STATE_HOME:-~/.local/state}/factory/tick.jsonl` | JSONL event log.                                                                                                                                                                                 |
 | `FACTORY_ENV`                                        | `dev`                                                  | `deployment.environment` field.                                                                                                                                                                  |
 | `FACTORY_ID`                                         | `factory-1`                                            | `factory_id` field on every event; one scheduler host = one factory id.                                                                                                                          |
@@ -160,36 +161,46 @@ distinct run (new `run_id`) and reports its own `session_id`.
   `dirty_worktree_skipped_reset`.
 - **Timeouts/interrupts:** each session runs under `timeout` when
   `FACTORY_SESSION_TIMEOUT>0`; signals emit `tick_interrupted`.
-- **Guardrail drift gate:** `tick.sh` starts no session when the guardrail files
-  it loads from `origin/main` differ from the owner-moved `factory-config` tag
-  (see below).
+- **Guardrail attestation gate:** `tick.sh` starts no session when the guardrail
+  files in `origin/main` do not match the owner-approved manifest on
+  `factory-guardrail-approved` (see below).
 
-## Guardrail drift gate
+## Guardrail attestation gate
 
 The agent and config files that OpenCode loads in the worktree
-(`.opencode/agents/`, `opencode.jsonc`, `AGENTS.md`) are guardrails for every
-session. Before issue discovery, `tick.sh` compares those files in `origin/main`
-against the owner-moved `factory-config` tag. On drift it emits `guardrail_drift`
-and exits non-zero, so no session starts. A missing or unfetchable tag also fails
-closed. A clean comparison emits `guardrail_ok`. Override the tag name with
-`FACTORY_CONFIG_TAG`.
+(`.opencode/agents/`, `.opencode/commands/`, `.opencode/skills/`, `opencode.jsonc`,
+`AGENTS.md`) are guardrails for every session. Before issue discovery, `tick.sh`
+computes a manifest of those paths in `origin/main` and compares it to the
+owner-approved manifest on `factory-guardrail-approved`
+(`guardrail-manifest.json`). On mismatch it emits `guardrail_drift` and exits
+non-zero, so no session starts. A missing/unfetchable approved ref, missing or
+invalid manifest, or unreadable current tree also fails closed. A clean
+comparison emits `guardrail_ok`.
 
-**How the owner moves the tag.** Only the repository owner moves
-`factory-config`. After reviewing and merging a change to any guardrail file,
-move the tag to the signed-off commit on the default branch and replace the
-remote tag:
+The manifest is a deterministic JSON file containing the git blob mode/oid/path
+for every file under the guarded paths. Because it is content-based, normal
+non-guardrail commits on `main` do not invalidate it. Any change to a guarded
+file (add, remove, modify) invalidates it until a new manifest is approved.
 
-```
-git fetch origin main
-git tag -f factory-config origin/main
-git push -f origin refs/tags/factory-config
-```
+**Approval flow.** `.github/workflows/guardrail-attest.yml` triggers on pushes
+to `main` that touch guarded paths (and can be run manually via
+`workflow_dispatch`). The `attest` job targets the GitHub environment
+`factory-guardrail`. Configure that environment with required reviewers (owner)
+so the job pauses for owner approval before it publishes the manifest. After
+approval, the workflow computes the manifest for the target commit and pushes
+`guardrail-manifest.json` to the `factory-guardrail-approved` branch.
 
-The force update is required because the tag is moved deliberately. Do this in
-the same review window as the guardrail change: until the tag is moved, tick
-fails closed and starts no sessions. `CODEOWNERS` (`.github/CODEOWNERS`) plus the
-`protect-main` ruleset option "Require review from Code Owners" make those
-guardrail changes owner-reviewed on GitHub.
+**Operator setup.** Create the `factory-guardrail` GitHub environment and require
+owner review before jobs can use it. Protect the `factory-guardrail-approved`
+branch with a ruleset so only the attestation workflow identity (or owner) can
+update it; without branch protection, a direct push with `contents: write` can
+bypass the environment gate. Keep `CODEOWNERS` and required owner review on
+guardrail paths in `protect-main`.
+
+**Failure handling.** If a guardrail change merges, `tick.sh` fails closed until
+the attestation workflow is approved and publishes a matching manifest. This is
+intentional: it trades a short manual approval window for a platform-audited
+record of who approved the exact guardrail content.
 
 ## Failure classification, retry, and exit semantics
 
