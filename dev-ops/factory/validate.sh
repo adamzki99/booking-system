@@ -17,6 +17,7 @@ run() {
 # Shell syntax and lint
 run bash -n dev-ops/factory/tick.sh
 run bash -n dev-ops/factory/nightly-cleanup.sh
+run bash dev-ops/scripts/tests/test-tick-planning.sh
 if command -v shellcheck >/dev/null 2>&1; then
   run shellcheck -x dev-ops/factory/tick.sh dev-ops/factory/nightly-cleanup.sh
 else
