@@ -27,3 +27,7 @@ product so the product can be reused for other booking applications.
   `HH:MM` form (e.g. `00:00,12:00`), interpreted in `BOOKING_TIMEZONE`. When
   set, `GET /functions/chrome` returns `nextRedeploy` as an RFC3339 timestamp.
   Leave empty in production so the header indicator is hidden.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` (default empty) - OTLP HTTP endpoint. When
+  empty, telemetry export is disabled and the sidecar uses no-op providers.
+- `OTEL_SERVICE_NAME` (default `sauna-sidecar`) - overrides the service name.
+- `OTEL_RESOURCE_ATTRIBUTES` - comma-separated `key=value` resource attributes.

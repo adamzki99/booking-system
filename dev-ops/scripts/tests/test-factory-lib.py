@@ -24,13 +24,16 @@ def test_model_for_labels_priority():
         "light-build-task": {"model": "light", "backup_model": "lb"},
         "default": {"model": "def", "backup_model": "db"},
     }
-    m, b = factory.model_for_labels(entries, ["light-build-task", "heavy-build-task"])
+    m, b, t = factory.model_for_labels(entries, ["light-build-task", "heavy-build-task"])
     # first in insertion order wins only if present; heavy first in dict order
     assert m == "heavy"
-    m2, b2 = factory.model_for_labels(entries, ["light-build-task"])
+    assert t == "heavy-build-task"
+    m2, b2, t2 = factory.model_for_labels(entries, ["light-build-task"])
     assert m2 == "light"
-    m3, b3 = factory.model_for_labels(entries, [])
+    assert t2 == "light-build-task"
+    m3, b3, t3 = factory.model_for_labels(entries, [])
     assert m3 == "def"
+    assert t3 == "default"
 
 def test_classify_gh():
     assert factory.classify_gh_error("HTTP 401 Unauthorized") == "auth"
@@ -46,9 +49,26 @@ def test_usage_filled():
 
 def test_make_event_schema():
     e = factory.make_event("tick_start", "abc", False, "backup", "dev", "host", foo="bar")
-    assert e["schema_version"] == 1
+    assert e["schema_version"] == 2
     assert e["event"] == "tick_start"
+    assert e["event_id"]
+    assert e["factory_id"] == "factory-1"
     assert e["foo"] == "bar"
+
+
+def test_make_event_typed_coercion():
+    e = factory.make_event("tick_end", "abc", True, "backup", "prod", "host",
+                           exit_code="1", duration_ms="42",
+                           cost_usd="1.5", attempt="3", skills_loaded="a,b",
+                           area_labels='["x","y"]')
+    assert e["schema_version"] == 2
+    assert e["exit_code"] == 1
+    assert e["duration_ms"] == 42
+    assert e["dry_run"] is True
+    assert e["cost_usd"] == 1.5
+    assert e["attempt"] == 3
+    assert e["skills_loaded"] == ["a", "b"]
+    assert e["area_labels"] == ["x", "y"]
 
 
 def test_validate_invalid_missing_model():
@@ -88,6 +108,18 @@ def test_has_marker_comments():
     assert factory.has_marker_comments(comments, "<!-- factory:plan -->")
 
 
+def test_has_marker_comments_filters_author():
+    marker = "<!-- factory:plan -->"
+    comments = [
+        {"author": {"login": "owner"}, "body": marker},
+        {"author": {"login": "factory-bot"}, "body": "no marker"},
+        {"author": {"login": "factory-bot"}, "body": marker},
+    ]
+    assert factory.has_marker_comments(comments, marker, "factory-bot")
+    assert not factory.has_marker_comments(comments, marker, "another-bot")
+    assert not factory.has_marker_comments(comments, marker, "")
+
+
 def test_classify_git_and_permission():
     assert factory.classify_git_error("permission denied 403") == "permission"
     assert factory.classify_gh_error("rate limit exceeded") == "rate_limit"
@@ -96,9 +128,38 @@ def test_classify_git_and_permission():
 
 def test_event_schema_and_fields():
     e = factory.make_event("tick_result", "t", False, "backup", "dev", "host", result="ok", fix_failures=0)
-    assert e["schema_version"] == 1
+    assert e["schema_version"] == 2
+    assert e["event_id"]
     assert e["result"] == "ok"
     assert e["fix_failures"] == 0
+
+
+def test_validate_event_v2_and_rejects_v3():
+    e = factory.make_event("x", "tick1", True, "skip", "prod", "h", attempt=2)
+    assert factory.validate_event(e) is True
+    assert e["schema_version"] == factory.SCHEMA_VERSION
+    assert e["dry_run"] is True
+    assert e["attempt"] == 2
+    try:
+        factory.validate_event({"event": "x"})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for missing fields")
+    # v3 must be rejected
+    try:
+        factory.validate_event(dict(e, schema_version=3))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for schema_version 3")
+    # non-int schema_version rejected
+    try:
+        factory.validate_event(dict(e, schema_version="2"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for string schema_version")
 
 def test_usage_filled_reason():
     filled, reason = factory.is_usage_filled("quota exceeded now")
@@ -215,3 +276,233 @@ def test_claim_dead_pid_treated_stale_within_ttl():
         now = int(time.time())
         ok, state, _ = factory.acquire_claim(claim, 7200, now, "888", pid_alive_fn=lambda p: False)
         assert ok and state == "acquired"
+
+
+# ---------------------------------------------------------------------------
+# session-id parsing (F-01)
+# ---------------------------------------------------------------------------
+
+FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
+
+
+def _fixture(name):
+    return os.path.join(FIXTURE_DIR, name)
+
+
+def test_session_id_from_fixture():
+    path = _fixture("opencode-stream-v2.3.2.jsonl")
+    assert os.path.isfile(path), f"fixture not found: {path}"
+    with open(path, "r", encoding="utf-8") as f:
+        sid = factory.session_id_from_stream(f.read())
+    assert sid == "ses_sanitized-example"
+
+
+def test_session_id_from_stream_malformed_tolerant():
+    bad = 'not json at all\n{"type":"step_start","sessionID":"ses_abc"}\n{broken\n'
+    assert factory.session_id_from_stream(bad) == "ses_abc"
+    assert factory.session_id_from_stream("garbage only") is None
+    assert factory.session_id_from_stream("") is None
+
+
+def test_session_id_cli(tmp_path):
+    p = tmp_path / "stream.jsonl"
+    p.write_text('{"type":"step_start","sessionID":"ses_cli-1"}\n', encoding="utf-8")
+    import subprocess, sys
+    script = os.path.join(os.path.dirname(__file__), "..", "..", "factory", "lib", "factory.py")
+    out = subprocess.check_output([sys.executable, script, "session-id", str(p)], text=True).strip()
+    assert out == "ses_cli-1"
+
+
+# ---------------------------------------------------------------------------
+# usage / tool parsing (fixture plus malformed stream)
+# ---------------------------------------------------------------------------
+
+def test_parse_opencode_stream_from_fixture():
+    path = _fixture("opencode-stream-v2.3.2.jsonl")
+    with open(path, "r", encoding="utf-8") as f:
+        d = factory.parse_opencode_stream(f.read())
+    assert d["session_id"] == "ses_sanitized-example"
+    assert d["steps"] == 2
+    assert d["tool_calls"] == 1
+    assert d["input_tokens"] == 2937  # 25 + 2912
+    assert d["output_tokens"] == 44   # 25 + 19
+    assert d["reasoning_tokens"] == 48  # 27 + 21
+    assert d["cache_read_tokens"] == 6656  # 4736 + 1920
+    assert d.get("cost_usd", 0.0) == 0.0
+
+
+def test_parse_opencode_stream_malformed_never_crashes():
+    assert factory.parse_opencode_stream("garbage\n{not json\n") == {}
+    assert factory.parse_opencode_stream("") == {}
+    assert factory.parse_opencode_stream(None) == {}
+
+
+def test_parse_opencode_stream_tool_error_and_skills():
+    text = (
+        '{"type":"tool_use","part":{"type":"tool","state":{"status":"error"},"error":"boom"}}\n'
+        '{"type":"text","text":"loading the implement skill now"}\n'
+        '{"type":"step_finish","part":{"tokens":{"input":1,"output":2,"reasoning":3,"cache":{"read":4,"write":5}},"cost":0.5}}\n'
+    )
+    d = factory.parse_opencode_stream(text)
+    assert d["tool_calls"] == 1
+    assert d["tool_errors"] == 1
+    assert d["skills_loaded"] == ["implement"]
+    assert d["steps"] == 1
+    assert d["input_tokens"] == 1
+    assert d["cost_usd"] == 0.5
+
+
+# ---------------------------------------------------------------------------
+# failure_reason classification (F-08)
+# ---------------------------------------------------------------------------
+
+def test_classify_failure_matrix():
+    assert factory.classify_failure("timed out after 3600s", 124) == "timeout"
+    assert factory.classify_failure("usage limit reached", 1) == "usage_filled"
+    assert factory.classify_failure("some error", 1) == "exit_nonzero"
+    assert factory.classify_failure("interrupted by user", 130) == "interrupted"
+    assert factory.classify_failure("opencode panic: boom", 1) == "opencode_error"
+    assert factory.classify_failure("opencode error: failed", 255) == "opencode_error"
+
+
+def test_error_fingerprint_deterministic_and_short():
+    fp = factory.error_fingerprint("Error: something went wrong here\n")
+    assert fp is not None
+    assert len(fp) == 12
+    assert factory.error_fingerprint("Error: something went wrong here\n") == fp
+    assert factory.error_fingerprint("") is None
+    assert factory.error_fingerprint(None) is None
+
+
+# ---------------------------------------------------------------------------
+# deterministic agent_version hashing
+# ---------------------------------------------------------------------------
+
+def test_agent_version_deterministic(tmp_path, monkeypatch):
+    import os as _os
+    agents = tmp_path / ".opencode" / "agents"
+    agents.mkdir(parents=True)
+    (agents / "planner.md").write_text("prompt v1 content", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    v1 = factory.agent_version_for("planner")
+    assert v1 is not None and len(v1) == 12
+    assert factory.agent_version_for("planner") == v1
+    # different content -> different version
+    (agents / "planner.md").write_text("prompt v2 content", encoding="utf-8")
+    assert factory.agent_version_for("planner") != v1
+    assert factory.agent_version_for("missing-agent") is None
+
+
+# ---------------------------------------------------------------------------
+# tool call parsing and trace id (event model v2)
+# ---------------------------------------------------------------------------
+
+def test_parse_tool_calls_from_fixture():
+    path = _fixture("opencode-stream-v2.3.2.jsonl")
+    with open(path, "r", encoding="utf-8") as f:
+        calls = factory.parse_tool_calls(f.read())
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "glob"
+    assert calls[0]["status"] == "completed"
+    assert calls[0]["duration_ms"] == 138
+
+
+def test_parse_tool_calls_malformed_and_skill():
+    text = (
+        'garbage\n'
+        '{"type":"tool_use","part":{"tool":"skill","state":{"status":"completed","input":{"name":"tdd"}},"time":{"start":1,"end":2}}}\n'
+        '{"type":"tool_use","part":{"tool":"bash","state":{"status":"error"},"error":"boom"}}\n'
+    )
+    calls = factory.parse_tool_calls(text)
+    assert len(calls) == 2
+    assert calls[0]["tool"] == "skill"
+    assert calls[0]["skill_name"] == "tdd"
+    assert calls[1]["tool"] == "bash"
+    assert calls[1]["status"] == "error"
+
+
+def test_new_trace_id_format():
+    tid = factory.new_trace_id()
+    assert isinstance(tid, str)
+    assert len(tid) == 32
+    int(tid, 16)  # hex
+    assert factory.new_trace_id() != tid
+
+
+# ---------------------------------------------------------------------------
+# trace export (prompt 05, option c)
+# ---------------------------------------------------------------------------
+
+def test_build_run_spans_from_fixture():
+    import factory_trace
+    path = _fixture("opencode-stream-v2.3.2.jsonl")
+    with open(path, "r", encoding="utf-8") as f:
+        stream = f.read()
+    spans = factory_trace.build_run_spans(
+        trace_id="0123456789abcdef0123456789abcdef",
+        run_id="run-1",
+        session_id="ses_sanitized-example",
+        kind="build",
+        agent_id="builder",
+        model="test/model",
+        repo="owner/repo",
+        issue_id=42,
+        pr_number=7,
+        attempt=1,
+        fallback_level="primary",
+        outcome="completed",
+        stream_text=stream,
+        include_content=False,
+    )
+    assert spans, "expected spans"
+    root = spans[0]
+    assert root["name"] == "factory.agent.run"
+    assert root["traceId"] == "0123456789abcdef0123456789abcdef"
+    attrs = {a["key"]: a["value"] for a in root["attributes"]}
+    assert attrs["factory.run_id"]["stringValue"] == "run-1"
+    assert attrs["factory.kind"]["stringValue"] == "build"
+    assert attrs["factory.outcome"]["stringValue"] == "completed"
+    # child spans include LLM steps and tool call
+    names = [s["name"] for s in spans]
+    assert "opencode.llm.step" in names
+    assert any(n.startswith("execute_tool ") for n in names)
+    # all spans share the same trace id
+    assert {s["traceId"] for s in spans} == {"0123456789abcdef0123456789abcdef"}
+    # tool span has tool name but no content by default
+    tool_spans = [s for s in spans if s["name"].startswith("execute_tool ")]
+    assert tool_spans
+    tool_attrs = {a["key"]: a["value"] for a in tool_spans[0]["attributes"]}
+    assert tool_attrs["gen_ai.tool.name"]["stringValue"] == "glob"
+    assert "tool.input" not in tool_attrs
+    assert "tool.output" not in tool_attrs
+
+
+def test_build_run_spans_no_content_by_default(monkeypatch):
+    import factory_trace
+    monkeypatch.delenv("FACTORY_TRACE_CONTENT", raising=False)
+    stream = '{"type":"tool_use","timestamp":1,"sessionID":"s","part":{"tool":"bash","state":{"status":"completed","input":{"command":"echo secret-token"},"output":"secret-token","time":{"start":1,"end":2}}}}\n{"type":"step_finish","timestamp":2,"sessionID":"s","part":{"type":"step-finish","reason":"stop","tokens":{"input":1,"output":1},"cost":0}}\n'
+    spans = factory_trace.build_run_spans(
+        trace_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        run_id="r1",
+        outcome="completed",
+        stream_text=stream,
+    )
+    tool_spans = [s for s in spans if s["name"].startswith("execute_tool ")]
+    tool_attrs = {a["key"]: a["value"] for a in tool_spans[0]["attributes"]}
+    assert "tool.input" not in tool_attrs
+    assert "tool.output" not in tool_attrs
+
+
+def test_build_run_spans_includes_content_when_opted_in(monkeypatch):
+    import factory_trace
+    monkeypatch.setenv("FACTORY_TRACE_CONTENT", "1")
+    stream = '{"type":"text","timestamp":1,"sessionID":"s","part":{"text":"hello","messageID":"m","type":"text"}}\n{"type":"step_finish","timestamp":2,"sessionID":"s","part":{"type":"step-finish","reason":"stop","tokens":{"input":1,"output":1},"cost":0}}\n'
+    spans = factory_trace.build_run_spans(
+        trace_id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        run_id="r2",
+        outcome="completed",
+        stream_text=stream,
+    )
+    llm = [s for s in spans if s["name"] == "opencode.llm.step"][0]
+    attrs = {a["key"]: a["value"] for a in llm["attributes"]}
+    assert attrs["output.value"]["stringValue"] == "hello"

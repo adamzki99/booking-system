@@ -1,0 +1,59 @@
+name: Monitoring CI
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-monitoring
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Validate monitoring stacks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.x"
+
+      - name: Install validation dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pyyaml pytest
+
+      - name: Run factory validation
+        run: dev-ops/factory/validate.sh
+
+      - name: Run factory monitoring stack validation
+        run: dev-ops/factory/monitoring/scripts/validate.sh
+
+      - name: Run product monitoring base validation
+        run: product/monitoring/scripts/validate.sh
+
+      - name: Validate sauna monitoring instance
+        run: |
+          TMP_ENV="$(mktemp)"
+          trap 'rm -f "$TMP_ENV"' EXIT
+          cat > "$TMP_ENV" <<'ENV'
+          MONITORING_PROJECT=sauna
+          CLICKHOUSE_COLLECTOR_PASSWORD=test-collector
+          CLICKHOUSE_GRAFANA_PASSWORD=test-grafana
+          GRAFANA_ADMIN_USER=admin
+          GRAFANA_ADMIN_PASSWORD=test-admin
+          HOST_NAME=test-host
+          GRAFANA_PORT=13001
+          OTLP_GRPC_PORT=14327
+          OTLP_HTTP_PORT=14328
+          TRACES_TTL_DAYS=7
+          LOGS_TTL_DAYS=14
+          PROMETHEUS_RETENTION=15d
+          PROMETHEUS_RETENTION_SIZE=2GB
+          ENV
+          docker compose -f projects/sauna/monitoring/compose.yaml --env-file "$TMP_ENV" config -q

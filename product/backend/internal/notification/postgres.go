@@ -118,6 +118,15 @@ func (s *PostgresStore) Fail(ctx context.Context, id int64, cause string) error 
 	return nil
 }
 
+// PendingCount returns the number of deliveries currently awaiting delivery.
+func (s *PostgresStore) PendingCount(ctx context.Context) (int64, error) {
+	var n int64
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM notification_outbox WHERE status = 'pending'`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("notification pending count: %w", err)
+	}
+	return n, nil
+}
+
 // List returns rows with the given status, or all rows when status is empty.
 func (s *PostgresStore) List(ctx context.Context, status string) ([]Item, error) {
 	rows, err := s.pool.Query(ctx, `

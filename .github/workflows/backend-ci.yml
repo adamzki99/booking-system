@@ -41,7 +41,19 @@ jobs:
         run: go vet ./...
 
       - name: Tests
-        run: go test ./...
+        run: go test -race -shuffle=on -timeout 20m -json ./... > "$RUNNER_TEMP/go-test.json"
+
+      - name: Test report
+        if: always()
+        run: |
+          "$GITHUB_WORKSPACE/dev-ops/scripts/go-test-report.sh" "$RUNNER_TEMP/go-test.json" \
+            --require-package auth \
+            --require-package booking \
+            --require-package eventstore \
+            --require-package notification \
+            --require-package projection \
+            --require-package registry \
+            --require-package user
 
       - name: Build
         run: go build ./cmd/server

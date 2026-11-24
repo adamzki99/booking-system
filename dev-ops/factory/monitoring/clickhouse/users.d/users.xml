@@ -1,0 +1,13 @@
+<clickhouse>
+  <profiles>
+    <collector_profile>
+      <readonly>0</readonly>
+    </collector_profile>
+    <grafana_profile>
+      <readonly>2</readonly>
+      <max_execution_time>30</max_execution_time>
+      <max_rows_to_read>5000000</max_rows_to_read>
+      <max_bytes_to_read>500000000</max_bytes_to_read>
+    </grafana_profile>
+  </profiles>
+</clickhouse>

@@ -18,6 +18,7 @@
 		# networks, i.e. the cloudflared connector or a local reverse proxy.
 		# Tighten to the exact proxy CIDR if the topology is known.
 		trusted_proxies static private_ranges
+		metrics
 	}
 }
 
@@ -50,4 +51,10 @@
 
 :80 {
 	import app
+}
+
+# Internal-only Prometheus metrics for the optional monitoring stack.
+# Do not publish this port from docker-compose.
+:9180 {
+	metrics
 }

@@ -19,10 +19,10 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** `pull_request` and `push` when `product/backend/**` or the workflow file changes; `workflow_dispatch`.
 
 **Jobs:**
-- **Format, vet, test, build** (`product/backend`): checks `gofmt`, runs `go vet ./...`, runs `go test ./...`, and builds `./cmd/server`. Go version comes from `product/backend/go.mod`.
+- **Format, vet, test, build** (`product/backend`): checks `gofmt`, runs `go vet ./...`, runs `go test -race -shuffle=on -timeout 20m -json ./...` into `$RUNNER_TEMP/go-test.json`, and builds `./cmd/server`. The following "Test report" step always runs `dev-ops/scripts/go-test-report.sh`, which fails on any test-level `skip`, requires a non-zero pass count for the seven Postgres integration packages (`auth`, `booking`, `eventstore`, `notification`, `projection`, `registry`, `user`), and writes per-package counts to the job summary. Go version comes from `product/backend/go.mod`.
 - **Docker build smoke test**: builds `product/backend/Dockerfile` from the repo root to catch Dockerfile regressions.
 
-**Notes:** `go test ./...` includes integration tests (e.g. `*_integration_test.go`). Those tests use [testcontainers-go](https://golang.testcontainers.org/) and require a working Docker daemon; GitHub-hosted Ubuntu runners provide Docker. There is no separate `services: postgres` job because the backend's integration tests manage their own PostgreSQL containers.
+**Notes:** `go test -json ./...` includes integration tests (e.g. `*_integration_test.go`). Those tests use [testcontainers-go](https://golang.testcontainers.org/) and require a working Docker daemon; GitHub-hosted Ubuntu runners provide Docker. There is no separate `services: postgres` job because the backend's integration tests manage their own PostgreSQL containers. The test command uses a file redirect rather than a pipe so the exit status of `go test` still fails the step. `-race` surfaces concurrency defects and `-shuffle=on` surfaces order-dependent tests; neither flag may be relaxed to hide a failure. Do not call `t.Skip` in backend tests: the report step fails the job on any test-level skip. A package-level skip (a package with no test files) is allowed.
 
 ## `frontend-ci.yml`
 
@@ -38,7 +38,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 **Triggers:** `pull_request` and `push` to `main` when `projects/sauna/sidecar/**` or the workflow file changes; `workflow_dispatch`.
 
 **Jobs:**
-- **Sidecar tests** (`projects/sauna/sidecar`): runs `go test ./...` using the sidecar's own `go.mod`. Go version comes from `projects/sauna/sidecar/go.mod`. The sidecar is stdlib-only with no `go.sum`, so Go module caching is disabled (`cache: false`).
+- **Sidecar tests** (`projects/sauna/sidecar`): runs `go test -race -shuffle=on -json ./...` into `$RUNNER_TEMP/go-test.json`, then the "Test report" step runs `dev-ops/scripts/go-test-report.sh` (no required-package flags, since the sidecar is a single stdlib-only package). Go version comes from `projects/sauna/sidecar/go.mod`. The sidecar has no `go.sum`, so Go module caching is disabled (`cache: false`).
 
 **Notes:** Any failing sidecar test fails the check. Sidecar logic stays deployment-specific and is intentionally not coupled to `backend-ci.yml`.
 
@@ -102,7 +102,11 @@ From the repository root:
 cd product/backend
 gofmt -l .                    # should print nothing
 go vet ./...
-go test ./...                 # integration tests need Docker/testcontainers
+go test -race -shuffle=on -timeout 20m -json ./... > /tmp/go-test.json  # integration tests need Docker/testcontainers
+../../dev-ops/scripts/go-test-report.sh /tmp/go-test.json \
+  --require-package auth --require-package booking --require-package eventstore \
+  --require-package notification --require-package projection --require-package registry \
+  --require-package user
 go build ./cmd/server
 
 # Docker smoke build

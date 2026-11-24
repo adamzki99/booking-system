@@ -26,14 +26,17 @@ import (
 	"github.com/adamzki99/booking-system/product/backend/internal/telemetry"
 	"github.com/adamzki99/booking-system/product/backend/internal/user"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func main() {
 	cfg := config.Load()
 
 	stdoutHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
-	logger := slog.New(stdoutHandler)
+	traceHandler := newTraceContextHandler(stdoutHandler)
+	logger := slog.New(traceHandler)
 	slog.SetDefault(logger)
 
 	telShutdown, otelHandler, err := telemetry.Init(context.Background(), cfg)
@@ -42,7 +45,7 @@ func main() {
 		os.Exit(1)
 	}
 	if otelHandler != nil {
-		logger = slog.New(newMultiHandler(stdoutHandler, otelHandler))
+		logger = slog.New(newMultiHandler(traceHandler, otelHandler))
 		slog.SetDefault(logger)
 	}
 
@@ -63,6 +66,9 @@ func main() {
 			os.Exit(1)
 		}
 		pool = p
+		if err := otelpgx.RecordStats(pool); err != nil {
+			logger.Warn("record pgx pool stats", "err", err)
+		}
 		store := eventstore.NewPostgresStore(pool)
 		app, err := registry.New(context.Background(), store, pool)
 		if err != nil {
@@ -79,6 +85,7 @@ func main() {
 		}
 		bookings, blocked := booking.Register(app, userProjections.Users, validator)
 		outbox := notification.NewPostgresStore(pool)
+		notification.ObservePending(outbox.PendingCount)
 		booking.RegisterNotify(app, outbox, userProjections.Users, bookings, logger)
 		broadcast.Register(app, userProjections.Users)
 		broadcast.RegisterNotify(app, outbox, userProjections.Users, logger)
@@ -186,6 +193,40 @@ func main() {
 		pool.Close()
 	}
 	logger.Info("server stopped")
+}
+
+type traceContextHandler struct {
+	next slog.Handler
+}
+
+func newTraceContextHandler(next slog.Handler) slog.Handler {
+	if next == nil {
+		return nil
+	}
+	return &traceContextHandler{next: next}
+}
+
+func (h *traceContextHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.next.Enabled(ctx, level)
+}
+
+func (h *traceContextHandler) Handle(ctx context.Context, record slog.Record) error {
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		record = record.Clone()
+		record.AddAttrs(
+			slog.String("trace_id", sc.TraceID().String()),
+			slog.String("span_id", sc.SpanID().String()),
+		)
+	}
+	return h.next.Handle(ctx, record)
+}
+
+func (h *traceContextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &traceContextHandler{next: h.next.WithAttrs(attrs)}
+}
+
+func (h *traceContextHandler) WithGroup(name string) slog.Handler {
+	return &traceContextHandler{next: h.next.WithGroup(name)}
 }
 
 type multiHandler struct {

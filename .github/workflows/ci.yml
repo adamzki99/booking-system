@@ -22,6 +22,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       sidecar: ${{ steps.filter.outputs.sidecar }}
+      monitoring: ${{ steps.filter.outputs.monitoring }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,6 +44,13 @@ jobs:
               - 'projects/sauna/sidecar/**'
               - '.github/workflows/sidecar-ci.yml'
               - '.github/workflows/ci.yml'
+            monitoring:
+              - 'dev-ops/factory/monitoring/**'
+              - 'dev-ops/factory/otel-collector.yaml'
+              - 'product/monitoring/**'
+              - 'projects/sauna/monitoring/**'
+              - '.github/workflows/monitoring-ci.yml'
+              - '.github/workflows/ci.yml'
 
   backend:
     name: Backend CI
@@ -62,6 +70,12 @@ jobs:
     if: needs.changes.outputs.sidecar == 'true'
     uses: ./.github/workflows/sidecar-ci.yml
 
+  monitoring:
+    name: Monitoring CI
+    needs: changes
+    if: needs.changes.outputs.monitoring == 'true'
+    uses: ./.github/workflows/monitoring-ci.yml
+
   security:
     name: Security
     uses: ./.github/workflows/security.yml
@@ -73,7 +87,7 @@ jobs:
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [changes, backend, frontend, sidecar, security, semgrep]
+    needs: [changes, backend, frontend, sidecar, monitoring, security, semgrep]
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate results

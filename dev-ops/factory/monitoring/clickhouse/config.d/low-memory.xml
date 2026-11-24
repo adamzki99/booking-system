@@ -1,0 +1,53 @@
+<clickhouse>
+  <!-- Listen on all interfaces for docker network access. -->
+  <listen_host>0.0.0.0</listen_host>
+
+  <!-- Low-memory tuning for small shared host (about 3.2 GB RAM total). -->
+  <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
+  <mark_cache_size>67108864</mark_cache_size>
+  <uncompressed_cache_size>33554432</uncompressed_cache_size>
+  <background_pool_size>2</background_pool_size>
+  <background_schedule_pool_size>2</background_schedule_pool_size>
+  <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+  <merge_tree>
+    <number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation>
+    <number_of_free_entries_in_pool_to_lower_max_size_of_merge>2</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+    <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>2</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+  </merge_tree>
+
+  <!-- Keep system log tables from filling disk. -->
+  <query_log>
+    <database>system</database>
+    <table>query_log</table>
+    <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+  </query_log>
+  <trace_log remove="1"/>
+  <text_log remove="1"/>
+  <metric_log>
+    <database>system</database>
+    <table>metric_log</table>
+    <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+  </metric_log>
+  <asynchronous_metric_log>
+    <database>system</database>
+    <table>asynchronous_metric_log</table>
+    <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+  </asynchronous_metric_log>
+  <processors_profile_log remove="1"/>
+  <part_log>
+    <database>system</database>
+    <table>part_log</table>
+    <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+  </part_log>
+
+  <!-- Expose Prometheus metrics for scraping inside the docker network. -->
+  <prometheus>
+    <endpoint>/metrics</endpoint>
+    <port>9363</port>
+    <metrics>true</metrics>
+    <events>true</events>
+    <asynchronous_metrics>true</asynchronous_metrics>
+  </prometheus>
+</clickhouse>

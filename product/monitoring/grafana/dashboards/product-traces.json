@@ -1,0 +1,303 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-product"
+        },
+        "enable": true,
+        "expr": "changes(process_start_time_seconds{deployment_environment=~\"$deployment_environment\",service_name=~\"$service_name\"}[5m]) > 0",
+        "hide": false,
+        "iconColor": "orange",
+        "name": "Deploy / restart markers",
+        "titleFormat": "restart {{service_name}} {{service_version}}"
+      }
+    ]
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-product"
+      },
+      "description": "Log volume by severity from ClickHouse.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-product"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT toStartOfFiveMinutes(Timestamp) AS time, SeverityText, count() AS logs\nFROM otel.otel_logs\nWHERE Timestamp >= now() - INTERVAL 1 HOUR\nGROUP BY time, SeverityText\nORDER BY time ASC\nLIMIT 1000",
+          "refId": "A"
+        }
+      ],
+      "title": "Log volume by level (ClickHouse, 1h)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-product"
+      },
+      "description": "Recent error traces. Open TraceId in Explore for details.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-product"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT Timestamp, ServiceName, SpanName, round(Duration/1000000,2) AS DurationMs, StatusMessage, TraceId\nFROM otel.otel_traces\nWHERE Timestamp >= now() - INTERVAL 6 HOUR\n  AND StatusCode = 'STATUS_CODE_ERROR'\nORDER BY Timestamp DESC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent error traces (ClickHouse)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-product"
+      },
+      "description": "Recent traces. Filter and pivot by TraceId in Grafana Explore.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-product"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT Timestamp, ServiceName, SpanName, round(Duration/1000000,2) AS DurationMs, StatusCode, TraceId\nFROM otel.otel_traces\nWHERE Timestamp >= now() - INTERVAL 1 HOUR\nORDER BY Timestamp DESC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Trace search (ClickHouse)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-product"
+      },
+      "description": "Recent logs with TraceId/SpanId for correlation.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 4,
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-product"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT Timestamp, ServiceName, SeverityText, Body, TraceId, SpanId\nFROM otel.otel_logs\nWHERE Timestamp >= now() - INTERVAL 1 HOUR\nORDER BY Timestamp DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Log search with trace links (ClickHouse)",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "product",
+    "traces",
+    "logs"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-product"
+        },
+        "definition": "label_values({__name__=~\".+\"}, deployment_environment)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Deployment environment",
+        "multi": true,
+        "name": "deployment_environment",
+        "options": [],
+        "query": {
+          "query": "label_values({__name__=~\".+\"}, deployment_environment)",
+          "refId": "Var"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-product"
+        },
+        "definition": "label_values({__name__=~\".+\", deployment_environment=~\"$deployment_environment\"}, service_name)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "service_name",
+        "options": [],
+        "query": {
+          "query": "label_values({__name__=~\".+\", deployment_environment=~\"$deployment_environment\"}, service_name)",
+          "refId": "Var"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-product"
+        },
+        "definition": "label_values({__name__=~\".+\", deployment_environment=~\"$deployment_environment\", service_name=~\"$service_name\"}, service_version)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Version",
+        "multi": true,
+        "name": "service_version",
+        "options": [],
+        "query": {
+          "query": "label_values({__name__=~\".+\", deployment_environment=~\"$deployment_environment\", service_name=~\"$service_name\"}, service_version)",
+          "refId": "Var"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Traces and logs",
+  "uid": "product-traces",
+  "version": 1,
+  "description": "Trace and log search backed by ClickHouse OTel tables."
+}

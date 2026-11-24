@@ -32,7 +32,7 @@ For details, read `product/README.md` and the deployment READMEs under `projects
 - **Frontend:** Solid (TypeScript, Vite)
 - **Database:** PostgreSQL
 - **HTTP server:** Caddy
-- **APM:** SigNoz
+- **Observability:** OpenTelemetry, ClickHouse, Prometheus, Grafana, and Langfuse for the factory
 - **AuthN/AuthZ:** Authelia
 
 ## Architecture
