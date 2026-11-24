@@ -7,12 +7,15 @@ The automation that turns GitHub issues into merged PRs.
 1. [`tick.sh`](tick.sh) runs on a 1-hour interval (e.g. via cron) and fetches
    issues and pull requests from GitHub.
 2. Per tick, it may start:
-   - **one planning session** - for the oldest unlabeled ("infant") issue, but
-     only if it has an `## Acceptance Criteria` section with at least one
-     measurable checkbox (gated by
-     `dev-ops/scripts/check-acceptance-criteria.sh`).
-     A planner agent posts the implementation plan as a comment and categorizes
-     the issue with labels. It never applies `owner approved`.
+   - **up to two planning sessions** - one in the normal planning slot, plus one
+     in the build slot when no build is selected. Discovery scans all unlabeled
+     ("infant") issues oldest first and skips candidates with a trusted plan
+     marker, missing acceptance criteria, or a failed gate without blocking later
+     issues. Eligible issues must have an `## Acceptance Criteria` section with
+     at least one measurable checkbox (gated by
+     `dev-ops/scripts/check-acceptance-criteria.sh`). A planner agent posts the
+     implementation plan as a comment and categorizes the issue with labels. It
+     never applies `owner approved`.
    - **build-path sessions** (fixes, then optionally a new build):
      - **fix sessions** - for open factory PRs (head `factory/issue-*`) that are
        blocked from merge (failing/status checks, changes requested, or merge
@@ -44,9 +47,16 @@ created. The system owner steers the project by interacting with issues only.
   worktree (`FACTORY_WORKTREE`, default sibling `<repo>-factory-worktree`).
 - **Idempotent ticks.** Finished work carries `<!-- factory:plan -->` /
   `<!-- factory:build -->` markers; fix attempts carry
-  `<!-- factory:fix-pr:<sha>:<reasons> -->` PR markers.
+  `<!-- factory:fix-pr:<sha>:<reasons> -->` PR markers. Plan markers count only
+  when their comment author matches `FACTORY_LOGIN`; an unset `FACTORY_LOGIN`
+  trusts no plan marker.
 - **Owner-approved gate is respected.** Only the repository owner applies
   `owner approved`; build selection requires it.
+- **Trusted authors only.** Plan/build discovery accepts issues only from
+  `FACTORY_TRUSTED_LOGINS` (plus `FACTORY_LOGIN` when set). Fix discovery also
+  requires a same-repository PR from a trusted author and re-checks that trust
+  immediately before the session. Prompt context includes comments only from
+  trusted authors. An empty trusted set discovers nothing and trusts no comments.
 - **No auto-merge bypass.** Sessions must not disable tests, weaken gates, edit
   CI to bypass failures, or merge around required checks/protections/reviews.
 
@@ -71,12 +81,14 @@ tick.sh --help
 | `FACTORY_CONFIG_TAG` | `factory-config` | Owner-moved git tag holding the signed-off guardrail snapshot. |
 | `FACTORY_LOG_FILE` | `${XDG_STATE_HOME:-~/.local/state}/factory/tick.jsonl` | JSONL event log. |
 | `FACTORY_ENV` | `dev` | `deployment.environment` field. |
+| `FACTORY_ID` | `factory-1` | `factory_id` field on every event; one scheduler host = one factory id. |
+| `FACTORY_METRICS_DIR` | `${XDG_STATE_HOME:-~/.local/state}/factory/metrics` | Directory for the atomic `factory_tick.prom` Prometheus textfile (written each tick in the EXIT trap). |
 | `FACTORY_SESSION_LOG_DIR` | `/tmp/opencode` | Session logs and prompt temp files. |
 | `FACTORY_LOG_SESSION_OUTPUT` | `tail` | `tail` retains last 16 KiB in failure events and writes session logs; `metadata` suppresses retained output. |
 | `FACTORY_PRESERVE_SESSION_LOGS` | `on-failure` | `on-failure` (delete on success), `always`, `never`. |
 | `FACTORY_CONTAINER_MODE` | `0` | `1` enables bwrap per-session sandbox; falls back to host if bwrap unavailable. |
-| `FACTORY_LOGIN` | (unset) | Login of the factory bot/app identity used to filter marker comments and attribute factory work. |
-| `FACTORY_TRUSTED_LOGINS` | (unset) | Comma/whitespace separated set of trusted GitHub logins whose issues, PRs and comments may drive the factory. Empty keeps nothing (fail closed). Includes `FACTORY_LOGIN` when set. |
+| `FACTORY_LOGIN` | (unset) | Login of the factory bot/app identity. Plan markers from other authors are ignored; when unset, no plan marker is trusted. Also used to attribute factory work. |
+| `FACTORY_TRUSTED_LOGINS` | (unset) | Comma/whitespace separated GitHub logins whose issues, PRs, and comments may drive the factory. Includes `FACTORY_LOGIN` when set. Empty discovers nothing and trusts no comments (fail closed). |
 | `FACTORY_GITHUB_APP_ID` | (unset) | GitHub App id used to mint a short-lived least-privilege installation token per tick. |
 | `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE` | (unset) | Path to the app private key PEM (preferred over inline key). |
 | `FACTORY_GITHUB_APP_PRIVATE_KEY` | (unset) | Inline app private key PEM (avoid; prefer file). |
@@ -84,7 +96,8 @@ tick.sh --help
 | `MODELS_CONFIG` | `dev-ops/factory/models.yaml` | Label→model config. |
 
 OpenCode invocation uses `opencode run --auto --format json --file <prompt-file>`
-for robust prompt delivery and session ID capture.
+for robust prompt delivery and session ID capture. Each invocation is a
+distinct run (new `run_id`) and reports its own `session_id`.
 
 ## Claims, leases, isolation, and timeouts
 
@@ -184,45 +197,71 @@ guardrail changes owner-reviewed on GitHub.
 `${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl`). Human output on
 stdout/stderr remains separate.
 
-Common event fields: `schema_version` (currently 1), `ts`, `service.name`,
-`deployment.environment`, `host.name`, `tick_id`, `dry_run`, `on_usage_filled`,
-`event`, plus event-specific fields (reason/category, attempt numbers, counts,
-durations, model/agent, `session_id`, PR/issue refs, quota reason, etc.).
+The event model is **schema version 2** (SCHEMA_VERSION = 2 in
+`lib/factory.py`). Every event carries `schema_version`, `event_id` (UUIDv4),
+`event`, `ts` (RFC 3339 UTC with milliseconds), `service.name`, `factory_id`,
+`deployment.environment`, `host.name`, `tick_id`, `dry_run` and
+`on_usage_filled`. `tick_id` identifies one scheduler invocation; it is the
+analysis model's `schedule_id`. `factory_id` identifies one factory host
+(default `factory-1`).
 
-Representative events include `tick_start/end/result/interrupted`,
-`lock_skipped`, `gh_op_retry/gh_op_failed`, `fix_discovery_error`,
-`build_discovery_error`, `discovery_failed`, `project_priority_fallback`,
-`claim_conflict`, `dirty_worktree_skipped_reset`, `git_fetch_failed`,
-`guardrail_drift/guardrail_ok`, `session_*`, `usage_filled`, `backup_retry/ok`,
-`free_retry`, `dry_run`,
-`marker_skip`, `empty_pr_closed`, and `nothing_to_do`.
+Documentation: [`EVENTS.md`](EVENTS.md) is the single source of truth for the
+event model. It lists every event name `tick.sh` can emit, common and
+run-scoped fields, lifecycle events, usage/cost fields parsed from the
+opencode JSON stream, reconciled GitHub outcome events, deploy events, and a
+legacy-to-v2 mapping.
+
+At the end of every tick (in the EXIT trap, so it also runs on failure),
+tick writes a Prometheus textfile atomically to
+`${FACTORY_METRICS_DIR}/factory_tick.prom` (`factory_tick_last_run_timestamp_seconds`,
+`factory_tick_last_success_timestamp_seconds`, `factory_tick_last_duration_seconds`,
+`factory_tick_last_exit_code`, `factory_tick_runs_last{kind,outcome}` and
+`factory_telemetry_errors_last`). Mount this directory into a node-exporter
+textfile collector.
+
+Events never contain raw session output, regardless of
+`FACTORY_LOG_SESSION_OUTPUT`. The 16 KiB tail is kept only in the local
+session log file. See `EVENTS.md` for `failure_reason` and
+`error_fingerprint` (sha256 of the normalised last error line, first 12 hex
+chars).
+
+### Factory monitoring stack
+
+The persistent factory monitoring stack lives in
+[`monitoring/`](monitoring/README.md). It runs ClickHouse, Prometheus, Grafana,
+node-exporter, and an OpenTelemetry Collector that tails factory JSONL and
+exports logs/traces to ClickHouse. Start it on the factory host with:
+
+```sh
+cd dev-ops/factory/monitoring
+cp .env.example .env
+# fill required secrets and paths
+docker compose up -d
+```
+
+How events reach it:
+- Same host: bind-mount `FACTORY_LOG_DIR` read-only into the collector.
+- Other host: run the optional remote shipper config in
+  [`otel-collector.yaml`](otel-collector.yaml), which tails the same JSONL with
+  `file_storage` and exports OTLP/HTTP to `FACTORY_OTLP_ENDPOINT`.
 
 Cron (keep human output separate):
 ```
 0 * * * * /path/to/repo/dev-ops/factory/tick.sh >> "$HOME/.local/state/factory/tick.log" 2>&1
 ```
 
-Ship factory tick events to SigNoz using one of these same-host options:
-
-- **SigNoz collector integration (preferred when SigNoz runs on the same host):**
-  `dev-ops/signoz/otel-collector-config.yaml` includes a `filelog/factory`
-  receiver that tails `/var/log/factory/tick.jsonl` inside the collector
-  container. Set `FACTORY_LOG_DIR` to the directory containing `tick.jsonl`
-  (default `${XDG_STATE_HOME:-$HOME/.local/state}/factory`) when starting
-  `dev-ops/signoz/docker-compose.yml`.
-- **Standalone shipper:** run `otelcol-contrib` as a user systemd unit on the
-  cron host using `dev-ops/factory/otel-collector.yaml` (`filelog` receiver →
-  OTLP/HTTP). Required env: `FACTORY_LOG_FILE`, `SIGNOZ_OTLP_ENDPOINT`, optional
-  `SIGNOZ_INGESTION_KEY`.
-
 ## Security expectations
 
 - **Least-privilege GitHub token:** prefer a GitHub App installation token minted
   per tick via `FACTORY_GITHUB_APP_ID` and a private key. `tick.sh` exports it as
   `GH_TOKEN`/`GITHUB_TOKEN` for `gh` and sessions; the token is never logged.
-  Set `FACTORY_TRUSTED_LOGINS` to the owner login (and the bot login from I-006) so only trusted authors' issues, PRs and comments drive the factory. With it unset, discovery returns no candidates and the factory goes idle.\n  Set `FACTORY_LOGIN` to the app's bot login so marker comments and PRs are
-  attributable to the factory identity. Avoid org-wide or admin scopes. Never
-  print tokens; pass via environment, not argv.
+  Set `FACTORY_TRUSTED_LOGINS` to the owner login and any approved bot logins so
+  only trusted authors' issues, PRs, and comments drive the factory. With it and
+  `FACTORY_LOGIN` unset, discovery returns no candidates and the factory goes
+  idle. Set `FACTORY_LOGIN` to the app's bot login so marker comments and PRs are
+  attributable to the factory identity. Planning ignores plan markers from any
+  other author, and trusts none when this value is unset. Avoid org-wide or
+  admin scopes. Never print tokens; pass via environment, not argv.
 - **Agent/tool permissions:** factory sessions run opencode with repository
   access and shell tooling. Treat this as privileged automation: run on a
   trusted host/account, restrict filesystem/SSH credentials available to the
@@ -268,4 +307,4 @@ set for quota fallback.
 - `discover_fix_candidates.py`, `discover_build_candidates.py` - discovery logic.
 - `nightly-cleanup.sh` - worktree/log/claim retention cleanup.
 - `factory-tick.logrotate` - JSONL logrotate example.
-- `otel-collector.yaml` - optional SigNoz/log shipping config.
+- `otel-collector.yaml` - optional remote shipper config for factory JSONL events.

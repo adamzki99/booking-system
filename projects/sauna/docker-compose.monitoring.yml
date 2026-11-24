@@ -1,0 +1,35 @@
+# Optional override: attach the sauna booking stack to the sauna monitoring instance.
+# Used only when the sauna-monitoring-net Docker network exists.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+
+services:
+  backend:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_RESOURCE_ATTRIBUTES: >-
+        service.namespace=booking,service.version=${DEPLOY_COMMIT:-unknown},deployment.environment=${ENV_NAME:-local},project=sauna,service.instance.id=${COMPOSE_PROJECT_NAME:-sauna}-${ENV_NAME:-local}
+    networks:
+      - default
+      - monitoring
+
+  sidecar:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: sauna-sidecar
+      OTEL_RESOURCE_ATTRIBUTES: >-
+        service.namespace=booking,service.version=${DEPLOY_COMMIT:-unknown},deployment.environment=${ENV_NAME:-local},project=sauna,service.instance.id=${COMPOSE_PROJECT_NAME:-sauna}-${ENV_NAME:-local}-sidecar
+    networks:
+      - default
+      - monitoring
+
+  caddy:
+    profiles: ["caddy"]
+    networks:
+      - default
+      - monitoring
+
+networks:
+  monitoring:
+    external: true
+    name: sauna-monitoring-net

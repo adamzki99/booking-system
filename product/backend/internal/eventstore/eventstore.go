@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/adamzki99/booking-system/product/backend/migrations"
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -170,6 +171,15 @@ func (s *PostgresStore) Lock(ctx context.Context, key int64) (func() error, erro
 	}, nil
 }
 
+// Head returns the highest recorded event ID, or 0 when the store is empty.
+func (s *PostgresStore) Head(ctx context.Context) (int64, error) {
+	var id int64
+	if err := s.pool.QueryRow(ctx, `SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&id); err != nil {
+		return 0, fmt.Errorf("eventstore: head: %w", err)
+	}
+	return id, nil
+}
+
 // LoadAll returns all events in recorded order.
 func (s *PostgresStore) LoadAll(ctx context.Context) ([]Event, error) {
 	rows, err := s.pool.Query(ctx,
@@ -253,5 +263,10 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, fsys embed.FS) error
 
 // OpenPool opens a pgx pool from a database URL.
 func OpenPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
-	return pgxpool.New(ctx, databaseURL)
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: parse database url: %w", err)
+	}
+	cfg.ConnConfig.Tracer = otelpgx.NewTracer()
+	return pgxpool.NewWithConfig(ctx, cfg)
 }

@@ -2,7 +2,7 @@
 
 ## Scope
 
-This directory contains **CI/CD, the software factory, environments, deployment/operational tooling, and code-quality configuration** for the repository. It includes factory automation (`factory/`), scripts (`scripts/`), environment definitions, SigNoz deployment assets, and operational documentation.
+This directory contains **CI/CD, the software factory, environments, deployment/operational tooling, and code-quality configuration** for the repository. It includes factory automation (`factory/`), scripts (`scripts/`), environment definitions, monitoring stack assets, and operational documentation.
 
 Read the root [`../AGENTS.md`](../AGENTS.md) first for repository-wide rules (worktrees, PR workflow, no issue labels at creation, and the no-em-dash rule).
 
@@ -29,7 +29,7 @@ No single lint/format command covers all dev-ops assets. Use the relevant valida
 
 ## Canonical references
 
-- [`README.md`](README.md): dev-ops overview, factory summary, scheduled QA deploys, agent SSH access, SigNoz, issue creation flow, code quality, skills, and Playwright testing notes.
+- [`README.md`](README.md): dev-ops overview, factory summary, scheduled QA deploys, agent SSH access, factory and product monitoring, issue creation flow, code quality, skills, and Playwright testing notes.
 - [`factory/README.md`](factory/README.md): factory behavior, invariants, CLI/env, claims/timeouts, observability, security expectations.
 - [`factory/tick.sh`](factory/tick.sh), [`factory/models.yaml`](factory/models.yaml), [`factory/validate.sh`](factory/validate.sh): factory implementation and validation entry points.
 - [`issue-templates/agentic.md`](issue-templates/agentic.md): required structure for agent-ready issues.

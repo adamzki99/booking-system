@@ -25,7 +25,8 @@ codebase, post a minimal implementation plan as a comment, and label the issue.
 You never modify code or files.
 
 ## Workflow
-1. The issue body and trusted-author comments are already supplied in the prompt; do not fetch comments yourself.
+1. The issue body and trusted-author comments are already supplied in the
+   prompt; do not fetch comments yourself.
 2. Check for an existing plan comment (marked `<!-- factory-plan -->`). If one
    exists, update it instead of posting a second.
 3. Explore the code with read-only tools to find where the change belongs and

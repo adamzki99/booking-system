@@ -14,18 +14,15 @@ def gh_json(*args):
 
 
 def main():
+    trusted = factory.trusted_logins_from_env()
+    if not trusted:
+        sys.stderr.write("[factory-tick] FACTORY_TRUSTED_LOGINS empty; no build candidates\n")
+        raise SystemExit(0)
     try:
         issues = gh_json("issue", "list", "--state", "open", "--label", APPROVED_LABEL, "--limit", "200", "--json", "number,createdAt,author")
     except Exception as e:
         sys.stderr.write(f"[factory-tick] build discovery unavailable: {e}\n")
         raise SystemExit(1)
-    trusted_raw = os.environ.get("FACTORY_TRUSTED_LOGINS", "")
-    if os.environ.get("FACTORY_LOGIN"):
-        trusted_raw = (trusted_raw + "," + os.environ["FACTORY_LOGIN"]).strip(",")
-    trusted = factory.parse_trusted_logins(trusted_raw)
-    if not trusted:
-        sys.stderr.write("[factory-tick] FACTORY_TRUSTED_LOGINS empty; no build candidates\n")
-        raise SystemExit(0)
     issues = factory.filter_trusted_issues(issues, trusted)
     if not issues:
         raise SystemExit(0)

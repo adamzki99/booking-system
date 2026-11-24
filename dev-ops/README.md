@@ -223,20 +223,57 @@ PR. Use [`environments.yaml`](environments.yaml) for ports/services and
 `projects/<name>/` for deployment config; the sauna env example also contains
 empty operator-only `DEV_SERVER_*` entries.
 
-## SigNoz (APM)
+## Product monitoring
 
-[SigNoz](signoz/) runs as a **persistent** dev-ops service (separate compose
-project, `name: signoz`) so environment deploys/restarts do not affect it. Bring
-it up once on the dev machine:
+Each deployed booking project gets its own optional monitoring instance, built
+from the generic base in [`../product/monitoring/`](../product/monitoring/README.md).
+Project instances live under `projects/<name>/monitoring/` and use their own
+compose project name (`<name>-monitoring`), network (`<name>-monitoring-net`),
+volumes, ports, and `.env`.
+
+The sauna instance is the first one:
 
 ```sh
-docker compose -f dev-ops/signoz/docker-compose.yml up -d
+cd projects/sauna/monitoring
+cp .env.example .env
+# fill required secrets and ports
+docker compose up -d
 ```
 
-The OTLP/HTTP collector is published on host port `4318`. Booking backends
-default to `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318` (see
-`projects/sauna/.env.example` and [signoz/README.md](signoz/README.md)). Data
-persists in named volumes across restarts and host reboots.
+Booking environments must start without any monitoring stack running. The deploy
+script adds `projects/sauna/docker-compose.monitoring.yml` only when the
+`sauna-monitoring-net` Docker network exists, and it never fails a deploy because
+monitoring is down.
+
+Use [`scripts/monitoring.sh`](scripts/monitoring.sh) for common operations:
+
+```sh
+dev-ops/scripts/monitoring.sh factory status
+dev-ops/scripts/monitoring.sh sauna up
+dev-ops/scripts/monitoring.sh sauna down           # preserves volumes
+dev-ops/scripts/monitoring.sh sauna down --volumes --yes
+```
+
+### Migrating from the old SigNoz stack
+
+SigNoz was removed from the repository. On an existing host that still runs the
+old stack, stop it manually:
+
+```sh
+docker compose -p signoz down
+```
+
+This leaves the old Docker volumes (`signoz-clickhouse-data`, `signoz-sqlite`,
+`signoz-zookeeper-data`, `signoz-user-scripts`) and the `signoz-net` network in
+place. Remove them manually only after you are sure the data is not needed:
+
+```sh
+docker volume rm signoz-clickhouse-data signoz-sqlite signoz-zookeeper-data signoz-user-scripts
+docker network rm signoz-net
+```
+
+Do not run destructive volume removal as routine cleanup. Back up or confirm you
+do not need historical telemetry before removing volumes.
 
 ## Agentic issue creation
 
@@ -436,17 +473,46 @@ instructed to:
   guidance, and a validation checklist. Keep tunnel tokens, hostnames, and other
   deployment-specific identifiers in `projects/<name>/` config or environment
   variables, not in `product/`.
+## Factory monitoring
+
+The persistent factory monitoring stack lives in
+[`factory/monitoring/`](factory/monitoring/README.md). It ingests factory JSONL
+events and host metrics, stores analytics in ClickHouse, and serves Grafana with
+provisioned datasources. It is optional and best-effort: booking environments
+must start without any monitoring stack running.
+
+```sh
+cd dev-ops/factory/monitoring
+cp .env.example .env
+# fill required secrets and paths
+docker compose up -d
+```
+
+See [`factory/monitoring/README.md`](factory/monitoring/README.md) for endpoints,
+retention, validation, and remote shipper setup.
+
 ## Resource budgets (container memory limits)
 
 All compose services in this repo define explicit memory limits (`deploy.resources.limits.memory`) to prevent any single container from exhausting host RAM (see issue #136). Approximate budgets:
 
 | Stack | Service | Memory limit |
 |---|---|---|
-| signoz | signoz-clickhouse | 1536m (max_memory_usage 1.2GB) |
-| signoz | signoz-zookeeper | 512m (JVM -Xmx512m) |
-| signoz | signoz-server | 512m |
-| signoz | signoz-otel-collector | 512m |
-| signoz | signoz-init-clickhouse / migrators | 256m |
+| factory-monitoring | clickhouse | 768m |
+| factory-monitoring | grafana | 256m |
+| factory-monitoring | prometheus | 256m |
+| factory-monitoring | otel-collector | 192m |
+| factory-monitoring | node-exporter | 64m |
+| factory-monitoring (profile langfuse) | langfuse-web | 512m |
+| factory-monitoring (profile langfuse) | langfuse-worker | 512m |
+| factory-monitoring (profile langfuse) | langfuse-postgres | 256m |
+| factory-monitoring (profile langfuse) | langfuse-redis | 96m |
+| factory-monitoring (profile langfuse) | langfuse-minio | 256m |
+| &lt;project&gt;-monitoring (product base, per project) | clickhouse | 768m |
+| &lt;project&gt;-monitoring (product base, per project) | grafana | 256m |
+| &lt;project&gt;-monitoring (product base, per project) | prometheus | 256m |
+| &lt;project&gt;-monitoring (product base, per project) | otel-collector | 192m |
+| &lt;project&gt;-monitoring (profile host) | node-exporter | 64m |
+| &lt;project&gt;-monitoring (profile postgres) | postgres-exporter | 64m |
 | sauna | backend | 512m |
 | sauna | postgres | 256m |
 | sauna | sidecar | 256m |
@@ -455,5 +521,22 @@ All compose services in this repo define explicit memory limits (`deploy.resourc
 | sauna | authelia | 256m |
 | sauna | cloudflared | 128m |
 
-Keep the always-on total (booking + persistent dev-ops services) below ~2.5 GB on the 3.2 GB dev host.
+The always-on booking baseline plus persistent dev-ops services already targets
+roughly ~1.7 GB for a single sauna deployment, before any monitoring stack. The
+factory monitoring base stack adds ~1.54 GB of always-on limits, and one product
+monitoring instance adds another ~1.47 GB (base services only). That means a
+booking deployment plus one monitoring stack is already near or above the ~2.5 GB
+always-on budget on the 3.2 GB dev host, and running booking, factory monitoring,
+and a product monitoring instance concurrently does not fit. Adding optional
+Langfuse (~1.63 GB more) makes it far worse.
+
+Options if the budget is exceeded:
+- Run only the product monitoring instance where the product runs, and keep the
+  factory monitoring stack off on the same host.
+- Keep the `langfuse` profile off by default and start it only for targeted
+  diagnosis.
+- Reduce retention, scrape frequency, or service limits after measuring real load.
+- Move monitoring to a larger or separate host.
+
+Do not start any monitoring stack as a requirement for booking environments.
 

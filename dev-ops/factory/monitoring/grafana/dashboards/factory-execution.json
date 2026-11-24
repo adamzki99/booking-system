@@ -1,0 +1,1196 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Run timing, tools, retries, failures, and operational health.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "factory"
+      ],
+      "targetBlank": false,
+      "title": "Factory dashboards",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Runs started in window.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT count() AS value FROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Runs (window)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Failed runs in window.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT countIf(outcome='failed') AS value FROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Failures",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Runs with no end after 3900s (factory.stuck_runs).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT count() AS value FROM factory.stuck_runs",
+          "refId": "A"
+        }
+      ],
+      "title": "Stuck runs",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Average terminal run duration.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT round(avgIf(duration_ms, outcome IN ('completed','failed'))/1000,1) AS value FROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg duration",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Run starts per hour by kind.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "timeseries"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(started_at, INTERVAL 1 hour) AS time, kind, count() AS runs FROM factory.runs WHERE $__timeFilter(started_at) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote})) GROUP BY time, kind ORDER BY time",
+          "refId": "Runs"
+        }
+      ],
+      "title": "Runs per hour",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Run duration p50/p90 over time.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "timeseries"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(started_at, INTERVAL 1 hour) AS time, quantile(0.5)(duration_ms)/1000 AS p50_s FROM factory.runs WHERE $__timeFilter(started_at) AND outcome IN ('completed','failed') AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote})) GROUP BY time ORDER BY time",
+          "refId": "p50"
+        },
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "timeseries"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(started_at, INTERVAL 1 hour) AS time, quantile(0.9)(duration_ms)/1000 AS p90_s FROM factory.runs WHERE $__timeFilter(started_at) AND outcome IN ('completed','failed') AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote})) GROUP BY time ORDER BY time",
+          "refId": "p90"
+        }
+      ],
+      "title": "Run duration distribution (p50/p90)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Most used tools from agent.tool.called.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT tool, count() AS calls, countIf(status='error' OR status='failed') AS errors, round(avg(duration_ms),1) AS avg_ms\nFROM factory.tool_calls\nWHERE $__timeFilter(ts) AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY tool ORDER BY calls DESC LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Top tools",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Skill loads (tool=skill) and status.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 8,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT skill_name, count() AS loads, countIf(status='error' OR status='failed') AS errors\nFROM factory.tool_calls\nWHERE $__timeFilter(ts) AND tool='skill' AND skill_name != ''\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\nGROUP BY skill_name ORDER BY loads DESC LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Skills loaded",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Failures by reason and error fingerprint.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 9,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT failure_reason, error_fingerprint, count() AS failures, max(ended_at) AS last_seen\nFROM factory.runs\nWHERE $__timeFilter(started_at) AND outcome='failed' AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY failure_reason, error_fingerprint ORDER BY failures DESC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Failure reasons / fingerprints",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Issues consuming most runs in window.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 10,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT issue_id, count() AS runs, countIf(kind='fix') AS fix_runs, countIf(outcome='failed') AS failures, max(started_at) AS last_run\nFROM factory.runs\nWHERE $__timeFilter(started_at) AND issue_id IS NOT NULL AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\n  AND ('*' IN (${agent_id:singlequote}) OR agent_id IN (${agent_id:singlequote}))\n  AND ('*' IN (${model:singlequote}) OR model IN (${model:singlequote}))\n  AND ('*' IN (${kind:singlequote}) OR kind IN (${kind:singlequote}))\nGROUP BY issue_id ORDER BY runs DESC LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Issues with most runs",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Key operational events in window.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "id": 11,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT event, count() AS count, max(ts) AS last_seen\nFROM factory.events FINAL\nWHERE $__timeFilter(ts)\n  AND event IN ('backup_retry','free_retry','usage_filled','claim_conflict','lock_skipped','gh_op_failed','guardrail_drift','reconcile_failed','discovery_failed','git_fetch_failed','dirty_worktree_skipped_reset')\n  AND ('*' IN (${factory_id:singlequote}) OR factory_id IN (${factory_id:singlequote}))\nGROUP BY event ORDER BY count DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Retries / fallback / operational events",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-factory"
+      },
+      "description": "Runs started but not ended after 3900s.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trace_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open run detail",
+                    "url": "/d/factory-run-detail/factory-run-detail?orgId=1&var-run_id=${__data.fields.run_id}&var-trace_id=${__value.raw}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "run_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open run detail",
+                    "url": "/d/factory-run-detail/factory-run-detail?orgId=1&var-run_id=${__value.raw}&var-trace_id=${__data.fields.trace_id}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "id": 12,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-factory"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "factory",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table"
+            }
+          },
+          "pluginVersion": "4.23.5",
+          "queryType": "table",
+          "rawSql": "SELECT run_id, factory_id, kind, agent_id, model, issue_id, pr_number, session_id, trace_id, started_at, age_seconds\nFROM factory.stuck_runs\nORDER BY age_seconds DESC\nLIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Stuck runs detail",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "factory",
+    "execution"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT factory_id FROM factory.events WHERE $__timeFilter(ts) AND factory_id != '' ORDER BY factory_id",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Factory",
+        "multi": true,
+        "name": "factory_id",
+        "options": [],
+        "query": "SELECT DISTINCT factory_id FROM factory.events WHERE $__timeFilter(ts) AND factory_id != '' ORDER BY factory_id",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT agent_id FROM factory.events WHERE $__timeFilter(ts) AND agent_id != '' ORDER BY agent_id",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Agent",
+        "multi": true,
+        "name": "agent_id",
+        "options": [],
+        "query": "SELECT DISTINCT agent_id FROM factory.events WHERE $__timeFilter(ts) AND agent_id != '' ORDER BY agent_id",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT model FROM factory.events WHERE $__timeFilter(ts) AND model != '' ORDER BY model",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Model",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "query": "SELECT DISTINCT model FROM factory.events WHERE $__timeFilter(ts) AND model != '' ORDER BY model",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-factory"
+        },
+        "definition": "SELECT DISTINCT kind FROM factory.events WHERE $__timeFilter(ts) AND kind != '' ORDER BY kind",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Kind",
+        "multi": true,
+        "name": "kind",
+        "options": [],
+        "query": "SELECT DISTINCT kind FROM factory.events WHERE $__timeFilter(ts) AND kind != '' ORDER BY kind",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Execution Analytics",
+  "uid": "factory-execution",
+  "version": 1,
+  "weekStart": ""
+}

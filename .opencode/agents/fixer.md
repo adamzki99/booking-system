@@ -47,7 +47,8 @@ succeeded.
 
 ## Workflow
 1. Inspect the PR and issue:
-   `gh pr view <n>`, `gh pr checks <n>`, review comments. The issue body and trusted-author comments are already supplied in the prompt.
+   `gh pr view <n>`, `gh pr checks <n>`, review comments. The issue body and
+   trusted-author comments are already supplied in the prompt.
    List every blocker before changing anything.
 2. Locate/reuse the existing worktree for the PR branch; verify branch and
    status. If missing, create it from the PR branch without discarding changes.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/adamzki99/booking-system/product/backend/internal/command"
 	"github.com/adamzki99/booking-system/product/backend/internal/email"
+	"github.com/adamzki99/booking-system/product/backend/internal/metrics"
 )
 
 const (
@@ -99,6 +100,12 @@ func (s *AuthService) RequestCode(ctx context.Context, emailAddr, clientIP strin
 	emailOK := s.limiter.Allow(requestCodeEmailKey(normalized), requestCodeEmailLimit, requestCodeEmailWindow)
 	ipOK := s.limiter.Allow(requestCodeIPKey(clientIP), requestCodeIPLimit, requestCodeIPWindow)
 	if !emailOK || !ipOK {
+		if !emailOK {
+			metrics.RateLimitRejected(ctx, "auth_request_code_email")
+		}
+		if !ipOK {
+			metrics.RateLimitRejected(ctx, "auth_request_code_ip")
+		}
 		return ErrRateLimited
 	}
 	// Unknown and deactivated addresses get no login code and no signal:
@@ -133,6 +140,7 @@ func (s *AuthService) RequestCode(ctx context.Context, emailAddr, clientIP strin
 	if err := s.sender.Send(ctx, normalized, loginCodeSubject, code); err != nil {
 		return fmt.Errorf("auth: send login code: %w", err)
 	}
+	metrics.AuthCodeIssued(ctx)
 	return nil
 }
 
@@ -143,23 +151,34 @@ func (s *AuthService) Verify(ctx context.Context, emailAddr, code, clientIP stri
 		return "", err
 	}
 	if err := ValidateCode(code); err != nil {
+		metrics.AuthLogin(ctx, "invalid_code")
 		return "", err
 	}
 	emailOK := s.limiter.Allow(verifyEmailKey(normalized), verifyEmailLimit, verifyEmailWindow)
 	ipOK := s.limiter.Allow(verifyIPKey(clientIP), verifyIPLimit, verifyIPWindow)
 	if !emailOK || !ipOK {
+		if !emailOK {
+			metrics.RateLimitRejected(ctx, "auth_verify_email")
+		}
+		if !ipOK {
+			metrics.RateLimitRejected(ctx, "auth_verify_ip")
+		}
+		metrics.AuthLogin(ctx, "rate_limited")
 		return "", ErrRateLimited
 	}
 	ok, err := s.canLogin(ctx, normalized)
 	if err != nil {
+		metrics.AuthLogin(ctx, "error")
 		return "", err
 	}
 	if !ok {
+		metrics.AuthLogin(ctx, "invalid_code")
 		return "", ErrInvalidOrExpiredCode
 	}
 
 	token, tokenHash, err := GenerateToken()
 	if err != nil {
+		metrics.AuthLogin(ctx, "error")
 		return "", fmt.Errorf("auth: generate token: %w", err)
 	}
 
@@ -172,13 +191,16 @@ func (s *AuthService) Verify(ctx context.Context, emailAddr, code, clientIP stri
 		OccurredAt:       now,
 	}
 	if err := s.commands.Execute(ctx, cmd); err != nil {
+		metrics.AuthLogin(ctx, "invalid_code")
 		return "", err
 	}
 	if s.BootstrapAdmin != nil {
 		if err := s.BootstrapAdmin(ctx, normalized); err != nil {
+			metrics.AuthLogin(ctx, "success")
 			return token, err
 		}
 	}
+	metrics.AuthLogin(ctx, "success")
 	return token, nil
 }
 
@@ -195,18 +217,28 @@ func (s *AuthService) QALogin(ctx context.Context, emailAddr, clientIP string) (
 	emailOK := s.limiter.Allow(verifyEmailKey(normalized), verifyEmailLimit, verifyEmailWindow)
 	ipOK := s.limiter.Allow(verifyIPKey(clientIP), verifyIPLimit, verifyIPWindow)
 	if !emailOK || !ipOK {
+		if !emailOK {
+			metrics.RateLimitRejected(ctx, "auth_verify_email")
+		}
+		if !ipOK {
+			metrics.RateLimitRejected(ctx, "auth_verify_ip")
+		}
+		metrics.AuthLogin(ctx, "rate_limited")
 		return "", ErrRateLimited
 	}
 	ok, err := s.canLogin(ctx, normalized)
 	if err != nil {
+		metrics.AuthLogin(ctx, "error")
 		return "", err
 	}
 	if !ok {
+		metrics.AuthLogin(ctx, "invalid_code")
 		return "", ErrInvalidOrExpiredCode
 	}
 
 	token, tokenHash, err := GenerateToken()
 	if err != nil {
+		metrics.AuthLogin(ctx, "error")
 		return "", fmt.Errorf("auth: generate token: %w", err)
 	}
 
@@ -218,13 +250,16 @@ func (s *AuthService) QALogin(ctx context.Context, emailAddr, clientIP string) (
 		OccurredAt:       now,
 	}
 	if err := s.commands.Execute(ctx, cmd); err != nil {
+		metrics.AuthLogin(ctx, "error")
 		return "", err
 	}
 	if s.BootstrapAdmin != nil {
 		if err := s.BootstrapAdmin(ctx, normalized); err != nil {
+			metrics.AuthLogin(ctx, "success")
 			return token, err
 		}
 	}
+	metrics.AuthLogin(ctx, "success")
 	return token, nil
 }
 

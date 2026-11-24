@@ -1,0 +1,12 @@
+apiVersion: 1
+policies:
+- orgId: 1
+  receiver: product-monitoring-default
+  group_by:
+  - alertname
+  - project
+  - deployment_environment
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes: []
