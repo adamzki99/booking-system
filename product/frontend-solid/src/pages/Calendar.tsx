@@ -237,9 +237,7 @@ export default function Calendar() {
       setListError(null);
       yield refresh(data);
     } catch (err) {
-      setCreateError(
-        errorMessage(err, "Could not create the booking. Please try again."),
-      );
+      setCreateError(errorMessage(err, "Could not create the booking. Please try again."));
     } finally {
       setCreateBusy(false);
     }
@@ -263,9 +261,7 @@ export default function Calendar() {
       setListError(null);
       yield refresh(data);
     } catch (err) {
-      setCreateError(
-        errorMessage(err, "Could not create the booking. Please try again."),
-      );
+      setCreateError(errorMessage(err, "Could not create the booking. Please try again."));
     } finally {
       setQuickBusy(false);
     }
@@ -356,9 +352,7 @@ export default function Calendar() {
                                 checked={checked()}
                                 disabled={disabled()}
                                 aria-label={label()}
-                                onChange={(e) =>
-                                  setSelectedWeeks(e.currentTarget.value)
-                                }
+                                onChange={(e) => setSelectedWeeks(e.currentTarget.value)}
                               />
                               <span class="calendar-repeat-chip-label">{label()}</span>
                             </label>
@@ -396,11 +390,13 @@ export default function Calendar() {
               <CardBody>
                 <h2 class="calendar-section-title">Create booking</h2>
                 <form class="calendar-form-stack" onSubmit={submitCreate} novalidate>
-                  <Show when={createError()}>
-                    {(msg) => <Alert status="error">{msg()}</Alert>}
-                  </Show>
+                  <Show when={createError()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
                   <Show when={createSuccess()}>
-                    {(msg) => <Alert status="success" role="status">{msg()}</Alert>}
+                    {(msg) => (
+                      <Alert status="success" role="status">
+                        {msg()}
+                      </Alert>
+                    )}
                   </Show>
                   <div class="calendar-field">
                     <label class="calendar-label" for="start">
@@ -453,9 +449,7 @@ export default function Calendar() {
                 <h2 class="calendar-section-title">Upcoming bookings</h2>
               </CardHeader>
               <CardBody>
-                <Show when={listError()}>
-                  {(msg) => <Alert status="error">{msg()}</Alert>}
-                </Show>
+                <Show when={listError()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
                 <Show when={listError() === null && currentBookings().length === 0}>
                   <p class="calendar-muted">No bookings yet.</p>
                 </Show>
@@ -483,9 +477,7 @@ export default function Calendar() {
                               <span>{label()}</span>
                             </div>
                             <time class="calendar-booking-time" datetime={b().start}>
-                              <span class="calendar-booking-day">
-                                {formatDayLabel(b().start)}
-                              </span>
+                              <span class="calendar-booking-day">{formatDayLabel(b().start)}</span>
                               <span class="calendar-booking-range calendar-muted">
                                 {formatTimeRange(b().start, b().end)}
                               </span>

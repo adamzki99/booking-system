@@ -90,7 +90,10 @@ describe("AppShell", () => {
     renderShell("/users");
 
     const nav = screen.getByRole("navigation", { name: "Pages" });
-    expect(within(nav).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Members" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(within(nav).getByRole("link", { name: "Bookings" })).not.toHaveAttribute("aria-current");
   });
 

@@ -8,10 +8,7 @@ import type { JSX } from "@solidjs/web";
  * (for example router, session, or theme context). Mirrors the role of a
  * provider-aware test-utils helper.
  */
-function customRender(
-  ui: () => JSX.Element,
-  options?: Parameters<typeof solidRender>[1],
-) {
+function customRender(ui: () => JSX.Element, options?: Parameters<typeof solidRender>[1]) {
   return solidRender(ui, options);
 }
 
@@ -19,4 +16,3 @@ function customRender(
 // use the provider-aware render.
 export * from "@solidjs/testing-library";
 export { customRender as render };
-

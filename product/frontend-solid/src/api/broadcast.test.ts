@@ -20,8 +20,6 @@ describe("broadcast API", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/broadcast");
     expect(init.method).toBe("POST");
-    expect(init.body).toBe(
-      JSON.stringify({ subject: "Closed", body: "The sauna is closed." }),
-    );
+    expect(init.body).toBe(JSON.stringify({ subject: "Closed", body: "The sauna is closed." }));
   });
 });

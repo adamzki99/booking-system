@@ -40,16 +40,12 @@ export function requestCode(email: string): Promise<void> {
  * Verifies an email + 6-character code and returns the new session token.
  */
 export function verify(email: string, code: string): Promise<string> {
-  return post<{ token: string }>("/api/auth/verify", { email, code }).then(
-    (res) => res.token,
-  );
+  return post<{ token: string }>("/api/auth/verify", { email, code }).then((res) => res.token);
 }
 
 /** Signs in without a one-time code when QA mode is enabled. */
 export function qaLogin(email: string): Promise<string> {
-  return post<{ token: string }>("/api/auth/qa-login", { email }).then(
-    (res) => res.token,
-  );
+  return post<{ token: string }>("/api/auth/qa-login", { email }).then((res) => res.token);
 }
 
 /** Returns the signed-in user. */

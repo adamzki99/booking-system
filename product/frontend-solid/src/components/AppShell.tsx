@@ -228,7 +228,11 @@ export function AppShell(props: AppShellProps) {
               <span
                 class="app-shell-redeploy"
                 data-testid="redeploy-indicator"
-                title={chrome().nextRedeploy ? new Date(Date.parse(chrome().nextRedeploy)).toLocaleString() : undefined}
+                title={
+                  chrome().nextRedeploy
+                    ? new Date(Date.parse(chrome().nextRedeploy)).toLocaleString()
+                    : undefined
+                }
               >
                 {redeployLabel()}
               </span>

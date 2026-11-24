@@ -41,9 +41,7 @@ describe("API client", () => {
   });
 
   it("posts JSON bodies with a content-type header", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(null, { status: 204 }),
-    );
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     await post("/api/auth/request-code", { email: "a@b.se" });
 
@@ -51,9 +49,7 @@ describe("API client", () => {
     expect(url).toBe("/api/auth/request-code");
     expect(init.method).toBe("POST");
     expect(init.body).toBe(JSON.stringify({ email: "a@b.se" }));
-    expect(new Headers(init.headers).get("Content-Type")).toBe(
-      "application/json",
-    );
+    expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
   });
 
   it("throws an ApiError carrying the backend error message", async () => {
@@ -91,8 +87,6 @@ describe("API client", () => {
     expect(url).toBe("/api/users/me/email");
     expect(init.method).toBe("PATCH");
     expect(init.body).toBe(JSON.stringify({ email: "new@b.se" }));
-    expect(new Headers(init.headers).get("Content-Type")).toBe(
-      "application/json",
-    );
+    expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
   });
 });

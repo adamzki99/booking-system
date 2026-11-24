@@ -161,7 +161,9 @@ function AccountView(props: { seed: AccountData }) {
       setCode("");
       setNotice(`A new verification code was sent to ${updated.pendingEmail}.`);
     } catch (err) {
-      setError(friendlyAccountError(err, "Could not resend the verification code. Please try again."));
+      setError(
+        friendlyAccountError(err, "Could not resend the verification code. Please try again."),
+      );
     } finally {
       setBusy(false);
     }
@@ -178,7 +180,9 @@ function AccountView(props: { seed: AccountData }) {
       setShowRequestForm(false);
       setNotice("The pending email change was cancelled.");
     } catch (err) {
-      setError(friendlyAccountError(err, "Could not cancel the pending email change. Please try again."));
+      setError(
+        friendlyAccountError(err, "Could not cancel the pending email change. Please try again."),
+      );
     } finally {
       setBusy(false);
     }
@@ -192,7 +196,9 @@ function AccountView(props: { seed: AccountData }) {
       const url = (yield regenerateCalendarUrl()) as string;
       setIcalUrl(url);
     } catch (err) {
-      setError(friendlyAccountError(err, "Could not regenerate the calendar URL. Please try again."));
+      setError(
+        friendlyAccountError(err, "Could not regenerate the calendar URL. Please try again."),
+      );
     } finally {
       setBusy(false);
     }
@@ -218,9 +224,7 @@ function AccountView(props: { seed: AccountData }) {
         subtitle="Update your email address and manage your calendar feed."
       />
 
-      <Show when={error()}>
-        {(msg) => <Alert status="error">{msg()}</Alert>}
-      </Show>
+      <Show when={error()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
       <Show when={notice()}>
         {(msg) => (
           <Alert status="success" role="status">
@@ -246,9 +250,9 @@ function AccountView(props: { seed: AccountData }) {
                         Email change pending
                       </p>
                       <p style={{ margin: "0" }}>
-                        A verification code was sent to {p().pendingEmail}. The address
-                        changes only after you confirm it; until then this account still
-                        signs in with {me()?.email}.
+                        A verification code was sent to {p().pendingEmail}. The address changes only
+                        after you confirm it; until then this account still signs in with{" "}
+                        {me()?.email}.
                       </p>
                       <Show when={formatExpiry(p().expiresAt)}>
                         {(expiry) => (
@@ -373,11 +377,7 @@ function AccountView(props: { seed: AccountData }) {
                 <>
                   <code class="account-code">{url()}</code>
                   <div>
-                    <Button
-                      type="button"
-                      variant="accentOutline"
-                      onClick={() => void onCopy()}
-                    >
+                    <Button type="button" variant="accentOutline" onClick={() => void onCopy()}>
                       Copy
                     </Button>
                   </div>

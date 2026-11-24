@@ -266,9 +266,7 @@ export default function Login() {
                   </form>
                 </Match>
               </Switch>
-              <Show when={error()}>
-                {(msg) => <Alert status="error">{msg()}</Alert>}
-              </Show>
+              <Show when={error()}>{(msg) => <Alert status="error">{msg()}</Alert>}</Show>
             </div>
           </CardBody>
         </Card>

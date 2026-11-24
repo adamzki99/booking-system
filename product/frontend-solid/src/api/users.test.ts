@@ -39,9 +39,7 @@ describe("users API", () => {
   });
 
   it("lists all registered users", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, [RAW, { ...RAW, id: "u2", role: "super" }]),
-    );
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, [RAW, { ...RAW, id: "u2", role: "super" }]));
 
     const users = await listUsers();
 
@@ -109,9 +107,7 @@ describe("users API", () => {
   });
 
   it("changes another user's address", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { ...RAW, address: "Sauna Street 9" }),
-    );
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ...RAW, address: "Sauna Street 9" }));
 
     const user = await changeUserAddress("u1", "Sauna Street 9");
 

@@ -93,9 +93,7 @@ describe("Account page email change", () => {
     render(() => <Account />);
     await screen.findByTestId("account-email");
     await waitFor(() =>
-      expect(screen.getByTestId("account-email").textContent).toBe(
-        "basic@example.com",
-      ),
+      expect(screen.getByTestId("account-email").textContent).toBe("basic@example.com"),
     );
   });
 
@@ -123,9 +121,7 @@ describe("Account page email change", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     await flush();
-    await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith("https://cal.example/feed.ics"),
-    );
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://cal.example/feed.ics"));
   });
 
   it("walks through request, code entry and confirm, then refreshes the session", async () => {
@@ -137,9 +133,7 @@ describe("Account page email change", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
     await flush();
 
-    await waitFor(() =>
-      expect(requestEmailChangeMock).toHaveBeenCalledWith("moved@example.com"),
-    );
+    await waitFor(() => expect(requestEmailChangeMock).toHaveBeenCalledWith("moved@example.com"));
 
     await screen.findByLabelText("Verification code");
     expect(
@@ -154,9 +148,7 @@ describe("Account page email change", () => {
     await waitFor(() => expect(useSessionMock().refresh).toHaveBeenCalled());
 
     await waitFor(() =>
-      expect(screen.getByTestId("account-email").textContent).toBe(
-        "moved@example.com",
-      ),
+      expect(screen.getByTestId("account-email").textContent).toBe("moved@example.com"),
     );
     expect(screen.queryByLabelText("Verification code")).not.toBeInTheDocument();
   });
