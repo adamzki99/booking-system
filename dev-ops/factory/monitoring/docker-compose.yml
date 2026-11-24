@@ -7,7 +7,7 @@ x-required-env: &required-env
 
 services:
   check-env:
-    image: alpine:3.21.3
+    image: alpine:3.24.4
     command:
       - sh
       - -ec
@@ -23,7 +23,7 @@ services:
       - factory-monitoring-net
 
   clickhouse:
-    image: clickhouse/clickhouse-server:26.9.36.3
+    image: clickhouse/clickhouse-server:26.10.4.207
     restart: unless-stopped
     depends_on:
       check-env:
@@ -57,7 +57,7 @@ services:
       - factory-monitoring-net
 
   clickhouse-init:
-    image: clickhouse/clickhouse-server:26.9.36.3
+    image: clickhouse/clickhouse-server:26.10.4.207
     restart: "no"
     depends_on:
       clickhouse:
@@ -217,7 +217,7 @@ services:
       - factory-monitoring-net
 
   langfuse-check-env:
-    image: alpine:3.21.3
+    image: alpine:3.24.4
     profiles: ["langfuse"]
     command:
       - sh
