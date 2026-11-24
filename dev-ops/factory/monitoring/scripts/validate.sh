@@ -18,6 +18,8 @@ run() {
 
 have_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
 
+run bash dev-ops/scripts/tests/test-langfuse-postgres-entrypoint.sh
+
 TMP_ENV=""
 TMP_DASH=""
 cleanup() {
@@ -130,6 +132,8 @@ if have_docker; then
     -e CLICKHOUSE_GRAFANA_PASSWORD=test-grafana \
     -v "$REPO_ROOT/dev-ops/factory/monitoring/clickhouse/config.d:/etc/clickhouse-server/config.d:ro" \
     -v "$REPO_ROOT/dev-ops/factory/monitoring/clickhouse/users.d/users.xml:/etc/clickhouse-server/users.d/users.xml:ro" \
+    -v "$REPO_ROOT/dev-ops/factory/monitoring/clickhouse/init:/init:ro" \
+    -v "$REPO_ROOT/dev-ops/factory/monitoring/scripts/clickhouse-init.sh:/clickhouse-init.sh:ro" \
     "$CLICKHOUSE_IMAGE")"
   echo "[monitoring-validate] waiting for throwaway ClickHouse ($CLICKHOUSE_IMAGE)..."
   if ! wait_for_clickhouse; then
@@ -249,6 +253,42 @@ GRANT SELECT ON otel.otel_traces TO grafana;
 GRANT SELECT ON otel.otel_logs TO grafana;
 GRANT SELECT ON system.parts TO grafana;
 SQL
+
+  # Exercise the real init script, including the additional ClickHouse grants
+  # required before Langfuse v4 starts.
+  if ! docker exec \
+    -e CH_HOST=127.0.0.1 \
+    -e CLICKHOUSE_COLLECTOR_PASSWORD=test-collector \
+    -e CLICKHOUSE_GRAFANA_PASSWORD=test-grafana \
+    -e CLICKHOUSE_TTL_DAYS=400 \
+    -e LANGFUSE_CLICKHOUSE_PASSWORD=test-langfuse-clickhouse \
+    "$CH_CID" /bin/bash /clickhouse-init.sh; then
+    echo "[monitoring-validate] FAILED: clickhouse-init.sh" >&2
+    clickhouse_diagnostics
+    exit 1
+  fi
+  langfuse_grants="$(docker exec "$CH_CID" clickhouse-client --query "SHOW GRANTS FOR langfuse")"
+  for required_grant in system.parts system.mutations system.tables system.processes system.query_log 'SYSTEM MERGES'; do
+    if ! grep -qF "$required_grant" <<<"$langfuse_grants"; then
+      echo "[monitoring-validate] FAILED: missing Langfuse ClickHouse grant: $required_grant" >&2
+      printf '%s\n' "$langfuse_grants" >&2
+      exit 1
+    fi
+  done
+  # ClickHouse accepts ALTER SETTINGS before the backfill table exists but does
+  # not list it separately in SHOW GRANTS. Verify the effective permission.
+  docker exec "$CH_CID" clickhouse-client --user langfuse \
+    --password test-langfuse-clickhouse --query \
+    "CREATE TABLE IF NOT EXISTS langfuse.observations_pid_tid_sorting (id UInt64, PROJECTION latest_source_versions (SELECT id ORDER BY id)) ENGINE = ReplacingMergeTree ORDER BY id SETTINGS deduplicate_merge_projection_mode = 'rebuild', lightweight_mutation_projection_mode = 'rebuild'"
+  if ! docker exec "$CH_CID" clickhouse-client --user langfuse \
+    --password test-langfuse-clickhouse --query \
+    "ALTER TABLE langfuse.observations_pid_tid_sorting MODIFY SETTING index_granularity = 8192"; then
+    echo "[monitoring-validate] FAILED: Langfuse cannot alter backfill table settings" >&2
+    clickhouse_diagnostics
+    exit 1
+  fi
+  docker exec "$CH_CID" clickhouse-client --query "DROP TABLE langfuse.observations_pid_tid_sorting"
+
   docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE factory.events" | grep -q 1
   docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE factory.runs" | grep -q 1
   docker exec "$CH_CID" clickhouse-client --query "EXISTS TABLE factory.daily" | grep -q 1
@@ -322,6 +362,32 @@ test = healthcheck.get('test') or []
 if test and test[0] == 'CMD-SHELL':
     print('otel-collector healthcheck requires /bin/sh, which is absent from the distroless image', file=sys.stderr)
     sys.exit(1)
+PY
+
+# Langfuse v4 projected-table DDL is validated against ClickHouse's default
+# free-entry thresholds even when low-memory.xml overrides them. Also honor any
+# larger thresholds configured locally.
+run python3 - <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse('dev-ops/factory/monitoring/clickhouse/config.d/low-memory.xml').getroot()
+pool = int(root.findtext('background_pool_size'))
+ratio = int(root.findtext('background_merges_mutations_concurrency_ratio'))
+merge_tree = root.find('merge_tree')
+thresholds = [
+    int(merge_tree.findtext(name, default='0'))
+    for name in (
+        'number_of_free_entries_in_pool_to_execute_mutation',
+        'number_of_free_entries_in_pool_to_lower_max_size_of_merge',
+        'number_of_free_entries_in_pool_to_execute_optimize_entire_partition',
+    )
+]
+required = max(25, *thresholds)
+if pool * ratio < required:
+    print(f'ClickHouse background mutation capacity {pool * ratio} is below {required}', file=sys.stderr)
+    sys.exit(1)
+print(f'ClickHouse background mutation capacity={pool * ratio}')
 PY
 
 # Basic YAML/JSON sanity for configs that should always be parseable.

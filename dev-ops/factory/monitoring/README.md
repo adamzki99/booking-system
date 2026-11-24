@@ -183,6 +183,7 @@ Passwords come from env; compose fails fast when required secrets are empty.
 
 - ClickHouse event TTL: `CLICKHOUSE_TTL_DAYS` (default 400 days).
 - ClickHouse system log tables have short TTLs configured in `config.d/low-memory.xml`.
+- The ClickHouse background pool has 16 slots so Langfuse v4 projected MergeTree migrations satisfy ClickHouse's default mutation thresholds.
 - Prometheus retention: `PROMETHEUS_RETENTION_TIME` (15d) and `PROMETHEUS_RETENTION_SIZE` (2GB).
 
 Backups are manual and are not automated by this stack. Configure and
@@ -294,7 +295,7 @@ the dashboard volume before reloading Grafana.
 
 ## Langfuse (optional profile, prompt 05)
 
-Langfuse v3 is available as an optional Docker Compose profile for deep agent
+Langfuse is available as an optional Docker Compose profile for deep agent
 trace diagnosis. It is off by default and does not start with the default profile.
 
 ```sh
@@ -302,13 +303,32 @@ trace diagnosis. It is off by default and does not start with the default profil
 docker compose --profile langfuse up -d
 ```
 
-Services (pinned): `langfuse/langfuse-web:3.227.1`,
-`langfuse/langfuse-worker:3.227.1`, `postgres:17.9`, `redis:7.4.8`,
-`minio/minio:RELEASE.2025-09-07T16-13-09Z`, `minio/mc:RELEASE.2025-08-13T08-35-41Z`.
-Langfuse reuses the factory stack ClickHouse server with a separate `langfuse`
-database and `langfuse` user (created by `clickhouse-init` when
-`LANGFUSE_CLICKHOUSE_PASSWORD` is set). This keeps one ClickHouse process;
-verify Langfuse v3 migrations against your pinned version before upgrading.
+All service images are pinned in `docker-compose.yml`. The Langfuse web and worker
+images must always use the same version. Langfuse reuses the factory stack
+ClickHouse server with a separate `langfuse` database and `langfuse` user (created
+by `clickhouse-init` when `LANGFUSE_CLICKHOUSE_PASSWORD` is set). This keeps one
+ClickHouse process. The pinned ClickHouse version meets the Langfuse v4 minimum;
+`clickhouse-init` also applies the system-table and merge-control grants that v4
+requires.
+
+### Langfuse v4 migration safety
+
+For upgrades from v3, Compose defaults to `legacy` write mode with dual-write
+native OTel behavior, the v4 read paths disabled, and historic backfill disabled.
+This retains the v3 ingestion and read behavior while v4 schema migrations run.
+Override these only as part of the staged migration described in the
+[upgrade procedure](#langfuse-v4-and-postgres-18-upgrade):
+
+- `LANGFUSE_MIGRATION_V4_WRITE_MODE=legacy`
+- `LANGFUSE_MIGRATION_V4_NATIVE_OTEL_BEHAVIOUR=dual_write`
+- `LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN=false`
+- `LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL=false`
+
+Do not switch directly to `events_only` unless every producer and API consumer is
+compatible and historic data is already covered. The worker healthcheck includes
+`failIfEventPropagationStuck=true`, and the web healthcheck fails when PostgreSQL
+is unavailable. Worker startup waits for a healthy web service so schema
+migrations finish before background migrations begin.
 
 Security/privacy defaults:
 
@@ -425,3 +445,135 @@ for the same safety rules, with these factory-specific steps:
    backup into a previous-version disposable server and switch only after that
    restore passes, or fix forward on the target. Keep old volumes and backups
    through the rollback window.
+
+### Langfuse v4 and PostgreSQL 18 upgrade
+
+Treat this as a staged data migration, not an image-only update. Rehearse it in a
+disposable project with restored production-like data first. Keep the same
+`LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY`, and `LANGFUSE_NEXTAUTH_SECRET` across
+the upgrade and rollback window.
+
+1. Stay on the latest v3 Langfuse release until ClickHouse is at least 25.12 and
+   every v3 background migration has finished. Run `clickhouse-init` again so the
+   v4 ClickHouse grants are present, then verify this query returns zero rows:
+
+   ```sh
+   docker compose exec -T langfuse-postgres psql -U langfuse -d langfuse -v ON_ERROR_STOP=1 \
+     -c "SELECT name, failed_at, failed_reason FROM background_migrations WHERE finished_at IS NULL AND name NOT LIKE '20260701_v4_%';"
+   ```
+
+   Recent v3 releases pre-create the `20260701_v4_*` historic-backfill rows. Those
+   rows are expected to remain unfinished while
+   `LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL=false`; do not
+   enable that backfill before dual write is active.
+
+2. Record PostgreSQL table and key row counts, ClickHouse counts and partitions,
+   Redis queue depth, image versions, and health status. Stop the collector,
+   Langfuse web, and Langfuse worker. Create and verify the ClickHouse backups
+   described above. Also back up the MinIO `langfuse` bucket, run Redis `SAVE`
+   with the password from `.env`, and take a consistent PostgreSQL dump. Keep the
+   encryption secrets with the backup.
+
+3. Upgrade PostgreSQL with a logical dump/restore. The guard in the PostgreSQL
+   entrypoint deliberately refuses to open a PostgreSQL 17 directory with
+   PostgreSQL 18 binaries. `PGDATA` remains `/var/lib/postgresql/data`, so an
+   existing volume cannot be mistaken for a fresh database. From
+   `dev-ops/factory/monitoring`, after `docker compose down`:
+
+   ```sh
+   set -euo pipefail
+   umask 077
+   stamp=$(date -u +%Y%m%dT%H%M%SZ)
+   backup_dir="${HOME}/.local/state/factory-monitoring/backups/langfuse-${stamp}"
+   install -d -m 700 "$backup_dir"
+   volume="$(docker compose config --format json | jq -er '.volumes["langfuse-postgres-data"].name | select(type == "string" and length > 0)')"
+   target_volume="${volume}-18-${stamp}"
+   dump_container="factory-monitoring-postgres-dump-${stamp}"
+   upgrade_container="factory-monitoring-postgres-upgrade-${stamp}"
+   cleanup() {
+     docker rm -f "$dump_container" "$upgrade_container" >/dev/null 2>&1 || true
+   }
+   trap cleanup EXIT
+
+   docker volume inspect "$volume"
+   docker volume create "$target_volume"
+   docker run -d --name "$dump_container" \
+     -e PGDATA=/var/lib/postgresql/data \
+     -v "$volume:/var/lib/postgresql/data" \
+     postgres:17.9
+   for _ in $(seq 1 60); do
+     docker exec "$dump_container" pg_isready -U langfuse -d langfuse && break
+     sleep 2
+   done
+   docker exec "$dump_container" pg_isready -U langfuse -d langfuse
+   docker exec "$dump_container" psql -U langfuse -d langfuse -Atc 'SELECT 1'
+   docker exec "$dump_container" pg_dumpall -U langfuse --no-password > "$backup_dir/langfuse.sql"
+   docker stop "$dump_container"
+   docker rm "$dump_container"
+   test -s "$backup_dir/langfuse.sql"
+
+   # Restore into a new volume. The original cluster remains untouched.
+   docker run -d --name "$upgrade_container" --network none \
+     -e POSTGRES_USER=upgrade \
+     -e POSTGRES_PASSWORD="$(openssl rand -hex 24)" \
+     -e POSTGRES_DB=upgrade \
+     -e PGDATA=/var/lib/postgresql/data \
+     -v "$target_volume:/var/lib/postgresql/data" \
+     postgres:18.6
+   for _ in $(seq 1 60); do
+     docker exec "$upgrade_container" pg_isready -U upgrade -d upgrade && break
+     sleep 2
+   done
+   docker exec "$upgrade_container" pg_isready -U upgrade -d upgrade
+   docker exec "$upgrade_container" psql -U upgrade -d upgrade -Atc 'SELECT 1'
+   docker exec -i "$upgrade_container" \
+     psql -U upgrade -d upgrade -v ON_ERROR_STOP=1 < "$backup_dir/langfuse.sql"
+
+   docker exec "$upgrade_container" psql -U upgrade -d postgres -Atc 'SHOW server_version'
+   docker exec "$upgrade_container" psql -U upgrade -d langfuse -Atc \
+     "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';"
+   docker stop "$upgrade_container"
+   docker rm "$upgrade_container"
+   ```
+
+   Confirm the server version is 18.x and compare schema and key row counts with
+   the recorded values before starting Langfuse. Then set
+   `LANGFUSE_POSTGRES_VOLUME=$target_volume` in `.env`. If restore fails, remove
+   only the new container and `$target_volume`; the original `$volume` remains
+   unchanged. Do not run `docker compose down -v` while either volume is needed
+   for rollback.
+
+4. Keep the Redis `/data` volume, start PostgreSQL 18, and verify the guard passes.
+   Upgrade Redis to 8 while preserving that volume, then start both Langfuse v4
+   images together. Keep the `legacy` migration defaults until ingestion, reads,
+   background migrations, and rollback have been verified:
+
+   ```sh
+   docker compose --profile langfuse up -d langfuse-postgres langfuse-redis
+   docker compose --profile langfuse up -d
+   curl -fsS 'http://127.0.0.1:3001/api/public/health?failIfDatabaseUnavailable=true'
+   docker compose --profile langfuse exec -T langfuse-worker \
+     wget -qO- 'http://127.0.0.1:3030/api/health?failIfEventPropagationStuck=true'
+   docker compose --profile langfuse exec -T langfuse-postgres \
+     psql -U langfuse -d langfuse -c \
+     "SELECT name, failed_at, failed_reason FROM background_migrations WHERE finished_at IS NULL;"
+   ```
+
+   Adjust the health URL if `LANGFUSE_PORT` changed. Send a test OTLP trace and
+   confirm it is queryable before enabling the v4 read paths.
+
+5. Prefer fixing forward in v4 `legacy` mode. A plain v3 image rollback after v4
+   schema migrations is not supported. Before cutover, either restore both
+   verified pre-upgrade database backups or use the same v4 image to rewind the
+   ClickHouse schema to version 37 as described in the
+   [Langfuse rollback guide](https://langfuse.com/self-hosting/upgrade/upgrade-guides/upgrade-v3-to-v4#rollback-without-restore).
+   For a PostgreSQL volume rollback, stop the stack, set
+   `LANGFUSE_POSTGRES_VOLUME=$volume` in `.env` to select the untouched v3 volume,
+   and deploy the previous v3 Compose revision with the original secrets. Keep
+   the failed 18 volume until the rollback window closes.
+
+6. Only after all producers, API consumers, evaluators, and exports are compatible,
+   move from `legacy` to `dual`, verify new writes, then choose historic backfill
+   with roughly 3x ClickHouse disk headroom or wait for a full retention window.
+   Cut over to `events_only` only after historic data is covered. That cutover is
+   the point of commitment and is not part of this dependency update.

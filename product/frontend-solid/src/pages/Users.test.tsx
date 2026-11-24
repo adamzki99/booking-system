@@ -205,7 +205,7 @@ describe("Users page", () => {
     setSelect(select, "b1");
     setInput(document.getElementById("address-value") as HTMLElement, "New addr");
     fireEvent.click(screen.getByRole("button", { name: "Change address" }));
-    await screen.findByRole("alert");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
   it("renders an initials avatar for each directory member", async () => {
