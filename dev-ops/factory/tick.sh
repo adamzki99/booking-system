@@ -1019,6 +1019,11 @@ stop_egress_proxy() {
   # Only kill a process that is still our proxy; a reused PID must be left alone.
   if [[ -n "$pid" ]] && grep -qa 'egress_proxy.py' "/proc/$pid/cmdline" 2>/dev/null; then
     kill "$pid" 2>/dev/null || true
+    for _ in 1 2 3 4 5; do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null || true; fi
     wait "$pid" 2>/dev/null || true
   fi
   rm -f "$EGRESS_PROXY_PID_FILE" "$EGRESS_PROXY_PORT_FILE" 2>/dev/null || true

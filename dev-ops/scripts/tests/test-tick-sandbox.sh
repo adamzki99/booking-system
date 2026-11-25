@@ -99,6 +99,7 @@ run_tick() {
     BWRAP_LOG="$bwrap_log" \
     FACTORY_WORKTREE="$worktree" \
     FACTORY_CONTAINER_MODE=1 \
+    FACTORY_OPENCODE_CONFIG_DIR="$tmp/home/.config/opencode" \
     FACTORY_LOG_FILE="$1" \
     FACTORY_METRICS_DIR="$tmp/metrics" \
     FACTORY_SESSION_LOG_DIR="$tmp/sessions" \

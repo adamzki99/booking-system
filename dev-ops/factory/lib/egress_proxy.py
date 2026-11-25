@@ -220,8 +220,9 @@ def main(argv=None):
             return 1
 
     def stop(_signum, _frame):
-        # serve_forever is interrupted from another thread in main().
-        pass
+        # Exit the serve_forever loop in this thread; the finally block closes
+        # the listening socket. A no-op handler would leave an orphan proxy.
+        raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
