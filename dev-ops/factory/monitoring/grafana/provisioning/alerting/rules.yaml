@@ -422,8 +422,8 @@ groups:
         annotations:
           summary: Guardrail drift detected in the last tick/window.
           runbook:
-            Stop automated merges if needed. Inspect guardrail_drift event payload and diff AGENTS.md/opencode.jsonc/.opencode/agents
-            against factory-config tag.
+            Stop automated merges if needed. Inspect guardrail_drift event payload (reason/detail/approved_ref). Compare guarded files in origin/main
+            against origin/factory-guardrail-approved:guardrail-manifest.json and approve/publish a matching manifest via the guardrail attestation workflow.
         labels:
           severity: critical
           service: factory

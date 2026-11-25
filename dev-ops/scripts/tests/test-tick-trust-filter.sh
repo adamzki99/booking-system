@@ -157,8 +157,13 @@ setup_checkout() {
   "$git_bin" -C "$seed" branch -M main
   "$git_bin" -C "$seed" remote add origin "$origin"
   "$git_bin" -C "$seed" push -q origin main
-  "$git_bin" -C "$seed" tag factory-config
-  "$git_bin" -C "$seed" push -q origin factory-config
+  python3 "$ROOT/dev-ops/factory/lib/factory.py" guardrail-manifest "$seed" HEAD > "$tmp/$name-guardrail-manifest.json"
+  "$git_bin" -C "$seed" checkout -q -b factory-guardrail-approved
+  cp "$tmp/$name-guardrail-manifest.json" "$seed/guardrail-manifest.json"
+  "$git_bin" -C "$seed" add guardrail-manifest.json
+  "$git_bin" -C "$seed" commit -qm "guardrail manifest"
+  "$git_bin" -C "$seed" push -q origin factory-guardrail-approved
+  "$git_bin" -C "$seed" checkout -q main
   "$git_bin" clone -q "$origin" "$checkout"
 }
 

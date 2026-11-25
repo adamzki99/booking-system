@@ -139,6 +139,13 @@ Kept with their current names, now typed: `tick_start`, `tick_end`,
 `git_fetch_failed`, `dirty_worktree_skipped_reset`, `factory.queue`,
 `reconcile_failed`.
 
+Guardrail attestation events carry `approved_ref` and `manifest_path`.
+`guardrail_ok` is emitted when `origin/main` matches the approved manifest.
+`guardrail_drift` carries `reason` (`approved_ref_fetch_failed`,
+`manifest_missing`, `manifest_unreadable`, `manifest_invalid`,
+`current_unreadable`, or `manifest_mismatch`) and may include `detail` with a
+short changed-path summary.
+
 `factory.queue` is emitted once per tick (also in dry-run) with integer counts:
 `infant` (open, no labels), `planned` (has plan marker, not approved),
 `approved_waiting` (approved, no factory PR), `in_pr` (open factory PR),

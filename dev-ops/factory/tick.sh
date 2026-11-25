@@ -87,7 +87,7 @@ Environment (key):
   FACTORY_SESSION_LOG_DIR, FACTORY_LOG_SESSION_OUTPUT (tail|metadata),
   FACTORY_PRESERVE_SESSION_LOGS (on-failure|always|never),
   FACTORY_ID, FACTORY_METRICS_DIR,
-  FACTORY_WORKTREE, FACTORY_CONFIG_TAG, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED,
+  FACTORY_WORKTREE, FACTORY_GUARDRAIL_APPROVED_BRANCH, FACTORY_GUARDRAIL_MANIFEST_PATH, FACTORY_FREE_MODEL, FACTORY_ON_USAGE_FILLED,
   FACTORY_LOGIN, FACTORY_TRUSTED_LOGINS, FACTORY_GITHUB_APP_ID, FACTORY_GITHUB_APP_PRIVATE_KEY_FILE,
   FACTORY_GITHUB_APP_PRIVATE_KEY, FACTORY_GITHUB_INSTALLATION_ID.
 USAGE
@@ -1520,24 +1520,50 @@ for k in ("steps", "input_tokens", "output_tokens", "reasoning_tokens",
   return "$status"
 }
 
-# Guardrail drift gate (issue #164 / FAC-05): refuse to start any session when
-# the agent/config guardrail files in origin/main differ from the owner-moved
-# factory-config tag. Fails closed when the tag is missing or unfetchable.
-FACTORY_CONFIG_TAG="${FACTORY_CONFIG_TAG:-factory-config}"
+# Guardrail attestation gate: refuse to start any session when the guardrail
+# files in origin/main do not match the owner-approved manifest on the
+# factory-guardrail-approved branch. The manifest is written by the
+# environment-gated guardrail-attest workflow after owner approval. Fails
+# closed when the approved ref/manifest is missing, unreadable, invalid, or
+# mismatched.
+FACTORY_GUARDRAIL_APPROVED_BRANCH="${FACTORY_GUARDRAIL_APPROVED_BRANCH:-factory-guardrail-approved}"
+FACTORY_GUARDRAIL_MANIFEST_PATH="${FACTORY_GUARDRAIL_MANIFEST_PATH:-guardrail-manifest.json}"
 check_guardrail_drift() {
-  # Force-update the local tag so a tag the owner moved on the remote is
-  # honored. A missing or unfetchable tag is treated as drift (fail closed).
+  local approved_ref="origin/${FACTORY_GUARDRAIL_APPROVED_BRANCH}"
+  local manifest_tmp reason detail verify_out verify_rc
   if ! git fetch --quiet origin \
-      "+refs/tags/${FACTORY_CONFIG_TAG}:refs/tags/${FACTORY_CONFIG_TAG}" 2>/dev/null; then
-    emit_event guardrail_drift reason="tag_fetch_failed" tag="$FACTORY_CONFIG_TAG"
-    die "guardrail config tag '$FACTORY_CONFIG_TAG' is missing or unfetchable; refusing to start sessions"
+      "+refs/heads/${FACTORY_GUARDRAIL_APPROVED_BRANCH}:refs/remotes/origin/${FACTORY_GUARDRAIL_APPROVED_BRANCH}" 2>/dev/null; then
+    emit_event guardrail_drift reason="approved_ref_fetch_failed" approved_ref="$approved_ref" manifest_path="$FACTORY_GUARDRAIL_MANIFEST_PATH"
+    die "guardrail approved ref '$approved_ref' is missing or unfetchable; refusing to start sessions"
   fi
-  if ! git diff --quiet "$FACTORY_CONFIG_TAG" origin/main -- \
-      .opencode/agents opencode.jsonc AGENTS.md; then
-    emit_event guardrail_drift reason="drift" tag="$FACTORY_CONFIG_TAG"
-    die "guardrail files in origin/main drifted from $FACTORY_CONFIG_TAG; refusing to start sessions"
+
+  manifest_tmp="$(mktemp "${FACTORY_SESSION_LOG_DIR}/factory-guardrail-manifest.XXXXXX")"
+  if ! git show "${approved_ref}:${FACTORY_GUARDRAIL_MANIFEST_PATH}" > "$manifest_tmp" 2>/dev/null; then
+    rm -f "$manifest_tmp"
+    emit_event guardrail_drift reason="manifest_missing" approved_ref="$approved_ref" manifest_path="$FACTORY_GUARDRAIL_MANIFEST_PATH"
+    die "guardrail manifest '${approved_ref}:${FACTORY_GUARDRAIL_MANIFEST_PATH}' is missing or unreadable; refusing to start sessions"
   fi
-  emit_event guardrail_ok tag="$FACTORY_CONFIG_TAG"
+
+  local guardrail_py="$FACTORY_WORKTREE/dev-ops/factory/lib/factory.py"
+  if [[ ! -f "$guardrail_py" ]]; then
+    guardrail_py="$SCRIPT_DIR/lib/factory.py"
+  fi
+  set +e
+  verify_out="$(python3 "$guardrail_py" guardrail-verify "$manifest_tmp" "$FACTORY_WORKTREE" "origin/main" 2>&1)"
+  verify_rc=$?
+  set -e
+  rm -f "$manifest_tmp"
+
+  if [[ "$verify_rc" -eq 0 ]]; then
+    emit_event guardrail_ok approved_ref="$approved_ref" manifest_path="$FACTORY_GUARDRAIL_MANIFEST_PATH"
+    return 0
+  fi
+
+  reason="$(printf '%s\n' "$verify_out" | awk -F'\t' 'NR==1{print $2}')"
+  detail="$(printf '%s\n' "$verify_out" | awk -F'\t' 'NR==1{print $3}')"
+  reason="${reason:-manifest_mismatch}"
+  emit_event guardrail_drift reason="$reason" approved_ref="$approved_ref" manifest_path="$FACTORY_GUARDRAIL_MANIFEST_PATH" ${detail:+detail="$detail"}
+  die "guardrail files in origin/main do not match approved manifest on $approved_ref ($reason); refusing to start sessions"
 }
 
 # Run all factory work in an isolated git worktree so the primary checkout
