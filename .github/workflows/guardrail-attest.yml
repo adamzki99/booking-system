@@ -5,16 +5,16 @@ on:
     branches:
       - main
     paths:
-      - '.opencode/agents/**'
-      - '.opencode/commands/**'
-      - '.opencode/skills/**'
-      - 'AGENTS.md'
-      - 'opencode.jsonc'
-      - '.github/workflows/guardrail-attest.yml'
+      - ".opencode/agents/**"
+      - ".opencode/commands/**"
+      - ".opencode/skills/**"
+      - "AGENTS.md"
+      - "opencode.jsonc"
+      - ".github/workflows/guardrail-attest.yml"
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Commit/ref to attest (defaults to the workflow SHA)'
+        description: "Commit/ref to attest (defaults to the workflow SHA)"
         required: false
         type: string
 
