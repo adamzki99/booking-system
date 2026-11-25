@@ -1,32 +1,384 @@
 ---
-description: Resumes an open PR's lifecycle: fixes failing checks, requested changes, conflicts, then merges when green
+description: "Resumes an open PR's lifecycle: fixes failing checks, requested changes, and conflicts"
 mode: primary
-temperature: 0.1
-permission:
-  edit: allow
-  bash:
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git fetch*": allow
-    "git rebase*": allow
-    "git add*": allow
-    "git commit*": allow
-    "git checkout*": allow
-    "git worktree*": allow
-    "git push origin HEAD": allow
-    "git push --force-with-lease*": allow
-    "git push --force": deny
-    "git push origin main*": deny
-    "gh issue view*": allow
-    "gh pr view*": allow
-    "gh pr diff*": allow
-    "gh pr checks*": allow
-    "gh pr comment*": allow
-    "gh pr list*": allow
-    "gh pr ready*": allow
-    "gh pr merge*": ask
-    "gh run view*": allow
+permissions:
+  # The global permissions in opencode.jsonc start with a "*" deny. This
+  # profile appends the fixer allowlist, then re-asserts the hard denies.
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*.env"
+    effect: deny
+  - action: edit
+    resource: "*.env.*"
+    effect: deny
+  - action: edit
+    resource: "*.env.example"
+    effect: allow
+  - action: subagent
+    resource: "reviewer"
+    effect: allow
+  # Git inspection, history, and rebase.
+  - action: shell
+    resource: "git status*"
+    effect: allow
+  - action: shell
+    resource: "git diff*"
+    effect: allow
+  - action: shell
+    resource: "git log*"
+    effect: allow
+  - action: shell
+    resource: "git show*"
+    effect: allow
+  - action: shell
+    resource: "git rev-parse*"
+    effect: allow
+  - action: shell
+    resource: "git branch*"
+    effect: allow
+  - action: shell
+    resource: "git remote*"
+    effect: allow
+  - action: shell
+    resource: "git fetch*"
+    effect: allow
+  - action: shell
+    resource: "git rebase*"
+    effect: allow
+  - action: shell
+    resource: "git worktree*"
+    effect: allow
+  - action: shell
+    resource: "git add*"
+    effect: allow
+  - action: shell
+    resource: "git commit*"
+    effect: allow
+  - action: shell
+    resource: "git checkout*"
+    effect: allow
+  - action: shell
+    resource: "git switch*"
+    effect: allow
+  - action: shell
+    resource: "git restore --staged*"
+    effect: allow
+  - action: shell
+    resource: "git mv*"
+    effect: allow
+  - action: shell
+    resource: "git rm*"
+    effect: allow
+  # Pushing is limited to the issue's factory branch. Force-with-lease is
+  # allowed for rebased branches; plain force pushes and main stay denied.
+  - action: shell
+    resource: "git push origin factory/*"
+    effect: allow
+  - action: shell
+    resource: "git push -u origin factory/*"
+    effect: allow
+  - action: shell
+    resource: "git push --set-upstream origin factory/*"
+    effect: allow
+  - action: shell
+    resource: "git push --dry-run origin factory/*"
+    effect: allow
+  # GitHub reads and PR lifecycle. PR and issue context arrives in the prompt,
+  # so view and API calls stay denied.
+  - action: shell
+    resource: "gh pr list*"
+    effect: allow
+  - action: shell
+    resource: "gh pr checks*"
+    effect: allow
+  - action: shell
+    resource: "gh pr ready*"
+    effect: allow
+  - action: shell
+    resource: "gh pr comment*"
+    effect: allow
+  - action: shell
+    resource: "gh pr diff*"
+    effect: allow
+  - action: shell
+    resource: "gh issue comment*"
+    effect: allow
+  - action: shell
+    resource: "gh run view*"
+    effect: allow
+  - action: shell
+    resource: "gh run list*"
+    effect: allow
+  - action: shell
+    resource: "gh run watch*"
+    effect: allow
+  - action: shell
+    resource: "gh label list*"
+    effect: allow
+  # Local build, test, and formatting commands.
+  - action: shell
+    resource: "go test*"
+    effect: allow
+  - action: shell
+    resource: "go vet*"
+    effect: allow
+  - action: shell
+    resource: "go build*"
+    effect: allow
+  - action: shell
+    resource: "go generate*"
+    effect: allow
+  - action: shell
+    resource: "go list*"
+    effect: allow
+  - action: shell
+    resource: "go mod download*"
+    effect: allow
+  - action: shell
+    resource: "go mod tidy*"
+    effect: allow
+  - action: shell
+    resource: "go fmt*"
+    effect: allow
+  - action: shell
+    resource: "go version*"
+    effect: allow
+  - action: shell
+    resource: "gofmt*"
+    effect: allow
+  - action: shell
+    resource: "npm ci*"
+    effect: allow
+  - action: shell
+    resource: "npm install*"
+    effect: allow
+  - action: shell
+    resource: "npm test*"
+    effect: allow
+  - action: shell
+    resource: "npm run *"
+    effect: allow
+  - action: shell
+    resource: "npm --prefix*"
+    effect: allow
+  - action: shell
+    resource: "python3*"
+    effect: allow
+  - action: shell
+    resource: "pytest*"
+    effect: allow
+  - action: shell
+    resource: "bash dev-ops/*"
+    effect: allow
+  - action: shell
+    resource: "bash product/*"
+    effect: allow
+  - action: shell
+    resource: "bash projects/*"
+    effect: allow
+  - action: shell
+    resource: "make*"
+    effect: allow
+  - action: shell
+    resource: "shellcheck*"
+    effect: allow
+  # Basic read-only shell helpers. File contents are read with the read tool.
+  - action: shell
+    resource: "ls*"
+    effect: allow
+  - action: shell
+    resource: "pwd"
+    effect: allow
+  - action: shell
+    resource: "find*"
+    effect: allow
+  - action: shell
+    resource: "rg*"
+    effect: allow
+  - action: shell
+    resource: "sed*"
+    effect: allow
+  - action: shell
+    resource: "awk*"
+    effect: allow
+  - action: shell
+    resource: "sort*"
+    effect: allow
+  - action: shell
+    resource: "uniq*"
+    effect: allow
+  - action: shell
+    resource: "wc*"
+    effect: allow
+  - action: shell
+    resource: "head*"
+    effect: allow
+  - action: shell
+    resource: "tail*"
+    effect: allow
+  - action: shell
+    resource: "jq*"
+    effect: allow
+  - action: shell
+    resource: "diff*"
+    effect: allow
+  - action: shell
+    resource: "test*"
+    effect: allow
+  - action: shell
+    resource: "true"
+    effect: allow
+  - action: shell
+    resource: "false"
+    effect: allow
+  - action: shell
+    resource: "echo*"
+    effect: allow
+  - action: shell
+    resource: "printf*"
+    effect: allow
+  - action: shell
+    resource: "date*"
+    effect: allow
+  - action: shell
+    resource: "which*"
+    effect: allow
+  - action: shell
+    resource: "command -v*"
+    effect: allow
+  - action: shell
+    resource: "cd *"
+    effect: allow
+  # Hard denies: last matching rule wins, so keep these after every allow.
+  - action: external_directory
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*.env"
+    effect: deny
+  - action: shell
+    resource: "*.env.*"
+    effect: deny
+  - action: shell
+    resource: "*.env.example*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: deny
+  - action: websearch
+    resource: "*"
+    effect: deny
+  - action: generate_image
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "gh api*"
+    effect: deny
+  - action: shell
+    resource: "gh issue view*"
+    effect: deny
+  - action: shell
+    resource: "gh pr view*"
+    effect: deny
+  - action: shell
+    resource: "gh pr merge*"
+    effect: deny
+  - action: shell
+    resource: "gh secret*"
+    effect: deny
+  - action: shell
+    resource: "rm *"
+    effect: deny
+  - action: shell
+    resource: "rm -*"
+    effect: deny
+  - action: shell
+    resource: "sudo *"
+    effect: deny
+  - action: shell
+    resource: "su *"
+    effect: deny
+  - action: shell
+    resource: "curl *"
+    effect: deny
+  - action: shell
+    resource: "wget *"
+    effect: deny
+  - action: shell
+    resource: "ssh *"
+    effect: deny
+  - action: shell
+    resource: "scp *"
+    effect: deny
+  - action: shell
+    resource: "docker *"
+    effect: deny
+  - action: shell
+    resource: "podman *"
+    effect: deny
+  - action: shell
+    resource: "chmod *"
+    effect: deny
+  - action: shell
+    resource: "chown *"
+    effect: deny
+  - action: shell
+    resource: "git reset --hard*"
+    effect: deny
+  - action: shell
+    resource: "git clean -*"
+    effect: deny
+  - action: shell
+    resource: "git checkout main*"
+    effect: deny
+  - action: shell
+    resource: "git checkout -B main*"
+    effect: deny
+  - action: shell
+    resource: "git switch main*"
+    effect: deny
+  - action: shell
+    resource: "git branch -D main*"
+    effect: deny
+  - action: shell
+    resource: "git push -f*"
+    effect: deny
+  - action: shell
+    resource: "git push --force*"
+    effect: deny
+  - action: shell
+    resource: "git push *--force*"
+    effect: deny
+  - action: shell
+    resource: "git push * -f*"
+    effect: deny
+  - action: shell
+    resource: "git push * +*"
+    effect: deny
+  - action: shell
+    resource: "git push origin main*"
+    effect: deny
+  - action: shell
+    resource: "git push origin HEAD:main*"
+    effect: deny
+  - action: shell
+    resource: "git push origin HEAD:refs/heads/main*"
+    effect: deny
+  - action: shell
+    resource: "git push --all*"
+    effect: deny
+  - action: shell
+    resource: "git push --mirror*"
+    effect: deny
+  - action: shell
+    resource: "git push origin --delete*"
+    effect: deny
+  # Rebased branches may use the lease-protected form only.
+  - action: shell
+    resource: "git push --force-with-lease*"
+    effect: allow
 ---
 
 You are the fix agent. You resume the builder's issue-to-merged-PR lifecycle
