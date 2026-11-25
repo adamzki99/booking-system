@@ -669,3 +669,91 @@ def test_build_run_spans_includes_content_when_opted_in(monkeypatch):
     llm = [s for s in spans if s["name"] == "opencode.llm.step"][0]
     attrs = {a["key"]: a["value"] for a in llm["attributes"]}
     assert attrs["output.value"]["stringValue"] == "hello"
+
+
+def _init_guardrail_repo(tmp_path):
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    (repo / ".opencode" / "agents").mkdir(parents=True)
+    (repo / ".opencode" / "commands").mkdir(parents=True)
+    (repo / ".opencode" / "skills" / "demo").mkdir(parents=True)
+    (repo / "AGENTS.md").write_text("# rules\n", encoding="utf-8")
+    (repo / "opencode.jsonc").write_text("{}\n", encoding="utf-8")
+    (repo / ".opencode" / "agents" / "builder.md").write_text("builder\n", encoding="utf-8")
+    (repo / ".opencode" / "commands" / "lint.md").write_text("lint\n", encoding="utf-8")
+    (repo / ".opencode" / "skills" / "demo" / "SKILL.md").write_text("skill\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init"], check=True)
+    return repo
+
+
+def test_guardrail_manifest_build_and_verify_ok(tmp_path):
+    repo = _init_guardrail_repo(tmp_path)
+    manifest = factory.build_guardrail_manifest(str(repo), "HEAD")
+    assert manifest["type"] == factory.GUARDRAIL_MANIFEST_TYPE
+    assert manifest["schema_version"] == factory.GUARDRAIL_MANIFEST_SCHEMA_VERSION
+    assert manifest["guardrail_paths"] == factory.GUARDRAIL_PATHS
+    paths = [e["path"] for e in manifest["entries"]]
+    assert "AGENTS.md" in paths
+    assert "opencode.jsonc" in paths
+    assert ".opencode/agents/builder.md" in paths
+    assert ".opencode/commands/lint.md" in paths
+    assert ".opencode/skills/demo/SKILL.md" in paths
+    ok, reason, detail = factory.verify_guardrail_manifest(manifest, str(repo), "HEAD")
+    assert (ok, reason) == (True, "ok")
+
+
+def test_guardrail_manifest_detects_drift(tmp_path):
+    repo = _init_guardrail_repo(tmp_path)
+    manifest = factory.build_guardrail_manifest(str(repo), "HEAD")
+    (repo / "opencode.jsonc").write_text('{"changed":true}\n', encoding="utf-8")
+    subprocess = __import__("subprocess")
+    subprocess.run(["git", "-C", str(repo), "commit", "-qam", "drift"], check=True)
+    ok, reason, detail = factory.verify_guardrail_manifest(manifest, str(repo), "HEAD")
+    assert ok is False
+    assert reason == "manifest_mismatch"
+    assert "opencode.jsonc" in detail
+
+
+def test_guardrail_manifest_detects_added_and_removed(tmp_path):
+    import subprocess
+    repo = _init_guardrail_repo(tmp_path)
+    manifest = factory.build_guardrail_manifest(str(repo), "HEAD")
+    (repo / ".opencode" / "skills" / "demo" / "SKILL.md").unlink()
+    (repo / ".opencode" / "agents" / "reviewer.md").write_text("reviewer\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "change"], check=True)
+    ok, reason, detail = factory.verify_guardrail_manifest(manifest, str(repo), "HEAD")
+    assert ok is False
+    assert reason == "manifest_mismatch"
+    assert "removed:.opencode/skills/demo/SKILL.md" in detail
+    assert "added:.opencode/agents/reviewer.md" in detail
+
+
+def test_guardrail_manifest_invalid_fails_closed(tmp_path):
+    repo = _init_guardrail_repo(tmp_path)
+    ok, reason, detail = factory.verify_guardrail_manifest({"schema_version": 99, "type": "wrong", "entries": []}, str(repo), "HEAD")
+    assert ok is False
+    assert reason == "manifest_invalid"
+
+
+def test_guardrail_verify_cli(tmp_path, capsys):
+    import json, subprocess
+    repo = _init_guardrail_repo(tmp_path)
+    manifest = factory.build_guardrail_manifest(str(repo), "HEAD")
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    rc = factory.main(["factory.py", "guardrail-verify", str(manifest_path), str(repo), "HEAD"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.startswith("ok\t")
+    (repo / "AGENTS.md").write_text("# changed\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "commit", "-qam", "drift"], check=True)
+    rc = factory.main(["factory.py", "guardrail-verify", str(manifest_path), str(repo), "HEAD"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert out.startswith("drift\tmanifest_mismatch\t")

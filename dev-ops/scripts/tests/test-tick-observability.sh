@@ -92,10 +92,19 @@ printf 'PASS: lock skip leaves active tick metrics unchanged\n'
 "$git_bin" -C "$tmp/tick-repo" checkout -q "$("$git_bin" -C "$REPO_ROOT" rev-parse HEAD)"
 cp "$TICK" "$tmp/tick-repo/dev-ops/factory/tick.sh"
 cp "$REPO_ROOT/dev-ops/factory/lib/factory.py" "$tmp/tick-repo/dev-ops/factory/lib/factory.py"
-if ! "$git_bin" -C "$tmp/tick-repo" rev-parse --verify factory-config >/dev/null 2>&1; then
-  "$git_bin" -C "$tmp/tick-repo" tag factory-config HEAD
+"$git_bin" -C "$tmp/tick-repo" add dev-ops/factory/tick.sh dev-ops/factory/lib/factory.py
+if ! "$git_bin" -C "$tmp/tick-repo" diff --cached --quiet -- dev-ops/factory/tick.sh dev-ops/factory/lib/factory.py; then
+  "$git_bin" -C "$tmp/tick-repo" -c user.email=test@example.invalid -c user.name=test commit -qm "test tick/factory"
 fi
-"$git_bin" -C "$tmp/tick-repo" branch --no-track -f main factory-config
+"$git_bin" -C "$tmp/tick-repo" branch --no-track -f main HEAD
+python3 "$tmp/tick-repo/dev-ops/factory/lib/factory.py" guardrail-manifest "$tmp/tick-repo" HEAD > "$tmp/guardrail-manifest.json"
+"$git_bin" -C "$tmp/tick-repo" checkout -q -B factory-guardrail-approved HEAD
+cp "$tmp/guardrail-manifest.json" "$tmp/tick-repo/guardrail-manifest.json"
+"$git_bin" -C "$tmp/tick-repo" add guardrail-manifest.json
+if ! "$git_bin" -C "$tmp/tick-repo" diff --cached --quiet -- guardrail-manifest.json; then
+  "$git_bin" -C "$tmp/tick-repo" -c user.email=test@example.invalid -c user.name=test commit -qm "guardrail manifest"
+fi
+"$git_bin" -C "$tmp/tick-repo" checkout -q main
 "$git_bin" clone -q "$tmp/tick-repo" "$tmp/factory-wt"
 touch "$tmp/not-a-directory"
 mkdir -p "$tmp/failure-metrics" "$tmp/failure-sessions" "$tmp/failure-claims"
