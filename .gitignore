@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Data
+*.db
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Factory deliver workflow state (per-worktree, gitignored)
+.factory-deliver-state.json

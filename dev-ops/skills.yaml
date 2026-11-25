@@ -1,0 +1,112 @@
+# Open-source skills vendored into .opencode/skills/ by
+# dev-ops/scripts/request-skills.sh
+#
+# Each entry:
+#   id:   kebab-case directory name under .opencode/skills/ (the OpenCode skill ID)
+#   repo: git URL of the source repository
+#   path: directory inside that repo containing the skill (must contain SKILL.md)
+#   ref:  branch, tag, or commit (optional; defaults to the repo's default branch)
+#
+# Repository-owned skills use local_path instead of repo/path/ref:
+#   local_path: directory in this repository containing SKILL.md
+#
+# Skills are discovered by OpenCode from .opencode/skills/ (see
+# https://opencode.ai/v2/docs/skills/
+
+skills:
+  - id: skill-creator
+    repo: https://github.com/anthropics/skills.git
+    path: skills/skill-creator
+
+  - id: pdf
+    repo: https://github.com/anthropics/skills.git
+    path: skills/pdf
+
+  - id: frontend-design
+    repo: https://github.com/anthropics/skills.git
+    path: skills/frontend-design
+
+  - id: code-review
+    repo: https://github.com/mattpocock/skills.git
+    path: skills/engineering/code-review
+
+  - id: implement
+    repo: https://github.com/mattpocock/skills.git
+    path: skills/engineering/implement
+
+  - id: pr
+    repo: https://github.com/mattpocock/skills.git
+    path: skills/engineering/pr
+
+  - id: diagnosing-bugs
+    repo: https://github.com/mattpocock/skills.git
+    path: skills/engineering/diagnosing-bugs
+
+  - id: tdd
+    repo: https://github.com/mattpocock/skills.git
+    path: skills/engineering/tdd
+
+  - id: domain-modeling
+    repo: https://github.com/mattpocock/skills.git
+    path: skills/engineering/domain-modeling
+
+  - id: webapp-testing
+    repo: https://github.com/anthropics/skills.git
+    path: skills/webapp-testing
+
+  - id: dev-server-ssh
+    local_path: dev-ops/skills/dev-server-ssh
+
+  - id: ui-mockup-alignment
+    local_path: dev-ops/skills/ui-mockup-alignment
+
+  # More candidates from https://github.com/anthropics/skills (skills/ dir):
+  # docx, pptx, xlsx, mcp-builder, doc-coauthoring, ...
+
+  - id: caveman
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/caveman
+
+  - id: ultracave
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/ultracave
+
+  - id: megacave
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/megacave
+
+  - id: investigate-first
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/investigate-first
+
+  - id: lean-build
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/lean-build
+
+  - id: surgical-patch
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/surgical-patch
+
+  - id: safe-refactor
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/safe-refactor
+
+  - id: migration
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/migration
+
+  - id: verify-and-stop
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/verify-and-stop
+
+  - id: caveman-commit
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/caveman-commit
+
+  - id: caveman-review
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/caveman-review
+
+  - id: caveman-compress
+    repo: https://github.com/juliusbrussee/caveman.git
+    path: skills/caveman-compress

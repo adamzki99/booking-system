@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "endOfLine": "lf",
+  "proseWrap": "preserve",
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/package-lock.json",
+    ".opencode/skills/**",
+    ".opencode/commands/**",
+    ".opencode/agents/**",
+    "projects/sauna/docs/mocks/**",
+    "dev-ops/docs/booking-system-repo-reports/**",
+    "dev-ops/factory/monitoring/grafana/dashboards/*.json",
+    "product/monitoring/grafana/dashboards/*.json",
+    "product/monitoring/grafana/provisioning/alerting/*.yaml",
+    "**/*.go",
+    "**/*.py",
+    // Root guardrail file; formatted with guardrails in prompt 08.
+    "/AGENTS.md",
+    // prompt 08 removes this guardrail exclusion
+    "opencode.jsonc",
+  ],
+}

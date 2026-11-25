@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      sidecar: ${{ steps.filter.outputs.sidecar }}
+      monitoring: ${{ steps.filter.outputs.monitoring }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            backend:
+              - 'product/backend/**'
+              - '.github/workflows/backend-ci.yml'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'product/frontend-solid/**'
+              - '.github/workflows/frontend-ci.yml'
+              - '.github/workflows/ci.yml'
+            sidecar:
+              - 'projects/sauna/sidecar/**'
+              - '.github/workflows/sidecar-ci.yml'
+              - '.github/workflows/ci.yml'
+            monitoring:
+              - 'dev-ops/factory/monitoring/**'
+              - 'dev-ops/factory/otel-collector.yaml'
+              - 'dev-ops/factory/tick.sh'
+              - 'dev-ops/factory/lib/**'
+              - 'dev-ops/factory/validate.sh'
+              - 'dev-ops/scripts/deploy-environment.sh'
+              - 'dev-ops/scripts/check-monitoring-hardening.py'
+              - 'dev-ops/scripts/tests/**'
+              - 'product/monitoring/**'
+              - 'projects/sauna/docker-compose.yml'
+              - 'projects/sauna/docker-compose.monitoring.yml'
+              - 'projects/sauna/monitoring/**'
+              - '.github/workflows/monitoring-ci.yml'
+              - '.github/workflows/ci.yml'
+
+  backend:
+    name: Backend CI
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    uses: ./.github/workflows/backend-ci.yml
+
+  frontend:
+    name: Frontend CI
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/frontend-ci.yml
+
+  sidecar:
+    name: Sidecar CI
+    needs: changes
+    if: needs.changes.outputs.sidecar == 'true'
+    uses: ./.github/workflows/sidecar-ci.yml
+
+  monitoring:
+    name: Monitoring CI
+    needs: changes
+    if: needs.changes.outputs.monitoring == 'true'
+    uses: ./.github/workflows/monitoring-ci.yml
+
+  security:
+    name: Security
+    uses: ./.github/workflows/security.yml
+
+  semgrep:
+    name: Semgrep
+    uses: ./.github/workflows/semgrep.yml
+
+  format:
+    name: Format CI
+    uses: ./.github/workflows/format-ci.yml
+
+  ci-gate:
+    name: ci-gate
+    if: always()
+    needs: [changes, backend, frontend, sidecar, monitoring, security, semgrep, format]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate results
+        run: '[[ "${{ contains(needs.*.result, ''failure'') || contains(needs.*.result, ''cancelled'') }}" == "false" ]]'

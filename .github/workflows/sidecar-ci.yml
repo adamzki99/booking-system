@@ -1,0 +1,38 @@
+name: Sidecar CI
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Sidecar tests
+    concurrency:
+      group: ${{ github.workflow }}-test-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: projects/sauna/sidecar
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: projects/sauna/sidecar/go.mod
+          cache-dependency-path: projects/sauna/sidecar/go.sum
+
+      - name: Tests
+        run: go test -race -shuffle=on -json ./... > "$RUNNER_TEMP/go-test.json"
+
+      - name: Test report
+        if: always()
+        run: |
+          "$GITHUB_WORKSPACE/dev-ops/scripts/go-test-report.sh" "$RUNNER_TEMP/go-test.json"
+
+      - name: Docker build smoke test
+        run: docker build -f Dockerfile .

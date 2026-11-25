@@ -1,0 +1,15 @@
+# Environment → port mapping on the dev machine.
+# Maintained by agents as environments are created and removed.
+
+environments:
+  qa:
+    branch: main
+    port: 8080
+    # The following are written by dev-ops/scripts/deploy-environment.sh:
+    last_deploy: "2026-11-19T11:00:55Z"
+    last_deploy_commit: "81d08b449ba938cd7a06a7ccdd6b664e6a9c5b52"
+    last_deploy_status: "success"
+  # Candidate environments for release branches are added here, e.g.:
+  # release-1-0:
+  #   branch: release/1.0
+  #   port: 8081

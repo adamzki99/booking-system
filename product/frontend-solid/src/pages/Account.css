@@ -1,0 +1,46 @@
+.account-page {
+  max-width: 1040px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.account-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6, 1.5rem);
+}
+
+.account-section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 1rem);
+}
+
+.account-actions {
+  display: flex;
+  gap: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+}
+
+.account-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+}
+
+.account-label {
+  font-weight: 600;
+}
+
+.account-muted {
+  color: var(--color-muted, #6b7280);
+  font-size: 0.875rem;
+}
+
+.account-code {
+  padding: 0.5rem;
+  border-radius: var(--radius-base, 4px);
+  word-break: break-all;
+  display: block;
+  background: var(--color-bg-subtle, #f3f4f6);
+}

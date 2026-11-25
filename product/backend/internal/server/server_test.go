@@ -1,0 +1,399 @@
+package server_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/adamzki99/booking-system/product/backend/internal/auth"
+	"github.com/adamzki99/booking-system/product/backend/internal/eventstore"
+	"github.com/adamzki99/booking-system/product/backend/internal/ratelimit"
+	"github.com/adamzki99/booking-system/product/backend/internal/registry"
+	"github.com/adamzki99/booking-system/product/backend/internal/server"
+	"github.com/adamzki99/booking-system/product/backend/internal/user"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
+)
+
+type captureSender struct {
+	mu   sync.Mutex
+	body string
+}
+
+func (s *captureSender) Send(_ context.Context, _, _ string, body string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.body = body
+	return nil
+}
+
+func newTestServer(t *testing.T, sidecarURL ...string) (*httptest.Server, *captureSender) {
+	t.Helper()
+	ts, sender, _ := newTestServerWithPool(t, sidecarURL...)
+	return ts, sender
+}
+
+func newTestServerWithPool(t *testing.T, sidecarURL ...string) (*httptest.Server, *captureSender, *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	pool := newServerTestPool(t)
+	store := eventstore.NewPostgresStore(pool)
+	app, err := registry.New(ctx, store, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projections := auth.Register(app)
+	userProjections := user.RegisterWithProjections(app)
+	users := userProjections.Users
+
+	sender := &captureSender{}
+	svc := auth.NewService(app.Commands, sender, ratelimit.NewLimiter(), users)
+	userService := user.NewService(app.Commands, users, userProjections.EmailChanges, nil, nil)
+	svc.BootstrapAdmin = func(ctx context.Context, email string) error {
+		return userService.BootstrapAdmin(ctx, email)
+	}
+	mw := auth.NewSessionMiddleware(projections.Sessions, users)
+	deps := server.Deps{Auth: svc, Middleware: mw, UserService: userService}
+	if len(sidecarURL) > 0 {
+		deps.SidecarURL = sidecarURL[0]
+	}
+
+	ts := httptest.NewServer(server.NewMux(deps))
+	t.Cleanup(ts.Close)
+	return ts, sender, pool
+}
+
+func TestAuthFlow(t *testing.T) {
+	ts, sender := newTestServer(t)
+
+	resp, _ := request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"alice@example.com"}`, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("request-code status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+	code := sender.body
+	if code == "" {
+		t.Fatal("no code emailed")
+	}
+
+	resp, body := request(t, ts, http.MethodPost, "/auth/verify", `{"email":"alice@example.com","code":"`+code+`"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("verify status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
+	}
+	var verify struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &verify); err != nil {
+		t.Fatal(err)
+	}
+	if verify.Token == "" {
+		t.Fatal("verify response missing token")
+	}
+
+	header := http.Header{"Authorization": []string{"Bearer " + verify.Token}}
+	resp, body = request(t, ts, http.MethodGet, "/auth/me", "", header)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("me status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var me struct {
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(body, &me); err != nil {
+		t.Fatal(err)
+	}
+	if me.Email != "alice@example.com" {
+		t.Fatalf("me email = %q, want alice@example.com", me.Email)
+	}
+}
+
+func TestRequestCodeRejectsInvalidEmail(t *testing.T) {
+	ts, _ := newTestServer(t)
+	resp, _ := request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"not-an-email"}`, nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestVerifyRejectsWrongCode(t *testing.T) {
+	ts, _ := newTestServer(t)
+	if resp, _ := request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"alice@example.com"}`, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("request-code status = %d", resp.StatusCode)
+	}
+	resp, _ := request(t, ts, http.MethodPost, "/auth/verify", `{"email":"alice@example.com","code":"AAAAAA"}`, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestMeWithoutToken(t *testing.T) {
+	ts, _ := newTestServer(t)
+	resp, _ := request(t, ts, http.MethodGet, "/auth/me", "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestRequestCodeRateLimited(t *testing.T) {
+	ts, _ := newTestServer(t)
+	for i := 0; i < 5; i++ {
+		if resp, _ := request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"alice@example.com"}`, nil); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("request %d status = %d", i+1, resp.StatusCode)
+		}
+	}
+	resp, _ := request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"alice@example.com"}`, nil)
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusTooManyRequests)
+	}
+}
+
+func TestCalendarFeedRateLimited(t *testing.T) {
+	ts, _ := newTestServer(t)
+	for i := 0; i < 30; i++ {
+		if resp, _ := request(t, ts, http.MethodGet, fmt.Sprintf("/calendar/unknown-token-%d.ics", i), "", nil); resp.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("request %d status = %d, want %d", i+1, resp.StatusCode, http.StatusServiceUnavailable)
+		}
+	}
+	resp, _ := request(t, ts, http.MethodGet, "/calendar/unknown-token-30.ics", "", nil)
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusTooManyRequests)
+	}
+}
+
+func TestChromeRequiresSession(t *testing.T) {
+	ts, _ := newTestServer(t)
+	resp, _ := request(t, ts, http.MethodGet, "/chrome", "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestChromeFallbackWhenSidecarEmpty(t *testing.T) {
+	ts, sender := newTestServer(t)
+	token := verifyToken(t, ts, sender)
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+
+	resp, body := request(t, ts, http.MethodGet, "/chrome", "", header)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
+	}
+	var out struct {
+		Header       string `json:"header"`
+		Footer       string `json:"footer"`
+		NextRedeploy string `json:"nextRedeploy"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Header != "" || out.Footer != "" || out.NextRedeploy != "" {
+		t.Fatalf("expected empty fallback, got %+v", out)
+	}
+}
+
+func TestChromeProxiesSidecar(t *testing.T) {
+	sidecarTS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/functions/chrome" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"header":"H","footer":"F","nextRedeploy":"2026-11-10T00:00:00+01:00"}`))
+	}))
+	defer sidecarTS.Close()
+
+	ts, sender := newTestServer(t, sidecarTS.URL)
+	token := verifyToken(t, ts, sender)
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+
+	resp, body := request(t, ts, http.MethodGet, "/chrome", "", header)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
+	}
+	var out struct {
+		Header       string `json:"header"`
+		Footer       string `json:"footer"`
+		NextRedeploy string `json:"nextRedeploy"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Header != "H" || out.Footer != "F" {
+		t.Fatalf("got %+v, want H/F", out)
+	}
+	if out.NextRedeploy != "2026-11-10T00:00:00+01:00" {
+		t.Fatalf("nextRedeploy = %q, want pass-through", out.NextRedeploy)
+	}
+}
+
+func TestChromeFallbackWhenSidecarErrors(t *testing.T) {
+	sidecarTS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer sidecarTS.Close()
+
+	ts, sender := newTestServer(t, sidecarTS.URL)
+	token := verifyToken(t, ts, sender)
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+
+	resp, body := request(t, ts, http.MethodGet, "/chrome", "", header)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", resp.StatusCode, http.StatusOK, body)
+	}
+}
+
+func TestUnknownSessionCannotAccessProtectedRoutes(t *testing.T) {
+	ts, _, pool := newTestServerWithPool(t)
+	const token = "ghost-session-token"
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO sessions (token_hash, email, expires_at) VALUES ($1, $2, now() + interval '1 hour')`,
+		auth.HashToken(token), "ghost@example.com",
+	); err != nil {
+		t.Fatal(err)
+	}
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/auth/me"},
+		{http.MethodGet, "/users"},
+		{http.MethodGet, "/bookings"},
+		{http.MethodPost, "/users"},
+		{http.MethodPost, "/bookings"},
+		{http.MethodPost, "/broadcast"},
+		{http.MethodPost, "/account/calendar-token"},
+	}
+	for _, route := range routes {
+		resp, _ := request(t, ts, route.method, route.path, "", header)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("%s %s with unknown-email session = %d, want %d", route.method, route.path, resp.StatusCode, http.StatusUnauthorized)
+		}
+	}
+}
+
+func TestDeactivatedUserSessionRejectedAndCannotRelogin(t *testing.T) {
+	ts, sender, pool := newTestServerWithPool(t)
+	token := verifyToken(t, ts, sender)
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+
+	resp, _ := request(t, ts, http.MethodGet, "/auth/me", "", header)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("pre-deactivation /auth/me = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	if _, err := pool.Exec(context.Background(), `UPDATE users SET active = false WHERE email = 'alice@example.com'`); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/auth/me", "/users"} {
+		resp, _ = request(t, ts, http.MethodGet, path, "", header)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("GET %s with deactivated session = %d, want %d", path, resp.StatusCode, http.StatusUnauthorized)
+		}
+	}
+
+	previousCode := sender.body
+	resp, _ = request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"alice@example.com"}`, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("request-code status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+	if sender.body != previousCode {
+		t.Fatal("no new login code should be emailed to a deactivated user")
+	}
+	resp, _ = request(t, ts, http.MethodPost, "/auth/verify", `{"email":"alice@example.com","code":"ABC123"}`, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("verify status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func verifyToken(t *testing.T, ts *httptest.Server, sender *captureSender) string {
+	t.Helper()
+	resp, _ := request(t, ts, http.MethodPost, "/auth/request-code", `{"email":"alice@example.com"}`, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("request-code status = %d", resp.StatusCode)
+	}
+	code := sender.body
+	resp, body := request(t, ts, http.MethodPost, "/auth/verify", `{"email":"alice@example.com","code":"`+code+`"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("verify status = %d (body %s)", resp.StatusCode, body)
+	}
+	var verify struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &verify); err != nil {
+		t.Fatal(err)
+	}
+	return verify.Token
+}
+
+func request(t *testing.T, ts *httptest.Server, method, path, body string, header http.Header) (*http.Response, []byte) {
+	t.Helper()
+	var rd io.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, ts.URL+path, rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, vs := range header {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp, data
+}
+
+func newServerTestPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	ctx := context.Background()
+
+	if url := os.Getenv("DATABASE_URL"); url != "" {
+		pool, err := pgxpool.New(ctx, url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(pool.Close)
+		return pool
+	}
+
+	container, err := postgres.Run(ctx, "postgres:16",
+		postgres.WithDatabase("test"),
+		postgres.WithUsername("test"),
+		postgres.WithPassword("test"),
+		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(2)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	url, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}

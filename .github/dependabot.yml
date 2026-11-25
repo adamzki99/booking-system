@@ -1,0 +1,198 @@
+# Dependabot configuration (issue #165 / I-008).
+# Weekly checks with minor and patch updates grouped per ecosystem and directory.
+
+version: 2
+updates:
+  # Go modules
+  - package-ecosystem: gomod
+    directory: /product/backend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /projects/sauna/sidecar
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # npm
+  - package-ecosystem: npm
+    directory: /product/frontend-solid
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      oxc:
+        patterns:
+          - "oxlint"
+          - "oxfmt"
+          - "oxlint-tsgolint"
+          - "tsrs"
+          - "@oxlint/*"
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /dev-ops/testing
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      oxc:
+        patterns:
+          - "oxlint"
+          - "oxfmt"
+          - "oxlint-tsgolint"
+          - "tsrs"
+          - "@oxlint/*"
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      oxc:
+        patterns:
+          - "oxlint"
+          - "oxfmt"
+          - "oxlint-tsgolint"
+          - "tsrs"
+          - "@oxlint/*"
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Dockerfiles
+  - package-ecosystem: docker
+    directory: /product/backend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /product/frontend-solid
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /projects/sauna/sidecar
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /dev-ops/testing
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Docker Compose files
+  - package-ecosystem: docker-compose
+    directory: /projects/sauna
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker-compose
+    directory: /dev-ops/factory/monitoring
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker-compose
+    directory: /product/monitoring
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker-compose
+    directory: /projects/sauna/monitoring
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch

@@ -1,0 +1,134 @@
+# Sauna Booking System - deployment compose file.
+#
+# Combines the generic booking product (../../product) with the sauna-specific
+# sidecar and configuration. OpenTelemetry export is optional; when the sauna
+# monitoring instance is running, deploy-environment.sh adds
+# docker-compose.monitoring.yml to attach the backend to the monitoring network.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    ports:
+      # ${PORT} is the health-checked HTTP listener used by deploy-environment.sh.
+      # 80/443 are published directly (fixed) so Let's Encrypt can answer the
+      # HTTP-01 challenge on port 80 and serve the issued certificate for
+      # ${SITE_ADDRESS} on 443.
+      - "${PORT:-8080}:80"
+      - "80:80"
+      - "443:443"
+    environment:
+      # Defaults keep Caddy valid for local runs: "localhost" serves Caddy's
+      # internal self-signed certificate and no ACME is attempted.
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
+      ACME_CA: ${ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - frontend-dist:/srv:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build: ../../product/frontend-solid
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    volumes:
+      - frontend-dist:/srv
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /srv/index.html"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: "no"
+
+  backend:
+    build: ../../product/backend
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://booking:booking@postgres:5432/booking}
+      SIDECAR_URL: ${SIDECAR_URL:-http://sidecar:8081}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-booking-backend}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sidecar:
+        condition: service_started
+    restart: unless-stopped
+
+  sidecar:
+    build: ./sidecar
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    environment:
+      PORT: "8081"
+      BOOKING_TIMEZONE: ${BOOKING_TIMEZONE:-Europe/Stockholm}
+      SAUNA_CAPACITY: ${SAUNA_CAPACITY:-1}
+      # Comma-separated daily redeploy times (HH:MM, BOOKING_TIMEZONE).
+      # Leave empty in production to hide the header countdown.
+      REDEPLOY_TIMES: ${REDEPLOY_TIMES:-}
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-booking}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-booking}
+      POSTGRES_DB: ${POSTGRES_DB:-booking}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-booking} -d ${POSTGRES_DB:-booking}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  authelia:
+    image: authelia/authelia:latest
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    profiles: ["authelia"]
+    volumes:
+      - ./config/authelia:/config:ro
+    restart: unless-stopped
+
+volumes:
+  # Per-environment certificate store. Each compose project (booking-qa,
+  # booking-prod, ...) gets its own volume, so ACME accounts, certificates and
+  # private keys are never shared between environments. Certificates live at
+  # /data/caddy/certificates inside the caddy container.
+  caddy-data:
+    name: ${COMPOSE_PROJECT_NAME:-sauna}-caddy-data
+  frontend-dist:
+  postgres-data:
+
+networks:
+  default: {}

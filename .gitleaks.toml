@@ -1,0 +1,14 @@
+title = "Booking system gitleaks configuration"
+
+[extend]
+useDefault = true
+
+# The first version of PR #439 used this fixed smoke-test credential inline.
+# Keep the exception limited to that exact commit, file, and command line.
+[allowlist]
+description = "Known smoke-test curl credential in PR history"
+condition = "AND"
+commits = ["01be757e77b3bc3a7f8fd23fa21beccc8fcc809b"]
+paths = ['''dev-ops/factory/monitoring/scripts/smoke\.sh''']
+regexTarget = "line"
+regexes = ['''-u 'prometheus:smoke-metrics-pass' ''']

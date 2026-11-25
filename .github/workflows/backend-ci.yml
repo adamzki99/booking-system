@@ -1,0 +1,85 @@
+name: Backend CI
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Format, vet, test, build
+    concurrency:
+      group: ${{ github.workflow }}-backend-check-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: product/backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read Docker builder Go version
+        id: builder
+        run: |
+          builder_image=$(awk 'toupper($1) == "FROM" && $2 ~ /^golang:/ && toupper($3) == "AS" && tolower($4) == "builder" { print $2 }' Dockerfile)
+          if [[ -z "$builder_image" ]]; then
+            echo "Could not find the golang builder image in Dockerfile" >&2
+            exit 1
+          fi
+          version=${builder_image#golang:}
+          version=${version%%-alpine*}
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "Unsupported Go builder image: $builder_image" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ steps.builder.outputs.version }}
+          cache-dependency-path: product/backend/go.sum
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Tests
+        run: go test -race -shuffle=on -timeout 20m -json ./... > "$RUNNER_TEMP/go-test.json"
+
+      - name: Test report
+        if: always()
+        run: |
+          "$GITHUB_WORKSPACE/dev-ops/scripts/go-test-report.sh" "$RUNNER_TEMP/go-test.json" \
+            --require-package auth \
+            --require-package booking \
+            --require-package eventstore \
+            --require-package notification \
+            --require-package projection \
+            --require-package registry \
+            --require-package user
+
+      - name: Build
+        run: go build ./cmd/server
+
+  docker:
+    name: Docker build smoke test
+    concurrency:
+      group: ${{ github.workflow }}-docker-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build image
+        run: docker build -f product/backend/Dockerfile product/backend

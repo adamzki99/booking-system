@@ -1,0 +1,26 @@
+# Sauna monitoring instance.
+# Uses the generic product monitoring base. All project-specific values live in .env.
+#
+# Run from this directory:
+#   cp .env.example .env
+#   docker compose up -d
+
+name: ${MONITORING_PROJECT:?set MONITORING_PROJECT in .env}-monitoring
+
+include:
+  - path: ../../../product/monitoring/compose.yaml
+
+services:
+  prometheus:
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../../product/monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+  grafana:
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../../../product/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ../../../product/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../../../product/monitoring/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      - ../../../product/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./dashboards:/var/lib/grafana/dashboards-project:ro

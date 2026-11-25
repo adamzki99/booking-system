@@ -1,0 +1,33 @@
+name: Semgrep
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 4 * * *" # daily full scan (randomized time)
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: semgrep/ci
+    concurrency:
+      group: ${{ github.workflow }}-semgrep-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Run Semgrep
+        # Baseline against the change's parent so existing findings do not
+        # gate new work. Findings introduced by the PR or push still fail.
+        env:
+          SEMGREP_BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: semgrep scan --config p/default --config p/golang --config p/typescript --error --metrics=off

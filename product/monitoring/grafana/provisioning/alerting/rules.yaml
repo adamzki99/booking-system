@@ -1,0 +1,740 @@
+apiVersion: 1
+groups:
+- orgId: 1
+  name: product-alerts
+  folder: Product
+  interval: 1m
+  rules:
+  - uid: product-backend-silent
+    title: Backend silent
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus-product
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-product
+        editorMode: code
+        expr: (time() - max by (project, deployment_environment) (max_over_time(timestamp(sum by (project, deployment_environment)
+          (rate({__name__=~"http_server_request_duration_seconds_count|http_server_duration_milliseconds_count|http_server_requests_total|commands_handled_total"}[5m])))[15m:])))
+          > 600 and on (project, deployment_environment) (max by (project, deployment_environment) (max_over_time(timestamp(sum
+          by (project, deployment_environment) (rate({__name__=~"http_server_request_duration_seconds_count|http_server_duration_milliseconds_count|http_server_requests_total|commands_handled_total"}[5m])))[24h:])))
+          > 0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0.5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: No telemetry from booking backend for an active deployment environment.
+      description: 'No backend telemetry received for more than 10 minutes in an environment that reported in the last 24h.
+        Likely causes: backend crashed, OTLP endpoint misconfigured, collector down, or network/DNS issue. First checks: check
+        backend container logs/health, verify OTEL_EXPORTER_OTLP_ENDPOINT, check otel-collector health and refused/dropped
+        metrics, confirm Prometheus has recent samples for commands_handled_total or HTTP metrics.'
+    labels:
+      project: '{{ $labels.project }}'
+      deployment_environment: '{{ $labels.deployment_environment }}'
+    isPaused: false
+  - uid: product-high-error-rate
+    title: High error rate
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus-product
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-product
+        editorMode: code
+        expr: (sum by (project, deployment_environment) (rate({__name__=~"http_server_request_duration_seconds_count|http_server_duration_milliseconds_count",http_response_status_code=~"5.."}[5m]))
+          / clamp_min(sum by (project, deployment_environment) (rate({__name__=~"http_server_request_duration_seconds_count|http_server_duration_milliseconds_count"}[5m])),
+          1e-9)) * 100 > 2.0 and sum by (project, deployment_environment) (increase({__name__=~"http_server_request_duration_seconds_count|http_server_duration_milliseconds_count"}[10m]))
+          >= 20
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0.5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: Backend 5xx error rate above 2.0% for 10 minutes.
+      description: '5xx responses are above 2.0% over 10 minutes with at least 20 requests. Likely causes: recent deploy regression,
+        database/projection failure, sidecar outage causing 5xx, or panic. First checks: inspect Traces and logs dashboard
+        for error traces, check backend logs by trace_id, compare with deploy markers, check projection.errors and DB health.'
+    labels:
+      project: '{{ $labels.project }}'
+      deployment_environment: '{{ $labels.deployment_environment }}'
+    isPaused: false
+  - uid: product-high-latency
+    title: High latency
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus-product
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-product
+        editorMode: code
+        expr: histogram_quantile(0.95, sum by (le, project, deployment_environment) (rate({__name__=~"http_server_request_duration_seconds_bucket|http_server_duration_milliseconds_bucket"}[5m])))
+          > 1.0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0.5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: Backend p95 latency above 1.0s for 10 minutes.
+      description: 'HTTP p95 latency is above 1.0s for 10 minutes. Likely causes: slow DB queries, projection lock contention,
+        sidecar latency, GC pressure, or host resource contention. First checks: inspect slow routes in Service overview,
+        check DB span latency and pgx pool stats, check sidecar duration, inspect Go runtime/GC metrics and host memory.'
+    labels:
+      project: '{{ $labels.project }}'
+      deployment_environment: '{{ $labels.deployment_environment }}'
+    isPaused: false
+  - uid: product-projection-lag
+    title: Projection lag or errors
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus-product
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-product
+        editorMode: code
+        expr: max by (project, deployment_environment) (projection_lag) > 100 or sum by (project, deployment_environment)
+          (increase(projection_errors_total[10m])) > 0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0.5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    annotations:
+      summary: Projection lag is above threshold or projection errors occurred.
+      description: 'Projection lag is above 100 events for 5 minutes, or projection errors increased. Likely causes: projection
+        handler bug, bad event shape, DB write failure, or long-running projection blocking checkpoint. First checks: inspect
+        projection.errors and projection.lag by projection name, check backend logs for projection apply/checkpoint errors,
+        verify event store head and projection checkpoints, determine if projection is rebuildable before taking action.'
+    labels:
+      project: '{{ $labels.project }}'
+      deployment_environment: '{{ $labels.deployment_environment }}'
+    isPaused: false
+  - uid: product-notifications-failing
+    title: Notifications failing
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus-product
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-product
+        editorMode: code
+        expr: sum by (project, deployment_environment) (increase(notifications_failed_total[15m])) > 0 or max by (project,
+          deployment_environment) (notifications_pending) > 50
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0.5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 30m
+    annotations:
+      summary: Notification outbox failures or pending backlog detected.
+      description: 'notifications.failed increased, or notifications.pending is above 50 for 30 minutes. Likely causes: SMTP
+        outage/misconfiguration, invalid recipient handling, persistent outbox delivery errors, or worker stalled. First checks:
+        inspect notifications.enqueued/sent/retried/failed/pending metrics, check backend logs for SMTP/outbox errors, verify
+        SMTP connectivity and credentials, inspect outbox rows in the database with read-only access.'
+    labels:
+      project: '{{ $labels.project }}'
+      deployment_environment: '{{ $labels.deployment_environment }}'
+    isPaused: false
+  - uid: product-sidecar-failing
+    title: Sidecar failing
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus-product
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-product
+        editorMode: code
+        expr: (sum by (project, deployment_environment) (rate(sidecar_requests_total{result=~"unavailable|error"}[5m])) /
+          clamp_min(sum by (project, deployment_environment) (rate(sidecar_requests_total[5m])), 1e-9)) * 100 > 5.0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0.5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: Sidecar error rate above 5.0% for 10 minutes.
+      description: 'Sidecar requests are failing above 5.0% for 10 minutes. The sidecar fails open, so booking behavior may
+        be degraded or permissive depending on rules. Likely causes: sidecar crash, network issue, bad sidecar response, or
+        deployment mismatch. First checks: check sidecar logs/health, inspect sidecar.requests and sidecar.duration by endpoint/result,
+        verify booking-stack to sidecar connectivity, confirm recent deploys.'
+    labels:
+      project: '{{ $labels.project }}'
+      deployment_environment: '{{ $labels.deployment_environment }}'
+    isPaused: false
+  - uid: product-telemetry-pipeline
+    title: Telemetry pipeline degraded
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus-product
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-product
+        editorMode: code
+        expr: sum by (project) (rate(otelcol_exporter_send_failed_spans{job="otel-collector"}[5m])) > 0 or sum by (project)
+          (rate(otelcol_exporter_send_failed_log_records{job="otel-collector"}[5m])) > 0 or sum by (project) (rate(otelcol_exporter_send_failed_metric_points{job="otel-collector"}[5m]))
+          > 0 or sum by (project) (rate(otelcol_processor_refused_spans{job="otel-collector"}[5m])) > 0 or sum by (project)
+          (rate(otelcol_processor_refused_metric_points{job="otel-collector"}[5m])) > 0 or sum by (project) (rate(otelcol_processor_refused_log_records{job="otel-collector"}[5m]))
+          > 0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0.5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    annotations:
+      summary: OTel collector is refusing or failing to export telemetry.
+      description: 'Collector refused or failed exports above zero for 10 minutes. Likely causes: ClickHouse/Prometheus unavailable,
+        collector memory limiter pressure, schema/export errors, or network issues. First checks: inspect otel-collector logs,
+        check collector health endpoint, review refused/dropped/send_failed metrics, check ClickHouse and Prometheus health
+        and disk.'
+    labels:
+      project: '{{ $labels.project }}'
+      deployment_environment: '{{ $labels.deployment_environment }}'
+    isPaused: false
+  - uid: product-disk-retention
+    title: Disk / retention pressure
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus-product
+      model:
+        datasource:
+          type: prometheus
+          uid: prometheus-product
+        editorMode: code
+        expr: max(100 * (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs",mountpoint="/"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs",mountpoint="/"}))
+          > 85.0 or max(clickhouse_disk_used_bytes / clamp_min(clickhouse_disk_total_bytes, 1)) * 100 > 85.0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        type: reduce
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0.5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 15m
+    annotations:
+      summary: Disk usage above retention safety threshold.
+      description: 'Disk usage is above 85.0% where measurable. Likely causes: ClickHouse data growth, Prometheus TSDB growth,
+        container logs, or insufficient retention. First checks: inspect ClickHouse and Prometheus volume sizes, verify TTL/retention
+        settings, check node-exporter filesystem metrics, reduce retention or move monitoring to a larger disk before outage.'
+    labels:
+      project: '{{ $labels.project }}'
+      deployment_environment: '{{ $labels.deployment_environment }}'
+    isPaused: false
