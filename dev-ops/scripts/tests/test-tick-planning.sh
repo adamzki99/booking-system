@@ -169,7 +169,7 @@ run_tick() {
     FACTORY_METRICS_DIR="$tmp/$name-metrics" \
     FACTORY_SESSION_LOG_DIR="$tmp/$name-sessions" \
     FACTORY_CLAIM_DIR="$tmp/$name-claims" \
-    FACTORY_LOGIN="factory-bot" \
+    FACTORY_LOGIN="${FACTORY_LOGIN:-factory-bot}" \
     FACTORY_TRUSTED_LOGINS="owner" \
     FACTORY_GH_RETRIES=1 \
     FACTORY_OTLP_TRACES_ENDPOINT="" \
@@ -269,6 +269,22 @@ cat > "$tmp/head-of-line.json" <<'JSON'
 JSON
 if run_tick head-of-line "$tmp/head-of-line.json"; then
   assert_actions head-of-line "$tmp/head-of-line-events.jsonl" "3,4" ""
+fi
+
+# GraphQL reports the factory bot without "[bot]" while FACTORY_LOGIN carries
+# the REST suffix. The bare-slug plan marker must still skip the issue.
+cat > "$tmp/bot-login-marker.json" <<'JSON'
+{
+  "issues": [
+    {"number": 1, "createdAt": "2026-01-01", "labels": [], "body": "## Acceptance Criteria\n- [ ] Already planned\n", "comments": [{"author": {"login": "factory-bot"}, "body": "<!-- factory:plan -->"}]},
+    {"number": 2, "createdAt": "2026-01-02", "labels": [], "body": "## Acceptance Criteria\n- [ ] Needs a plan\n", "comments": []}
+  ],
+  "build_issues": [],
+  "prs": []
+}
+JSON
+if FACTORY_LOGIN="factory-bot[bot]" run_tick bot-login-marker "$tmp/bot-login-marker.json"; then
+  assert_actions bot-login-marker "$tmp/bot-login-marker-events.jsonl" "2" ""
 fi
 
 cat > "$tmp/build-slot.json" <<'JSON'

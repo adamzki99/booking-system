@@ -5,7 +5,7 @@ import type { User } from "../api/auth";
 import { addUser, changeUserAddress, changeUserRole, listUsers, removeUser } from "../api/users";
 import { blockTimePeriod } from "../api/bookings";
 import { broadcastMessage } from "../api/broadcast";
-import { errorMessage } from "../api/client";
+import { friendlyErrorMessage } from "../api/errors";
 import { useSession } from "../auth/SessionContext";
 import PageHeader from "../components/PageHeader";
 import Alert from "../ui/Alert";
@@ -96,7 +96,9 @@ export default function Users() {
       setMutationError(null);
       yield refresh(usersData);
     } catch (err) {
-      setMutationError(errorMessage(err, "could not add user"));
+      setMutationError(
+        friendlyErrorMessage(err, "Could not add the user. Check the email and try again."),
+      );
     }
   });
 
@@ -106,7 +108,7 @@ export default function Users() {
       setMutationError(null);
       yield refresh(usersData);
     } catch (err) {
-      setMutationError(errorMessage(err, "could not remove user"));
+      setMutationError(friendlyErrorMessage(err, "Could not remove the user. Please try again."));
     }
   });
 
@@ -120,7 +122,9 @@ export default function Users() {
       setMutationError(null);
       yield refresh(usersData);
     } catch (err) {
-      setMutationError(errorMessage(err, "could not change address"));
+      setMutationError(
+        friendlyErrorMessage(err, "Could not change the address. Please try again."),
+      );
     }
   });
 
@@ -134,7 +138,7 @@ export default function Users() {
       setMutationError(null);
       yield refresh(usersData);
     } catch (err) {
-      setMutationError(errorMessage(err, "could not change role"));
+      setMutationError(friendlyErrorMessage(err, "Could not change the role. Please try again."));
     }
   });
 
@@ -150,7 +154,9 @@ export default function Users() {
       setBlockEnd("");
       setMutationError(null);
     } catch (err) {
-      setMutationError(errorMessage(err, "could not block period"));
+      setMutationError(
+        friendlyErrorMessage(err, "Could not block the period. Check the times and try again."),
+      );
     }
   });
 
@@ -163,7 +169,9 @@ export default function Users() {
       setBody("");
       setMutationError(null);
     } catch (err) {
-      setMutationError(errorMessage(err, "could not broadcast"));
+      setMutationError(
+        friendlyErrorMessage(err, "Could not send the broadcast. Please try again."),
+      );
     }
   });
 
@@ -180,7 +188,7 @@ export default function Users() {
             fallback={(err, reset) => (
               <Alert status="error">
                 <div class="users-error-fallback">
-                  <span>{errorMessage(err, "could not load users")}</span>
+                  <span>{friendlyErrorMessage(err, "Could not load users.")}</span>
                   <Button variant="accentOutline" size="sm" onClick={() => reset()}>
                     Retry
                   </Button>
@@ -244,7 +252,6 @@ export default function Users() {
                             <td class="users-muted">{u().address}</td>
                             <td>{String(u().active)}</td>
                             <Show when={superUser()}>
-                              {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- false positive on td element */}
                               <td>
                                 <Show
                                   when={
@@ -255,6 +262,7 @@ export default function Users() {
                                     size="sm"
                                     variant="accentOutline"
                                     class="users-remove-btn"
+                                    aria-label={`Remove ${u().email}`}
                                     onClick={() => void onRemove(u().id)}
                                   >
                                     Remove
@@ -265,6 +273,13 @@ export default function Users() {
                           </tr>
                         )}
                       </For>
+                      <Show when={visibleUsers().length === 0}>
+                        <tr>
+                          <td colspan={superUser() ? 6 : 5} class="users-empty">
+                            {query().trim() ? "No members match your search." : "No members yet."}
+                          </td>
+                        </tr>
+                      </Show>
                     </tbody>
                   </table>
                 </div>

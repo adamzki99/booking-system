@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@solidjs/testing-library";
+import { fireEvent, screen, waitFor, within } from "@solidjs/testing-library";
 import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../test-utils";
@@ -75,6 +75,40 @@ describe("Calendar page", () => {
       .getAllByRole("listitem")
       .map((item) => item.querySelector("time")?.getAttribute("datetime"));
     expect(times).toEqual(["2026-11-07T12:00:00Z", "2026-11-08T08:00:00Z", "2026-11-09T10:00:00Z"]);
+  });
+
+  it("falls back to email when a booked user has an empty address", async () => {
+    listMock.mockResolvedValue([
+      booking("b1", "u1", "2026-11-08T08:00:00Z"),
+      booking("b2", "u2", "2026-11-09T08:00:00Z"),
+    ]);
+    listUsersMock.mockResolvedValue([
+      { id: "u1", email: "admin@test.local", role: "admin", address: "", active: true },
+      { id: "u2", email: "member@test.local", role: "basic", address: "   ", active: true },
+    ]);
+
+    render(() => <Calendar />);
+
+    const rows = await screen.findAllByRole("listitem");
+    const expected = ["admin@test.local", "member@test.local"];
+    rows.forEach((row, index) => {
+      expect(row).toHaveTextContent(expected[index]);
+      expect(within(row).getByRole("img", { name: expected[index] })).toBeInTheDocument();
+      expect(row.textContent).not.toContain("?");
+    });
+  });
+
+  it("keeps a valid address as the booking member label", async () => {
+    listMock.mockResolvedValue([booking("b1", "u1", "2026-11-08T08:00:00Z")]);
+    listUsersMock.mockResolvedValue([
+      { id: "u1", email: "admin@test.local", role: "admin", address: "Block A", active: true },
+    ]);
+
+    render(() => <Calendar />);
+
+    const row = await screen.findByRole("listitem");
+    expect(row).toHaveTextContent("Block A");
+    expect(within(row).getByRole("img", { name: "Block A" })).toBeInTheDocument();
   });
 
   it("creates a booking from the form values and shows it after refresh", async () => {

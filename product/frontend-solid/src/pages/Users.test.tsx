@@ -4,6 +4,7 @@ import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../test-utils";
 import type { User } from "../api/auth";
+import { ApiError } from "../api/client";
 import { addUser, changeUserAddress, changeUserRole, listUsers, removeUser } from "../api/users";
 import { useSession } from "../auth/SessionContext";
 import Users from "./Users";
@@ -145,8 +146,32 @@ describe("Users page", () => {
     removeUserMock.mockResolvedValue(undefined);
     renderUsers();
     await screen.findByRole("cell", { name: "basic@example.com" });
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove basic@example.com" }));
     await waitFor(() => expect(removeUserMock).toHaveBeenCalledWith("b1"));
+  });
+
+  it("gives each Remove action a unique accessible name with the member email", async () => {
+    const otherUser: User = {
+      id: "b2",
+      email: "other@example.com",
+      role: "basic",
+      address: "",
+      active: false,
+    };
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, otherUser]);
+    renderUsers();
+    await screen.findByRole("cell", { name: "other@example.com" });
+
+    expect(screen.getByRole("button", { name: "Remove basic@example.com" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove other@example.com" })).toBeInTheDocument();
+    const removeButtons = screen
+      .getAllByRole("button")
+      .filter((button) => button.textContent === "Remove");
+    expect(removeButtons).toHaveLength(2);
+    for (const button of removeButtons) {
+      expect(button).toHaveAttribute("aria-label");
+    }
   });
 
   it("shows role controls only for admins and excludes the signed-in user", async () => {
@@ -208,6 +233,36 @@ describe("Users page", () => {
     expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
+  it("shows a friendly message instead of a raw auth error when adding a user", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser]);
+    addUserMock.mockRejectedValue(new ApiError("auth: invalid email", 400));
+    renderUsers();
+    await screen.findByRole("cell", { name: "basic@example.com" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add user" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Enter a valid email address.");
+    expect(alert).not.toHaveTextContent("auth:");
+  });
+
+  it("hides internal error codes for other user-management failures", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    changeUserAddressMock.mockRejectedValue(new ApiError("auth: user is protected", 403));
+    renderUsers();
+    await screen.findByRole("cell", { name: "basic@example.com" });
+
+    setSelect(screen.getByLabelText("User"), "b1");
+    setInput(document.getElementById("address-value") as HTMLElement, "New addr");
+    fireEvent.click(screen.getByRole("button", { name: "Change address" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not change the address. Please try again.");
+    expect(alert).not.toHaveTextContent("auth:");
+  });
+
   it("renders an initials avatar for each directory member", async () => {
     stubSession(superUser);
     listUsersMock.mockResolvedValue([basicUser, superUser]);
@@ -238,6 +293,33 @@ describe("Users page", () => {
     await waitFor(() =>
       expect(screen.getByTestId("location-search").textContent).toContain("q=super"),
     );
+  });
+
+  it("shows a no-results message when a search matches no members", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    renderUsers();
+    await screen.findByRole("cell", { name: "basic@example.com" });
+
+    setInput(screen.getByLabelText("Search members"), "zzzz-no-match");
+
+    expect(await screen.findByText("No members match your search.")).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "basic@example.com" })).not.toBeInTheDocument();
+  });
+
+  it("does not show the empty state when a member matches the search", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([basicUser, superUser]);
+    renderUsers("/users?q=super");
+    await screen.findByRole("cell", { name: "super@example.com" });
+    expect(screen.queryByText("No members match your search.")).not.toBeInTheDocument();
+  });
+
+  it("shows an empty-directory message when there are no members", async () => {
+    stubSession(superUser);
+    listUsersMock.mockResolvedValue([]);
+    renderUsers();
+    expect(await screen.findByText("No members yet.")).toBeInTheDocument();
   });
 
   it("keeps management select options complete while a search filters rows", async () => {

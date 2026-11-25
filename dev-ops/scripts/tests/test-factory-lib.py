@@ -218,6 +218,44 @@ def test_has_marker_comments_filters_author():
     assert not factory.has_marker_comments(comments, marker, "")
 
 
+def test_normalize_login_strips_bot_suffix():
+    assert factory.normalize_login("Factory-Bot[bot]") == "factory-bot"
+    assert factory.normalize_login({"login": " factory-bot "}) == "factory-bot"
+    assert factory.normalize_login(None) == ""
+
+
+def test_trust_checks_accept_bot_and_bare_login_forms():
+    trusted = factory.trusted_logins_from_env({
+        "FACTORY_TRUSTED_LOGINS": "owner",
+        "FACTORY_LOGIN": "factory-bot[bot]",
+    })
+    assert trusted == {"owner", "factory-bot"}
+    assert factory.is_trusted_login({"login": "factory-bot"}, trusted)
+    assert factory.is_trusted_login({"login": "factory-bot[bot]"}, trusted)
+    assert not factory.is_trusted_login({"login": "another-bot[bot]"}, trusted)
+
+
+def test_has_marker_comments_matches_both_bot_login_forms():
+    marker = "<!-- factory:plan -->"
+    graphql = [{"author": {"login": "factory-bot"}, "body": marker}]
+    rest = [{"author": {"login": "factory-bot[bot]"}, "body": marker}]
+    for comments in (graphql, rest):
+        assert factory.has_marker_comments(comments, marker, "factory-bot[bot]")
+        assert factory.has_marker_comments(comments, marker, "factory-bot")
+    assert not factory.has_marker_comments(graphql, marker, "another-bot[bot]")
+    assert not factory.has_marker_comments(graphql, marker, "")
+
+
+def test_pr_is_trusted_matches_both_bot_login_forms():
+    pr = {
+        "isCrossRepository": False,
+        "author": {"login": "factory-bot"},
+        "headRepositoryOwner": {"login": "factory-bot[bot]"},
+    }
+    assert factory.pr_is_trusted(pr, "factory-bot[bot]", "factory-bot[bot]")
+    assert factory.pr_is_trusted(pr, "factory-bot", "factory-bot")
+
+
 def test_classify_git_and_permission():
     assert factory.classify_git_error("permission denied 403") == "permission"
     assert factory.classify_gh_error("rate limit exceeded") == "rate_limit"
