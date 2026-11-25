@@ -1,0 +1,645 @@
+{
+  "approved_at": "2026-11-25T16:18:50Z",
+  "approved_commit": "ed002cb57616b5a615bb8d80b169616c2305b132",
+  "entries": [
+    {
+      "mode": "100644",
+      "oid": "7429d7ecab6b0b56f9ad7e9f58262f72e8da0965",
+      "path": ".opencode/agents/builder.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "fa8f1f8778b8a4b47557c527488b424aafdcc750",
+      "path": ".opencode/agents/fixer.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "e0c2eabb71589229bd49c84f146ee2d6cb9f91b8",
+      "path": ".opencode/agents/planner.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "3ddb21c29ade559d01b3439f6b085823dee0e6f3",
+      "path": ".opencode/agents/reviewer.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "41e7f5fd208f04317a9b2f64d3a895abf2e9d089",
+      "path": ".opencode/commands/create-github-issue.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "475733853d0b632dacebeffd336f7e79f8b29da1",
+      "path": ".opencode/commands/deliver-issue.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "113c36cfaaa02d313e12c2bed1c7b1c9d1f11d45",
+      "path": ".opencode/commands/lint-frontend.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "7417cfb104e1c5bf318953ea746f5b9ab06f5d05",
+      "path": ".opencode/commands/test-backend.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "a57e19a759583c3c0489befc021ede94e68e9e02",
+      "path": ".opencode/skills/caveman-commit/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "d04315ada268cd40e79fbaa1bbc7218958cbb652",
+      "path": ".opencode/skills/caveman-commit/README.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "dbad5bf41e785b39825baedbc53677e1cf19d837",
+      "path": ".opencode/skills/caveman-commit/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "7e55ec3ff66f3c07efc0bdc1108aff6fc7c3b3b9",
+      "path": ".opencode/skills/caveman-compress/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "647f8ce720d71e253131d06b7696a0325cd76951",
+      "path": ".opencode/skills/caveman-compress/README.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "7cf57420bcca6f77d2ae8e44bc5eac785a329556",
+      "path": ".opencode/skills/caveman-compress/SECURITY.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "9a1997190507c0bd8ff2b171870baa82882c845e",
+      "path": ".opencode/skills/caveman-compress/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "16b8c53c2ca7f8c7c105a0f6c72a46acbd02fec4",
+      "path": ".opencode/skills/caveman-compress/scripts/__init__.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "4e28416e104515e90fca4b69cc60d0c61fd15d61",
+      "path": ".opencode/skills/caveman-compress/scripts/__main__.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "97d081b5c60cc2aaaf1735a4deeea59f7fbffe49",
+      "path": ".opencode/skills/caveman-compress/scripts/benchmark.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "330410bc6abd63df65afdcdc338ce101b27efffa",
+      "path": ".opencode/skills/caveman-compress/scripts/cli.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "0664a735e5974ef7420898945664af052c101103",
+      "path": ".opencode/skills/caveman-compress/scripts/compress.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "a832ade8c42d5083e492a56b3030c61ce5e512d9",
+      "path": ".opencode/skills/caveman-compress/scripts/detect.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "5321755f328811c17860fea1b30cb2b478dfab69",
+      "path": ".opencode/skills/caveman-compress/scripts/validate.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "c30823fe1b45c6f709121328b5d590587192e027",
+      "path": ".opencode/skills/caveman-review/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "bef840f80fb8d4687ee9d7e6ce8886390295248e",
+      "path": ".opencode/skills/caveman-review/README.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "120cb21c41343c5e11de782a08ae63ce014c9429",
+      "path": ".opencode/skills/caveman-review/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "e3164b27bf781776280bec4d072f6e5672d9e3a3",
+      "path": ".opencode/skills/caveman/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "d5eb2d5adfc5a0d4b8ab66af2f09cec1c1b4c7aa",
+      "path": ".opencode/skills/caveman/README.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "9a94044529e5ee1576361c891b4a271504518e6f",
+      "path": ".opencode/skills/caveman/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "8bfa97718430d4e7443f4426208b4ddf0db5994d",
+      "path": ".opencode/skills/code-review/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+      "path": ".opencode/skills/code-review/LICENSE"
+    },
+    {
+      "mode": "100644",
+      "oid": "83183e0ad36fd0eef25d37c7e483284b7e34c1f0",
+      "path": ".opencode/skills/code-review/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "9076774ba327f49068db9273feceda03bfe940fa",
+      "path": ".opencode/skills/code-review/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "c5588214ec8fd3fd8ab6d03da4e8846e74dc397b",
+      "path": ".opencode/skills/dev-server-ssh/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "b174a3bd7955a71ca46243ac6e3bbe27a80fb17b",
+      "path": ".opencode/skills/dev-server-ssh/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "d816785fe2f630ccf540e09fc587c27cdd8b7b1b",
+      "path": ".opencode/skills/diagnosing-bugs/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "d039541ddd1c46e6ddbd662fe99d49b686fc5e12",
+      "path": ".opencode/skills/diagnosing-bugs/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "a13a755a77634ce61a649a3a0d905a66d3865b35",
+      "path": ".opencode/skills/diagnosing-bugs/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "243198464a8401a7ba1d63b3708fa43c3d067665",
+      "path": ".opencode/skills/diagnosing-bugs/scripts/hitl-loop.template.sh"
+    },
+    {
+      "mode": "100644",
+      "oid": "ec0b5cd1f64139d81fe3d905294318d3b082951d",
+      "path": ".opencode/skills/domain-modeling/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "d7e61f30a9fd8ca70d9ee68f019c2a9ebf2d13f7",
+      "path": ".opencode/skills/domain-modeling/ADR-FORMAT.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "9c0b4c7a2e8507c23cbb5e0baa66d81699321cc6",
+      "path": ".opencode/skills/domain-modeling/GLOSSARY-FORMAT.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "a4438c6879c517d1a08e2b5fbca049b632688dfe",
+      "path": ".opencode/skills/domain-modeling/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "7f1522d2f11506ee205275ab7c282aa52366ecf6",
+      "path": ".opencode/skills/domain-modeling/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "91290b549a7e3fa00ec9854baa7b6446d797bcef",
+      "path": ".opencode/skills/frontend-design/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "f433b1a53f5b830a205fd2df78e2b34974656c7b",
+      "path": ".opencode/skills/frontend-design/LICENSE.txt"
+    },
+    {
+      "mode": "100644",
+      "oid": "dd87cc4b544e338c7ee4a183decc2a59dc3c5c07",
+      "path": ".opencode/skills/frontend-design/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "191325ff612898feb43d4779cde21bac2166a4e7",
+      "path": ".opencode/skills/implement/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+      "path": ".opencode/skills/implement/LICENSE"
+    },
+    {
+      "mode": "100644",
+      "oid": "9cd8f9321a651f644e7e7da1036ce2b48e29f12b",
+      "path": ".opencode/skills/implement/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "f8794dc153b409052a9167baf10858cf01b36175",
+      "path": ".opencode/skills/implement/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "2abaf191a84b3ee19a3d5aef9c3c7270ac2fe37a",
+      "path": ".opencode/skills/investigate-first/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "83b2a9b35bea16e4d03439e44af367282e85c57c",
+      "path": ".opencode/skills/investigate-first/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "f30303a8407bd6529d1e9b52db7435979ac5f229",
+      "path": ".opencode/skills/investigate-first/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "00b5be9954c6467fc11f11e0c653de05bb5c1ca8",
+      "path": ".opencode/skills/lean-build/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "2f7ff32e28ef1f7a426af75e270f10d1dc6b13dd",
+      "path": ".opencode/skills/lean-build/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "2dc1f0f0496807aa06cd3ad166b57289c75ea515",
+      "path": ".opencode/skills/lean-build/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "e0eed7824dfd672b7bce743bbabaa41c3202bb8f",
+      "path": ".opencode/skills/megacave/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "c60e8d0713cf574fb34c2a6feeaab840c4b1d61f",
+      "path": ".opencode/skills/megacave/README.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "e26ef7305706dbc4ae4fe8a1c14a6f9fdce574bc",
+      "path": ".opencode/skills/megacave/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "32862f7ee4d4f69fba2e1f4df06f033159752884",
+      "path": ".opencode/skills/migration/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "7d1f2dcb083dcd182f6df1a5333b6ff9c9d03fe7",
+      "path": ".opencode/skills/migration/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "d04b219ca2acd7fd4e83171067a6ef6136766247",
+      "path": ".opencode/skills/migration/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "72634e30127f62a80fdfac4c034c621c8b900115",
+      "path": ".opencode/skills/pdf/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "c55ab42224874608473643de0a85736b7fec0730",
+      "path": ".opencode/skills/pdf/LICENSE.txt"
+    },
+    {
+      "mode": "100644",
+      "oid": "d3e046a5ae107a6cb23cfb16c219837094ab35d3",
+      "path": ".opencode/skills/pdf/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "6e7e1e0d9e6ae17215db3e130aea3c3c546487e6",
+      "path": ".opencode/skills/pdf/forms.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "41400bf4fc67f15fb062d43695ec92f078226023",
+      "path": ".opencode/skills/pdf/reference.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "2cc5e348f359b7aa7179e6a26772dacfdbbeba53",
+      "path": ".opencode/skills/pdf/scripts/check_bounding_boxes.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "36dfb9513e2f54e051820b58c3cdd1f09bc6ff37",
+      "path": ".opencode/skills/pdf/scripts/check_fillable_fields.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "7939cef56c1220dd9dd0d04ec9594b2fe089ee74",
+      "path": ".opencode/skills/pdf/scripts/convert_pdf_to_images.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "10eadd8124b1f94f9b1a78708c2d947a3f6773e7",
+      "path": ".opencode/skills/pdf/scripts/create_validation_image.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "64cd4703a4af80bf6abe16f4c3065d8abd55d173",
+      "path": ".opencode/skills/pdf/scripts/extract_form_field_info.py"
+    },
+    {
+      "mode": "100755",
+      "oid": "f219e7d5b5e30616b2259abb924253afd0240aee",
+      "path": ".opencode/skills/pdf/scripts/extract_form_structure.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "51c2600f3895723cac15ec3ffcd8a482e42f95d7",
+      "path": ".opencode/skills/pdf/scripts/fill_fillable_fields.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "b430069fd016cff11560d0f2b95c63074736e5e4",
+      "path": ".opencode/skills/pdf/scripts/fill_pdf_form_with_annotations.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "ef49b8363d55e1745f58999085b3ad1c930f3f21",
+      "path": ".opencode/skills/pr/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "5314bda2fa6005e264c9b5c1de7c425e719dc91f",
+      "path": ".opencode/skills/pr/CREDITS.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "84dd4fb2f068e9f6282690235d20dd505b418119",
+      "path": ".opencode/skills/pr/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "48286f48f53b937cc19c0e39899b5f956271a98d",
+      "path": ".opencode/skills/pr/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "6fd37d3c0ebd3489d2cbd7be587aefe9d4615b8a",
+      "path": ".opencode/skills/safe-refactor/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "0d492db7d302e87f5bf01738fee6a7543984a787",
+      "path": ".opencode/skills/safe-refactor/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "19606d55eeba3c67ec0a25f5e0c20f6129ed479e",
+      "path": ".opencode/skills/safe-refactor/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "ab3019ee1f3dc6dc3292b24a5b405be4db9ba981",
+      "path": ".opencode/skills/skill-creator/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "4f881c52d1f72f4cfb720e339e2d35c3058d01a9",
+      "path": ".opencode/skills/skill-creator/LICENSE.txt"
+    },
+    {
+      "mode": "100644",
+      "oid": "db8eedcb4f70b7631619daf5f906a31c0f7afa70",
+      "path": ".opencode/skills/skill-creator/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "14e41d6068635f4dd3fb878fd1626312395dda63",
+      "path": ".opencode/skills/skill-creator/agents/analyzer.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "80e00eb45db3ee53a132fc2ba97fd59a7339e563",
+      "path": ".opencode/skills/skill-creator/agents/comparator.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "ff8cf346fd5bdedd488f9f3441316899e62ef727",
+      "path": ".opencode/skills/skill-creator/agents/grader.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "938ff32aed9bffabf723bd5492d720f4736c8e4d",
+      "path": ".opencode/skills/skill-creator/assets/eval_review.html"
+    },
+    {
+      "mode": "100644",
+      "oid": "33737dbda68bc65e18d4a9c2d51644ba2ef40f9f",
+      "path": ".opencode/skills/skill-creator/eval-viewer/generate_review.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "197b8c0da2a91bf8207f2006364f220da2db1827",
+      "path": ".opencode/skills/skill-creator/eval-viewer/viewer.html"
+    },
+    {
+      "mode": "100644",
+      "oid": "ceb566c26fd100e359cd200f13c164e30f52c214",
+      "path": ".opencode/skills/skill-creator/references/schemas.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "path": ".opencode/skills/skill-creator/scripts/__init__.py"
+    },
+    {
+      "mode": "100755",
+      "oid": "e0ca4cda18c0b4161835bcb9cafca1ac261179c2",
+      "path": ".opencode/skills/skill-creator/scripts/aggregate_benchmark.py"
+    },
+    {
+      "mode": "100755",
+      "oid": "6a5076e8d9aeedccc639103c87dd1828f20c7490",
+      "path": ".opencode/skills/skill-creator/scripts/generate_report.py"
+    },
+    {
+      "mode": "100755",
+      "oid": "da440d556d40811c4fec34bf2e4a009299fb2fc4",
+      "path": ".opencode/skills/skill-creator/scripts/improve_description.py"
+    },
+    {
+      "mode": "100755",
+      "oid": "f48eac444656ddc41204aac1760a217951ce609e",
+      "path": ".opencode/skills/skill-creator/scripts/package_skill.py"
+    },
+    {
+      "mode": "100755",
+      "oid": "ed8e1dddce77b16af13c6f36b3fe86c4ac7c590c",
+      "path": ".opencode/skills/skill-creator/scripts/quick_validate.py"
+    },
+    {
+      "mode": "100755",
+      "oid": "e58c70bea39d5b252a1e819f242bbdcdf20e8b87",
+      "path": ".opencode/skills/skill-creator/scripts/run_eval.py"
+    },
+    {
+      "mode": "100755",
+      "oid": "30a263d674ef19de11c756d6f7537f91a421909e",
+      "path": ".opencode/skills/skill-creator/scripts/run_loop.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "51b6a07dd57174197a937034b7eecebd5768ff8a",
+      "path": ".opencode/skills/skill-creator/scripts/utils.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "da6f8d7b99a61198631d1ece2a992ac63988054d",
+      "path": ".opencode/skills/surgical-patch/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "1c06cb1436efd87f5641270cef3c2a27a71442ed",
+      "path": ".opencode/skills/surgical-patch/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "d539722c01c4f1c5d6468a30e6dcac64aa721a86",
+      "path": ".opencode/skills/surgical-patch/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "f1ca92522eb7fc8cdfb2afc9d66a455247a6baac",
+      "path": ".opencode/skills/tdd/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "01eadaa34e7c9a63a67d6dc3cce1cc81b0e49985",
+      "path": ".opencode/skills/tdd/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "651b838a7663e027b1b8884491e867f26bb9a021",
+      "path": ".opencode/skills/tdd/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "71cbfee674d93244ce81d1830b930ca9a69200bd",
+      "path": ".opencode/skills/tdd/mocking.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "7ab86479f925a1f9e8ba680af33cb3b12e015381",
+      "path": ".opencode/skills/tdd/tests.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "80c41f6d6ebe9aa739a9376f72df8b1695393e52",
+      "path": ".opencode/skills/ui-mockup-alignment/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "8b9f079af27a65c3582685a9ff96d8798c61c229",
+      "path": ".opencode/skills/ui-mockup-alignment/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "0dd3d6cf4f0d3c302ea1b51db945f927eb8a8894",
+      "path": ".opencode/skills/ultracave/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "6813d00af0e2454b061223a6ecb414df4e4c9905",
+      "path": ".opencode/skills/ultracave/README.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "136db7e5c8804043c5329df8f767789b7d30228f",
+      "path": ".opencode/skills/ultracave/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "d8c69e2d9b680f318099241dcc28bc40549ed595",
+      "path": ".opencode/skills/verify-and-stop/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "58a9cd7bbf500bc2905260f908dbcd03f107fa93",
+      "path": ".opencode/skills/verify-and-stop/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "bf3a9261d09db5a01157643537519347dbf0f4ce",
+      "path": ".opencode/skills/verify-and-stop/agents/openai.yaml"
+    },
+    {
+      "mode": "100644",
+      "oid": "05c977db66c52c8b168c6dfb16cad00f300d1163",
+      "path": ".opencode/skills/webapp-testing/.source"
+    },
+    {
+      "mode": "100644",
+      "oid": "4f881c52d1f72f4cfb720e339e2d35c3058d01a9",
+      "path": ".opencode/skills/webapp-testing/LICENSE.txt"
+    },
+    {
+      "mode": "100644",
+      "oid": "4726215301db64a0cc4d41fc3219c61f37a30f4a",
+      "path": ".opencode/skills/webapp-testing/SKILL.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "9329b5e232ed53d944bfe95e750070117d31b9ab",
+      "path": ".opencode/skills/webapp-testing/examples/console_logging.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "917ba72f52421a1b324f93ae8e38af72010a87b9",
+      "path": ".opencode/skills/webapp-testing/examples/element_discovery.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "90bbedcc08cdb345c74fb938ebad02c0baf56603",
+      "path": ".opencode/skills/webapp-testing/examples/static_html_automation.py"
+    },
+    {
+      "mode": "100755",
+      "oid": "431f2eba16b268b7f3e2ae4daae9db41c0289b6d",
+      "path": ".opencode/skills/webapp-testing/scripts/with_server.py"
+    },
+    {
+      "mode": "100644",
+      "oid": "482d174ac9f4a5d712f959f6c71394c8663f4c98",
+      "path": "AGENTS.md"
+    },
+    {
+      "mode": "100644",
+      "oid": "735b97c1d99041fee3054ef4f66293a6109697d5",
+      "path": "opencode.jsonc"
+    }
+  ],
+  "guardrail_paths": [
+    ".opencode/agents",
+    ".opencode/commands",
+    ".opencode/skills",
+    "AGENTS.md",
+    "opencode.jsonc"
+  ],
+  "schema_version": 1,
+  "type": "factory-guardrail-manifest"
+}
