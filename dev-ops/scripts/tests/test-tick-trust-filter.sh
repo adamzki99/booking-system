@@ -178,6 +178,7 @@ run_tick() {
     PATH="$stubs:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     FACTORY_WORKTREE="$tmp/$name-runtime" \
+    FACTORY_CONTAINER_MODE=0 \
     FACTORY_LOG_FILE="$events" \
     FACTORY_METRICS_DIR="$tmp/$name-metrics" \
     FACTORY_SESSION_LOG_DIR="$tmp/$name-sessions" \

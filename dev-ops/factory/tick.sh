@@ -36,7 +36,7 @@ FACTORY_GITHUB_INSTALLATION_ID="${FACTORY_GITHUB_INSTALLATION_ID:-}"
 # Observability and hardening knobs.
 FACTORY_LOG_FILE="${FACTORY_LOG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/factory/tick.jsonl}"
 FACTORY_ENV="${FACTORY_ENV:-dev}"
-FACTORY_CONTAINER_MODE="${FACTORY_CONTAINER_MODE:-0}"
+FACTORY_CONTAINER_MODE="${FACTORY_CONTAINER_MODE:-1}"
 FACTORY_CLAIM_TTL="${FACTORY_CLAIM_TTL:-7200}"
 FACTORY_CLAIM_DIR="${FACTORY_CLAIM_DIR:-/tmp/factory-claims}"
 FACTORY_GH_RETRIES="${FACTORY_GH_RETRIES:-3}"
@@ -50,6 +50,17 @@ FACTORY_METRICS_DIR="${FACTORY_METRICS_DIR:-${XDG_STATE_HOME:-$HOME/.local/state
 FACTORY_OTLP_TRACES_ENDPOINT="${FACTORY_OTLP_TRACES_ENDPOINT:-http://127.0.0.1:4318}"
 FACTORY_TRACE_CONTENT="${FACTORY_TRACE_CONTENT:-0}" # 1 includes prompt/completion/tool content; default metadata only
 FACTORY_OTLP_TRACE_TIMEOUT="${FACTORY_OTLP_TRACE_TIMEOUT:-10}"
+
+# Disposable sandbox knobs. bwrap is the supported runtime; an explicit
+# FACTORY_SANDBOX_RUNTIME lets operators substitute a compatible wrapper.
+FACTORY_SANDBOX_RUNTIME="${FACTORY_SANDBOX_RUNTIME:-bwrap}"
+FACTORY_OPENCODE_CONFIG_DIR="${FACTORY_OPENCODE_CONFIG_DIR:-}"
+FACTORY_EGRESS_PROXY_PORT="${FACTORY_EGRESS_PROXY_PORT:-0}"
+FACTORY_EGRESS_ALLOWLIST="${FACTORY_EGRESS_ALLOWLIST:-}"
+FACTORY_OPENCODE_ENDPOINT_HOSTS="${FACTORY_OPENCODE_ENDPOINT_HOSTS:-}"
+EGRESS_PROXY_PID_FILE="$FACTORY_SESSION_LOG_DIR/factory-egress-proxy.pid"
+EGRESS_PROXY_PORT_FILE="$FACTORY_SESSION_LOG_DIR/factory-egress-proxy.port"
+EGRESS_PROXY_LOG_FILE="$FACTORY_SESSION_LOG_DIR/factory-egress-proxy.log"
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 
 # repo = owner/name from gh or the git remote (best effort, never fatal).
@@ -83,6 +94,8 @@ Options:
 
 Environment (key):
   FACTORY_LOG_FILE, FACTORY_ENV, FACTORY_CONTAINER_MODE, FACTORY_SESSION_TIMEOUT,
+  FACTORY_SANDBOX_RUNTIME, FACTORY_OPENCODE_CONFIG_DIR, FACTORY_EGRESS_PROXY_PORT,
+  FACTORY_EGRESS_ALLOWLIST, FACTORY_OPENCODE_ENDPOINT_HOSTS,
   FACTORY_CLAIM_TTL, FACTORY_CLAIM_DIR, FACTORY_GH_RETRIES,
   FACTORY_SESSION_LOG_DIR, FACTORY_LOG_SESSION_OUTPUT (tail|metadata),
   FACTORY_PRESERVE_SESSION_LOGS (on-failure|always|never),
@@ -316,6 +329,7 @@ TICK_START_SEC="$(date +%s)"
 
 on_exit() {
   local rc=$?
+  if command -v stop_egress_proxy >/dev/null 2>&1; then stop_egress_proxy || true; fi
   emit_event tick_end exit_code="$rc" duration_ms="$(( $(date +%s%3N 2>/dev/null || echo "$TICK_START_MS") - TICK_START_MS ))" telemetry_errors="$TELEMETRY_ERRORS"
   if [[ "$TICK_LOCK_SKIPPED" -eq 0 ]]; then
     write_metrics_file "$rc"
@@ -985,14 +999,105 @@ normalize_model() {
   printf '%s' "$m"
 }
 
+# Sandboxing is the default. A missing runtime is a hard failure: the tick must
+# never silently execute an untrusted prompt on the host.
+require_sandbox() {
+  [[ "$FACTORY_CONTAINER_MODE" == "1" ]] || return 0
+  if ! command -v "${FACTORY_SANDBOX_RUNTIME:-bwrap}" >/dev/null 2>&1; then
+    emit_event sandbox_unavailable reason="runtime-missing" runtime="${FACTORY_SANDBOX_RUNTIME:-bwrap}"
+    log "sandbox unavailable: ${FACTORY_SANDBOX_RUNTIME:-bwrap} not found; refusing to run session on host"
+    return 1
+  fi
+  return 0
+}
+
+stop_egress_proxy() {
+  local pid=""
+  if [[ -f "$EGRESS_PROXY_PID_FILE" ]]; then
+    pid="$(cat "$EGRESS_PROXY_PID_FILE" 2>/dev/null || true)"
+  fi
+  # Only kill a process that is still our proxy; a reused PID must be left alone.
+  if [[ -n "$pid" ]] && grep -qa 'egress_proxy.py' "/proc/$pid/cmdline" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  fi
+  rm -f "$EGRESS_PROXY_PID_FILE" "$EGRESS_PROXY_PORT_FILE" 2>/dev/null || true
+}
+
+# Start the allowlisting proxy on host loopback. Prints its URL on stdout once
+# the port file is written, so callers can inject proxy env vars into the
+# sandbox. The caller must call stop_egress_proxy when the session ends.
+start_egress_proxy() {
+  local pid port url
+  mkdir -p "$FACTORY_SESSION_LOG_DIR" 2>/dev/null || true
+  : > "$EGRESS_PROXY_PORT_FILE" 2>/dev/null || true
+  (umask 077; : > "$EGRESS_PROXY_LOG_FILE") 2>/dev/null || true
+  python3 "$SCRIPT_DIR/lib/egress_proxy.py" \
+    --host 127.0.0.1 --port "$FACTORY_EGRESS_PROXY_PORT" \
+    --port-file "$EGRESS_PROXY_PORT_FILE" \
+    ${FACTORY_EGRESS_ALLOWLIST:+--allowlist "$FACTORY_EGRESS_ALLOWLIST"} \
+    ${FACTORY_OPENCODE_ENDPOINT_HOSTS:+--extra-hosts "$FACTORY_OPENCODE_ENDPOINT_HOSTS"} \
+    >>"$EGRESS_PROXY_LOG_FILE" 2>&1 9>&- &
+  pid=$!
+  printf '%s\n' "$pid" > "$EGRESS_PROXY_PID_FILE"
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [[ -s "$EGRESS_PROXY_PORT_FILE" ]] && break
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  port="$(cat "$EGRESS_PROXY_PORT_FILE" 2>/dev/null || true)"
+  if [[ -z "$port" ]]; then
+    stop_egress_proxy
+    return 1
+  fi
+  url="http://127.0.0.1:$port"
+  printf '%s\n' "$url"
+}
+
 run_opencode() {
   local sandbox=()
-  if [[ "$FACTORY_CONTAINER_MODE" == "1" ]] && command -v bwrap >/dev/null 2>&1; then
-    sandbox=(bwrap --die-with-parent --cap-drop ALL --proc /proc --dev /dev --unshare-pid --unshare-ipc --unshare-uts --ro-bind / / --bind "$FACTORY_WORKTREE" "$FACTORY_WORKTREE" --bind "$HOME" "$HOME" --bind /tmp /tmp --bind "$FACTORY_SESSION_LOG_DIR" "$FACTORY_SESSION_LOG_DIR" --chdir "$PWD")
-    emit_event container_mode reason="bwrap-sandbox"
-  elif [[ "$FACTORY_CONTAINER_MODE" == "1" ]]; then
-    log "container mode requested but bwrap unavailable; using host runtime"
-    emit_event container_mode reason="fallback-host"
+  local proxy_url=""
+  if [[ "$FACTORY_CONTAINER_MODE" == "1" ]]; then
+    if ! require_sandbox; then
+      return 127
+    fi
+    local runtime="${FACTORY_SANDBOX_RUNTIME:-bwrap}"
+    local sandbox_home="/tmp/factory-sandbox-home"
+    local opencode_config_dir="${FACTORY_OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
+    # Disposable home: never expose the host $HOME (~/.ssh, ~/.config/gh,
+    # OpenCode auth). Only the worktree and session log dir are writable.
+    # Docker sockets are masked even though the root bind is read-only.
+    sandbox=(
+      "$runtime" --die-with-parent --cap-drop ALL --proc /proc --dev /dev
+      --unshare-pid --unshare-ipc --unshare-uts
+      --ro-bind / /
+      --ro-bind /dev/null /run/docker.sock
+      --size 67108864 --tmpfs /tmp
+      --dir "$sandbox_home"
+      --bind "$FACTORY_WORKTREE" "$FACTORY_WORKTREE"
+      --setenv HOME "$sandbox_home"
+      --setenv XDG_CONFIG_HOME "$sandbox_home/.config"
+      --chdir "$FACTORY_WORKTREE"
+    )
+    # On hosts where /var/run is a real directory rather than a symlink to
+    # /run, mask that path too. bwrap cannot create a bind target through a
+    # symlinked parent, so adding it unconditionally would break the sandbox.
+    if [[ -d /var/run && ! -L /var/run ]]; then
+      sandbox+=(--ro-bind /dev/null /var/run/docker.sock)
+    fi
+    if [[ -d "$opencode_config_dir" ]]; then
+      sandbox+=(--ro-bind "$opencode_config_dir" "$sandbox_home/.config/opencode")
+    fi
+    sandbox+=(--bind "$FACTORY_SESSION_LOG_DIR" "$FACTORY_SESSION_LOG_DIR")
+    if ! proxy_url="$(start_egress_proxy)"; then
+      emit_event sandbox_unavailable reason="egress-proxy-unavailable" runtime="$runtime"
+      log "sandbox unavailable: could not start egress proxy; refusing to run session"
+      return 127
+    fi
+    emit_event container_mode reason="sandbox" runtime="$runtime" egress_allowlist=1 \
+      home_isolated=1 docker_socket_masked=1
+  else
+    emit_event container_mode reason="host-explicit"
   fi
   local model
   model="$(normalize_model "$2")"
@@ -1004,14 +1109,25 @@ run_opencode() {
   local args=(run --auto --title "$1" --format json --file "$prompt_file" "Follow the attached factory prompt.")
   [[ -n "$model" ]] && args+=(--model "$model")
   [[ -n "$3" ]] && args+=(--agent "$3")
+  # GH_TOKEN/GITHUB_TOKEN (short-lived App installation token from I-006) and
+  # model credentials are inherited from the parent environment. Only the
+  # proxy variables are injected explicitly; NO_PROXY is cleared so every
+  # destination is checked by the allowlist.
+  local env_args=()
+  if [[ -n "$proxy_url" ]]; then
+    env_args=(env "HTTPS_PROXY=$proxy_url" "HTTP_PROXY=$proxy_url" "ALL_PROXY=$proxy_url"
+      "https_proxy=$proxy_url" "http_proxy=$proxy_url" "all_proxy=$proxy_url"
+      NO_PROXY= no_proxy=)
+  fi
   local rc=0
   if [[ "$FACTORY_SESSION_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$FACTORY_SESSION_TIMEOUT" -gt 0 ]]; then
-    timeout --signal=TERM --kill-after=30 "$FACTORY_SESSION_TIMEOUT" "${sandbox[@]}" opencode "${args[@]}"
+    timeout --signal=TERM --kill-after=30 "$FACTORY_SESSION_TIMEOUT" "${env_args[@]}" "${sandbox[@]}" opencode "${args[@]}" 9>&-
     rc=$?
   else
-    "${sandbox[@]}" opencode "${args[@]}"
+    "${env_args[@]}" "${sandbox[@]}" opencode "${args[@]}" 9>&-
     rc=$?
   fi
+  stop_egress_proxy
   rm -f "$prompt_file" 2>/dev/null || true
   return $rc
 }
@@ -1071,6 +1187,10 @@ record_token_refresh_failure() {
 # enters an event; only the tail is kept in the local session log.
 start_session() { # $1 kind, $2 issue_id, $3 pr_number, $4 title, $5 model, $6 backup_model, $7 prompt, $8 tier_label, $9 area_labels
   local kind="$1" issue_id="$2" pr_number="$3" title="$4" model="$5" backup="$6" prompt="$7"
+  # Fail before any session is started when the mandatory sandbox is missing.
+  if ! require_sandbox; then
+    return 1
+  fi
   local tier_label="${8:-default}" area_labels="${9:-}"
   local ref="${issue_id:-$pr_number}"
   local agent=""
