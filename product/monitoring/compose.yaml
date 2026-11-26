@@ -34,7 +34,7 @@ services:
       - monitoring-net
 
   clickhouse:
-    image: clickhouse/clickhouse-server:26.10.4.207
+    image: clickhouse/clickhouse-server:26.10.6.18
     restart: unless-stopped
     depends_on:
       check-env:
@@ -68,7 +68,7 @@ services:
       - monitoring-net
 
   clickhouse-init:
-    image: clickhouse/clickhouse-server:26.10.4.207
+    image: clickhouse/clickhouse-server:26.10.6.18
     restart: "no"
     depends_on:
       clickhouse:
