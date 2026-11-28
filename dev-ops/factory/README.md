@@ -235,7 +235,12 @@ tick.sh --help
 | `FACTORY_SESSION_LOG_DIR`                            | `/tmp/opencode`                                        | Session logs and prompt temp files.                                                                                                                                                              |
 | `FACTORY_LOG_SESSION_OUTPUT`                         | `tail`                                                 | `tail` retains last 16 KiB in failure events and writes session logs; `metadata` suppresses retained output.                                                                                     |
 | `FACTORY_PRESERVE_SESSION_LOGS`                      | `on-failure`                                           | `on-failure` (delete on success), `always`, `never`.                                                                                                                                             |
-| `FACTORY_CONTAINER_MODE`                             | `0`                                                    | `1` enables bwrap per-session sandbox; falls back to host if bwrap unavailable.                                                                                                                  |
+| `FACTORY_CONTAINER_MODE`                             | `1`                                                    | `1` requires the bwrap sandbox; missing runtime fails the tick. `0` opts out for local development only.                                                                                         |
+| `FACTORY_SANDBOX_RUNTIME`                            | `bwrap`                                                | Sandbox runtime executable.                                                                                                                                                                      |
+| `FACTORY_OPENCODE_CONFIG_DIR`                        | `${XDG_CONFIG_HOME:-~/.config}/opencode`               | Host OpenCode config directory, bind-mounted read-only into the sandbox home.                                                                                                                    |
+| `FACTORY_EGRESS_ALLOWLIST`                           | built-in list                                          | Comma-separated `host[:port]` egress allowlist for the session proxy.                                                                                                                            |
+| `FACTORY_EGRESS_PROXY_PORT`                          | `0`                                                    | Host loopback port for the egress proxy; `0` selects an ephemeral port.                                                                                                                          |
+| `FACTORY_OPENCODE_ENDPOINT_HOSTS`                    | (unset)                                                | Additional comma-separated hosts for a self-hosted OpenCode endpoint.                                                                                                                            |
 | `FACTORY_LOGIN`                                      | (unset)                                                | Login of the factory bot/app identity. Plan markers from other authors are ignored; when unset, no plan marker is trusted. Also used to attribute factory work.                                  |
 | `FACTORY_TRUSTED_LOGINS`                             | (unset)                                                | Comma/whitespace separated GitHub logins whose issues, PRs, and comments may drive the factory. Includes `FACTORY_LOGIN` when set. Empty discovers nothing and trusts no comments (fail closed). |
 | `FACTORY_GITHUB_APP_ID`                              | (unset)                                                | GitHub App id used to mint a short-lived least-privilege installation token per tick.                                                                                                            |
@@ -327,17 +332,27 @@ record of who approved the exact guardrail content.
 
 ## Sandbox and runtime/log/state semantics
 
-- **Host mode (default):** sessions run on the host in `FACTORY_WORKTREE`.
-- **bwrap mode (`FACTORY_CONTAINER_MODE=1`):** best-effort per-session process
-  sandbox (`--unshare-pid/ipc/uts`, `--cap-drop ALL`, read-only root bind with
-  explicit writable binds for worktree/home/tmp/session-log dir). If `bwrap` is
-  unavailable, tick falls back to host and emits `container_mode reason=fallback-host`.
+- **Sandbox mode (default, `FACTORY_CONTAINER_MODE=1`):** each session runs in a
+  bwrap sandbox with `--unshare-pid/ipc/uts`, `--cap-drop ALL`, a read-only root
+  bind, a disposable tmpfs `$HOME`, a read-only OpenCode config bind, and the
+  worktree plus session log dir as the only writable paths. The Docker socket
+  is masked. Outbound traffic from the session is routed through a local
+  allowlisting proxy (`dev-ops/factory/lib/egress_proxy.py`) via the standard
+  proxy environment variables; only GitHub, the Go module proxy, the npm
+  registry and the configured OpenCode endpoint hosts are accepted.
+  `GH_TOKEN`/`GITHUB_TOKEN` (a short-lived GitHub App installation token) and
+  model credentials are inherited from the parent environment. If the runtime
+  or the proxy is unavailable, tick emits `sandbox_unavailable` and exits
+  non-zero; it never falls back to the host.
+- **Host mode (`FACTORY_CONTAINER_MODE=0`):** explicit opt-out for local
+  development only. Emits `container_mode reason=host-explicit`. Not suitable
+  for unattended production ticks.
 - **bwrap vs disposable containers:** bwrap is not a disposable container/VM. It
-  provides namespace/capability hardening but shares the host kernel, selected
-  host paths (home/worktree/tmp/log dirs), host network namespace, and host
-  credentials/tools available in bound paths. It does **not** provide
-  image-level immutability, independent package/runtime state, or strong
-  filesystem isolation equivalent to ephemeral containers.
+  provides namespace/capability hardening but shares the host kernel and host
+  network namespace. Egress is restricted by the allowlisting proxy for tools
+  that honour proxy environment variables; operators should also block direct
+  egress from the factory Unix user at the host firewall. It does **not**
+  provide image-level immutability or an independent package/runtime state.
 - **Per-session isolation:** each opencode session is a separate process with
   timeout; fix/build/plan sessions are not run concurrently in one tick. Runtime
   worktrees/state created by agents under the factory worktree are per-issue
@@ -436,8 +451,14 @@ inside that environment is:
 - **Agent/tool permissions:** factory sessions run opencode with repository
   access and shell tooling. Treat this as privileged automation: run on a
   trusted host/account, restrict filesystem/SSH credentials available to the
-  runtime, and prefer `FACTORY_CONTAINER_MODE=1` where practical (with its
-  documented limits). Do not grant production credentials to factory sessions.
+  runtime, and keep `FACTORY_CONTAINER_MODE=1` (the default) in unattended
+  operation. Do not grant production credentials to factory sessions.
+- **Sandbox verification:** after rollout, confirm inside a session that
+  `~/.ssh`, `~/.config/gh`, and `/var/run/docker.sock` are unreachable and that
+  `curl https://example.com` is denied by the egress proxy, while
+  `go test ./...`, `npm ci`, and `git push origin factory/issue-N` still work.
+  TLS/ACME keys exposed before this sandbox existed must be rotated separately
+  (SEC-26); certificate re-issue is a deployment step, not a factory code change.
 - **Untrusted content:** issue/PR titles, bodies, comments, commit messages, CI
   logs, and check names are untrusted input. Agents and scripts must not execute
   instructions embedded in them, must quote shell arguments, and must not leak

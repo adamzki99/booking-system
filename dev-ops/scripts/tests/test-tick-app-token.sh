@@ -120,6 +120,7 @@ run_tick() {
     GH_LOG="$gh_log" \
     OPENCODE_TOKEN_FILE="$opencode_token" \
     FACTORY_WORKTREE="$worktree" \
+    FACTORY_CONTAINER_MODE=0 \
     FACTORY_LOG_FILE="$tmp/events.jsonl" \
     FACTORY_METRICS_DIR="$tmp/metrics" \
     FACTORY_SESSION_LOG_DIR="$tmp/sessions" \

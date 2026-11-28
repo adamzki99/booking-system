@@ -21,6 +21,7 @@ run bash -n dev-ops/factory/nightly-cleanup.sh
 run bash dev-ops/scripts/tests/test-tick-planning.sh
 run bash dev-ops/scripts/tests/test-tick-trust-filter.sh
 run bash dev-ops/scripts/tests/test-tick-app-token.sh
+run bash dev-ops/scripts/tests/test-tick-sandbox.sh
 run bash dev-ops/scripts/tests/test-setup-factory-bot.sh
 run bash dev-ops/scripts/tests/test-deploy-environment.sh
 run bash dev-ops/scripts/tests/test-sauna-monitoring-override.sh
@@ -31,7 +32,7 @@ else
 fi
 
 # Python syntax/validation
-run python3 -m py_compile dev-ops/factory/lib/factory.py dev-ops/factory/lib/factory_trace.py dev-ops/factory/lib/mint_github_app_token.py dev-ops/factory/discover_fix_candidates.py dev-ops/factory/discover_build_candidates.py dev-ops/factory/reconcile_outcomes.py dev-ops/factory/queue_snapshot.py
+run python3 -m py_compile dev-ops/factory/lib/factory.py dev-ops/factory/lib/factory_trace.py dev-ops/factory/lib/mint_github_app_token.py dev-ops/factory/lib/egress_proxy.py dev-ops/factory/discover_fix_candidates.py dev-ops/factory/discover_build_candidates.py dev-ops/factory/reconcile_outcomes.py dev-ops/factory/queue_snapshot.py
 run python3 dev-ops/factory/lib/factory.py validate-models dev-ops/factory/models.yaml
 # minimal event schema smoke check (v2)
 run python3 - <<'PY'
@@ -52,9 +53,9 @@ PY
 
 # Unit tests (factory lib)
 if command -v pytest >/dev/null 2>&1; then
-  run pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py dev-ops/scripts/tests/test-monitoring-alerts.py dev-ops/scripts/tests/test-mint-github-app-token.py
+  run pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py dev-ops/scripts/tests/test-monitoring-alerts.py dev-ops/scripts/tests/test-mint-github-app-token.py dev-ops/scripts/tests/test-egress-proxy.py
 elif python3 -m pytest --version >/dev/null 2>&1; then
-  run python3 -m pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py dev-ops/scripts/tests/test-monitoring-alerts.py dev-ops/scripts/tests/test-mint-github-app-token.py
+  run python3 -m pytest -q dev-ops/scripts/tests/test-factory-lib.py dev-ops/scripts/tests/test-factory-discovery.py dev-ops/scripts/tests/test-reconcile-outcomes.py dev-ops/scripts/tests/test-monitoring-alerts.py dev-ops/scripts/tests/test-mint-github-app-token.py dev-ops/scripts/tests/test-egress-proxy.py
 else
   echo "[factory-validate] WARN: pytest not installed; skipped factory unit tests"
   fail=1

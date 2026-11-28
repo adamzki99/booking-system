@@ -136,6 +136,7 @@ Kept with their current names, now typed: `tick_start`, `tick_end`,
 `empty_pr_closed`, `nothing_to_do`, `discovery_failed`, `fix_discovery_error`,
 `build_discovery_error`, `project_priority_fallback`, `plan_skipped`,
 `fix_selected`, `build_selected`, `plan_selected`, `container_mode`,
+`sandbox_unavailable`,
 `git_fetch_failed`, `dirty_worktree_skipped_reset`, `factory.queue`,
 `reconcile_failed`.
 
@@ -151,6 +152,14 @@ short changed-path summary.
 `approved_waiting` (approved, no factory PR), `in_pr` (open factory PR),
 `blocked_pr` (open factory PR that discovery would consider for fixing),
 `needs_info` (omitted when no such label exists in the label taxonomy).
+
+`sandbox_unavailable` is emitted when `FACTORY_CONTAINER_MODE=1` but the
+sandbox cannot be used. `reason` is `runtime-missing` or
+`egress-proxy-unavailable`; `runtime` names the configured executable. No
+session is started and the tick exits non-zero. There is no host fallback.
+
+`container_mode reason=sandbox` records a session started in the sandbox;
+`reason=host-explicit` records an explicit `FACTORY_CONTAINER_MODE=0` opt-out.
 
 A skipped-for-usage session is `agent.run.failed` with
 `failure_reason=usage_filled_skipped`.
@@ -215,6 +224,7 @@ with one warning line to stderr per failure, and surfaced on the final
 `guardrail_drift`, `guardrail_ok`, `issue.assigned`, `issue.detected`,
 `lock_skipped`, `marker_skip`, `nothing_to_do`, `plan_selected`,
 `plan_skipped`, `project_priority_fallback`, `reconcile_failed`,
+`sandbox_unavailable`,
 `tick_end`, `tick_interrupted`, `tick_result`, `tick_start`.
 
 This list must stay in sync with `grep -o 'emit_event [a-z_.]*' dev-ops/factory/tick.sh | sort -u`.

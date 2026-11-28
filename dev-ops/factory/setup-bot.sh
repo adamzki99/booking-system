@@ -20,7 +20,7 @@
 #   --config-dir DIR         Private config directory.
 #   --worktree DIR           Isolated factory worktree.
 #   --session-timeout SEC    Per-session timeout (default: 3000).
-#   --container-mode 0|1     Enable the bwrap sandbox when available.
+#   --container-mode 0|1     Use the bwrap sandbox (default: 1, required).
 #   --on-usage-filled MODE   backup|skip|fail (default: backup).
 #   --max-fix-sessions N     Maximum fix sessions per tick (default: 1).
 #   --no-cron                Write config but do not install a cron entry.
@@ -54,7 +54,7 @@ REPO=""
 TRUSTED_LOGINS=""
 SCHEDULE="0 * * * *"
 SESSION_TIMEOUT="3000"
-CONTAINER_MODE="0"
+CONTAINER_MODE="1"
 ON_USAGE_FILLED="backup"
 MAX_FIX_SESSIONS="1"
 INSTALL_CRON=1
@@ -321,8 +321,8 @@ INTRO
   CONFIG_DIR="$(prompt_value "Config directory" "$CONFIG_DIR")"
   WORKTREE="$(prompt_value "Factory worktree" "$WORKTREE")"
   SESSION_TIMEOUT="$(prompt_value "Session timeout seconds" "$SESSION_TIMEOUT")"
-  if [[ "$(prompt_yes_no "Enable bwrap sandbox when available" "no")" == "yes" ]]; then
-    CONTAINER_MODE=1
+  if [[ "$(prompt_yes_no "Use the bwrap sandbox for sessions" "yes")" == "no" ]]; then
+    CONTAINER_MODE=0
   fi
   if [[ "$(prompt_yes_no "Install the cron entry" "yes")" == "no" ]]; then
     INSTALL_CRON=0
@@ -379,7 +379,7 @@ if [[ "$INSTALL_CRON" == 1 ]]; then
   need_cmd crontab
 fi
 if [[ "$CONTAINER_MODE" == 1 ]] && ! command -v bwrap >/dev/null 2>&1; then
-  log "warning: bwrap is unavailable; tick will fall back to host mode"
+  log "warning: bwrap is unavailable; tick will fail closed until it is installed"
 fi
 
 install -d -m 700 "$CONFIG_DIR" "$(dirname -- "$LOG_FILE")"
