@@ -1,6 +1,7 @@
 # Oxc adoption baseline and decisions
 
-Status: foundation in place (prompt 02).
+Status: adopted through prompt 07 (lint and format cover every JS/TS file in
+the repository; prompt 09 adds the final status section).
 
 ## 1. Purpose and scope
 
@@ -32,18 +33,22 @@ prompt set; it does not change tools or configuration.
 
 ## 2. Tool versions measured
 
-| Tool                             |          Version | Notes                                                      |
-| -------------------------------- | ---------------: | ---------------------------------------------------------- |
-| oxlint (frontend installed)      |           1.94.0 | from `product/frontend-solid/package-lock.json` / `npm ci` |
-| oxlint (latest checked)          |           1.95.0 | `npm view oxlint version` on 2026-11-24                    |
-| oxfmt (latest checked)           |           0.80.0 | `npm view oxfmt version` on 2026-11-24                     |
-| oxlint-tsgolint (latest checked) |         7.0.2008 | `npm view oxlint-tsgolint version` on 2026-11-24           |
-| tsrs (latest checked)            | 7.1.0-beta.tsrs5 | `npm view tsrs version` on 2026-11-24                      |
-| Node (measurement env)           |          v26.8.1 | `node --version`                                           |
-| npm (measurement env)            |           12.1.0 | `npm --version`                                            |
-| Vite (frontend)                  |            8.3.0 | `product/frontend-solid/package.json`                      |
-| TypeScript (frontend)            |            5.6.3 | `product/frontend-solid/package.json` / lock               |
-| @solidjs/vite-plugin             |            3.0.1 | frontend dependency                                        |
+| Tool                              |          Version | Notes                                                      |
+| --------------------------------- | ---------------: | ---------------------------------------------------------- |
+| oxlint (frontend installed)       |           1.94.0 | from `product/frontend-solid/package-lock.json` / `npm ci` |
+| oxlint (latest checked)           |           1.95.0 | `npm view oxlint version` on 2026-11-24                    |
+| oxfmt (latest checked)            |           0.80.0 | `npm view oxfmt version` on 2026-11-24                     |
+| oxlint-tsgolint (latest checked)  |         7.0.2008 | `npm view oxlint-tsgolint version` on 2026-11-24           |
+| tsrs (latest checked)             | 7.1.0-beta.tsrs5 | `npm view tsrs version` on 2026-11-24                      |
+| Node (measurement env)            |          v26.8.1 | `node --version`                                           |
+| npm (measurement env)             |           12.1.0 | `npm --version`                                            |
+| Vite (frontend)                   |            8.3.0 | `product/frontend-solid/package.json`                      |
+| TypeScript (frontend)             |            5.6.3 | `product/frontend-solid/package.json` / lock               |
+| @solidjs/vite-plugin              |            3.0.1 | frontend dependency                                        |
+| oxlint (dev-ops/testing)          |           1.95.0 | exact pin, same as the frontend (prompt 07)                |
+| eslint-plugin-playwright          |           2.12.2 | `npm view eslint-plugin-playwright version` on 2026-11-28  |
+| oxlint-tsgolint (dev-ops/testing) |         7.0.2008 | exact pin, same as the frontend (prompt 07)                |
+| TypeScript (dev-ops/testing)      |            5.9.3 | exact pin, matches the frontend's resolved version         |
 
 All later prompts should pin exact versions before committing configs.
 
@@ -74,21 +79,27 @@ Exclusions applied (per common rules): `**/node_modules/**`, `**/dist/**`,
 `projects/sauna/docs/mocks/**` (canonical UI mockups), generated files, and
 Go/Python files.
 
+Re-measured for prompt 07 against `origin/main` (`ed002cb`). The prompt 01
+version of this table predated the root `package.json` and `.oxfmtrc.jsonc`
+(both added in prompt 02) and two workflows merged since, so every row below
+has been refreshed rather than patched.
+
 | Package / area         |    JS |     TS |    TSX |   JSON | JSONC |   CSS |  HTML |   YAML | Markdown |   Total |
 | ---------------------- | ----: | -----: | -----: | -----: | ----: | ----: | ----: | -----: | -------: | ------: |
 | .github                |     0 |      0 |      0 |      0 |     0 |     0 |     0 |      1 |        0 |       1 |
-| .github/workflows      |     0 |      0 |      0 |      0 |     0 |     0 |     0 |      8 |        1 |       9 |
+| .github/workflows      |     0 |      0 |      0 |      0 |     0 |     0 |     0 |     11 |        1 |      12 |
 | .opencode              |     0 |      0 |      0 |      0 |     0 |     0 |     0 |      0 |        8 |       8 |
 | README.md (root)       |     0 |      0 |      0 |      0 |     0 |     0 |     0 |      0 |        1 |       1 |
 | SECURITY.md (root)     |     0 |      0 |      0 |      0 |     0 |     0 |     0 |      0 |        1 |       1 |
-| dev-ops                |     0 |      0 |      0 |      7 |     0 |     0 |     0 |     13 |       24 |      44 |
-| dev-ops/testing        |     0 |      2 |      0 |      1 |     0 |     0 |     0 |      0 |        0 |       3 |
+| root tooling files     |     0 |      0 |      0 |      1 |     1 |     0 |     0 |      0 |        0 |       2 |
+| dev-ops                |     0 |      0 |      0 |      8 |     0 |     0 |     0 |     13 |       26 |      47 |
+| dev-ops/testing        |     0 |      3 |      0 |      2 |     0 |     0 |     0 |      0 |        0 |       5 |
 | product                |     0 |      0 |      0 |      5 |     0 |     0 |     0 |      9 |        4 |      18 |
 | product/backend        |     0 |      0 |      0 |      0 |     0 |     0 |     0 |      0 |        2 |       2 |
-| product/frontend-solid |     0 |     18 |     30 |      2 |     0 |     9 |     1 |      0 |        2 |      62 |
+| product/frontend-solid |     0 |     20 |     30 |      2 |     0 |     9 |     1 |      0 |        2 |      64 |
 | projects               |     0 |      0 |      0 |      0 |     0 |     0 |     0 |      6 |        6 |      12 |
 | root guardrail files   |     0 |      0 |      0 |      0 |     1 |     0 |     0 |      0 |        1 |       2 |
-| **Total**              | **0** | **20** | **30** | **15** | **1** | **9** | **1** | **37** |   **50** | **163** |
+| **Total**              | **0** | **23** | **30** | **18** | **2** | **9** | **1** | **40** |   **52** | **175** |
 
 Guardrail files (owner-reviewed / factory-tag sensitive): `AGENTS.md`,
 `opencode.jsonc`, `.opencode/agents/*.md` (none currently present; `.opencode/`
@@ -216,6 +227,42 @@ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=
 | `--report-unused-disable-directives-severity=error` | error                     | Keeps inline suppressions honest and current.                                                                                                                                                                                                                                                                                                                                                |
 
 Inline suppressions remain in source for narrow false positives or tool-friction cases (text-initial Avatar using `role="img"`, Solid custom control label association, Solid/reactivity action-handler false positives, and the tsc/tsgolint generator-yield typing mismatch in `Account.tsx`). Each has a reason comment.
+
+### 4.6 Playwright package rule set (prompt 07)
+
+`dev-ops/testing` was the last package with no linter. Prompt 07 gives it its
+own `oxlint.config.ts`, which extends `dev-ops/code-quality/oxlint.base.json`
+and therefore inherits the `typescript`, `unicorn`, `oxc`, `import`, `promise`,
+`vitest` and `jsx-a11y` plugins and the whole rule set from section 4.5, plus
+the Playwright rules. The lint command is the same shape as the frontend's:
+
+```sh
+oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=error .
+```
+
+| Setting                                                                | Value                                         | Reason                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `jsPlugins`                                                            | `eslint-plugin-playwright` 2.12.2 (exact pin) | Playwright-specific rules. JS plugins resolve relative to the config file, so it must stay a devDependency of `dev-ops/testing`.                                                                             |
+| `env`                                                                  | `node`, `es2022`, `shared-node-browser`       | Node globals for `playwright.config.ts` and the specs, plus the environment the plugin's recommended config asks for.                                                                                        |
+| `playwright/*` recommended set                                         | as published by the plugin                    | The plugin is exact-pinned, so the recommended set cannot drift: `missing-playwright-await`, `no-focused-test`, `no-skipped-test`, `no-wait-for-timeout`, `prefer-web-first-assertions`, `valid-expect`, ... |
+| `playwright/no-focused-test`, `no-skipped-test`, `no-wait-for-timeout` | error (promoted from `warn`)                  | CI runs `--deny-warnings`, so these were already blocking. Promoting them records the intent in the config instead of relying on the flag.                                                                   |
+| `options.typeAware`                                                    | `true`                                        | `tsconfig.json` type-checks cleanly against `@playwright/test` types, so `typescript/no-floating-promises`, `await-thenable`, `restrict-template-expressions` and `no-misused-promises` run here as well.    |
+
+Findings: none in the two pre-existing files (`playwright.config.ts`,
+`tests/login.spec.ts`), so prompt 07 changed no test code. Root `npm run lint`
+now runs both packages, and `.github/workflows/testing-ci.yml` typechecks and
+lints `dev-ops/testing/**` as part of `ci-gate`.
+
+Coverage mapping for the 53 JS/TS files in the repository (no `.js`, `.jsx`,
+`.mjs` or `.cjs` file is tracked anywhere):
+
+| Files                            | Lint config                               |
+| -------------------------------- | ----------------------------------------- |
+| `product/frontend-solid/**` (50) | `product/frontend-solid/oxlint.config.ts` |
+| `dev-ops/testing/**` (3)         | `dev-ops/testing/oxlint.config.ts`        |
+
+Both configs `extends` `dev-ops/code-quality/oxlint.base.json`, so the shared
+rule settings live in exactly one place. Nothing is left unlinted.
 
 ## 5. Formatter churn comparison
 
@@ -416,8 +463,8 @@ production build.
 | 03     | `oxc/03-*`        | Medium mechanical PR   | Repo-wide oxfmt formatting; separate mechanical commit with exact command/version                                                                      |
 | 04     | `oxc/04-*`        | Small follow-up        | Add merged mechanical SHA to `.git-blame-ignore-revs`                                                                                                  |
 | 05     | `oxc/05-*`        | Medium                 | Frontend oxlint config/rule cleanup, fix real findings                                                                                                 |
-| 06     | `oxc/06-*`        | Medium                 | dev-ops/testing and repo-wide lint coverage                                                                                                            |
-| 07     | `oxc/07-*`        | Small/medium           | Type-aware linting enablement and tuning                                                                                                               |
+| 06     | `oxc/06-*`        | Medium                 | Frontend type-aware lint rules and the fixes they required (merged as PR 441)                                                                          |
+| 07     | `oxc/07-*`        | Small/medium           | Playwright package lint coverage: `dev-ops/testing` config, root `lint` script, `testing-ci.yml`, docs                                                 |
 | 08     | `oxc/08-*`        | Small                  | CI/editor/agent workflow integration                                                                                                                   |
 | 09     | `oxc/09-*`        | Small                  | Docs/cleanup and final verification                                                                                                                    |
 

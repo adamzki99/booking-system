@@ -15,9 +15,15 @@ Run commands from the repository root unless noted.
 - Factory validation (syntax/lint where available, model validation, schema smoke checks, and factory unit tests): `dev-ops/factory/validate.sh`
 - Factory tick help/dry run: `dev-ops/factory/tick.sh --help` and `dev-ops/factory/tick.sh --dry-run` (see [`factory/AGENTS.md`](factory/AGENTS.md) and [`factory/README.md`](factory/README.md) for behavior and prerequisites)
 - Dev-ops script tests (bash): `bash dev-ops/scripts/tests/test-deploy-environment.sh`, `bash dev-ops/scripts/tests/test-dev-server-agent.sh`, `bash dev-ops/scripts/tests/test-install-deploy-timer.sh`, `bash dev-ops/scripts/tests/test-check-acceptance-criteria.sh`, `bash dev-ops/scripts/tests/test-get-login-code.sh`, `bash dev-ops/scripts/tests/test-run-ui-audit.sh`, `bash dev-ops/scripts/tests/test-install-ui-audit-timer.sh`, `bash dev-ops/scripts/tests/test-dependabot-sweep.sh` (run the specific suite relevant to your change)
+- Lint and typecheck the Playwright package: `npm --prefix dev-ops/testing run lint`, `npm --prefix dev-ops/testing run typecheck` (oxlint with type-aware rules; see [`code-quality/oxc.md`](code-quality/oxc.md))
 - Install/request OpenCode skills: `dev-ops/scripts/request-skills.sh --local` or `dev-ops/scripts/request-skills.sh` (see script behavior before opening PRs)
 
-No single lint/format command covers all dev-ops assets. Use the relevant validator or test script for the area you modify.
+No single lint/format command covers all dev-ops assets. `dev-ops/testing` is
+covered by oxlint; for everything else use the relevant validator or test
+script for the area you modify. JS/JSON/YAML/Markdown here are formatted by
+`npm run fmt` at the repository root, with the exclusions in `.oxfmtrc.jsonc`
+still applying (Grafana dashboards and provisioning files, historical repo
+reports).
 
 ## Conventions and invariants
 

@@ -403,6 +403,23 @@ dev-ops/scripts/run-playwright.sh [--env qa] [spec...]
 Builds the Playwright image and runs the suite in a container with `BASE_URL`
 and `TEST_USER_EMAIL` passed as env vars against the target environment.
 
+### Lint the Playwright package
+
+```sh
+cd dev-ops/testing
+npm ci
+npm run lint        # oxlint, type-aware, fails on warnings
+npm run lint:fix    # apply autofixes
+npm run typecheck   # tsc --noEmit
+```
+
+From the repository root, `npm run lint` runs `product/frontend-solid` and
+`dev-ops/testing` in one go. The rules come from
+`dev-ops/testing/oxlint.config.ts`, which extends
+`dev-ops/code-quality/oxlint.base.json` and adds the Playwright rules from
+`eslint-plugin-playwright`. CI typechecks and lints this package for any change
+under `dev-ops/testing/**`.
+
 ### Security
 
 - Dev/QA only. Never enable in production; `prod` env names are rejected.

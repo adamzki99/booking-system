@@ -8,7 +8,7 @@
   "scripts": {
     "fmt": "oxfmt --write",
     "fmt:check": "oxfmt --check",
-    "lint": "npm --prefix product/frontend-solid run lint"
+    "lint": "npm --prefix product/frontend-solid run lint && npm --prefix dev-ops/testing run lint"
   },
   "devDependencies": {
     "ajv": "8.17.1",
