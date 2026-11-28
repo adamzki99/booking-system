@@ -1,25 +1,25 @@
 {
-  "approved_at": "2026-11-25T16:18:50Z",
-  "approved_commit": "ed002cb57616b5a615bb8d80b169616c2305b132",
+  "approved_at": "2026-11-28T08:51:53Z",
+  "approved_commit": "0cb112423d794cfe5183d9066f295e8b208ffd11",
   "entries": [
     {
       "mode": "100644",
-      "oid": "7429d7ecab6b0b56f9ad7e9f58262f72e8da0965",
+      "oid": "676edc41c0cc3fe04418591b09a72eac74353f63",
       "path": ".opencode/agents/builder.md"
     },
     {
       "mode": "100644",
-      "oid": "fa8f1f8778b8a4b47557c527488b424aafdcc750",
+      "oid": "f18a6e1c02072649408b94ca5a3666951c55d449",
       "path": ".opencode/agents/fixer.md"
     },
     {
       "mode": "100644",
-      "oid": "e0c2eabb71589229bd49c84f146ee2d6cb9f91b8",
+      "oid": "566e70107a13e887f9186da7d1c6eec9b24fc67d",
       "path": ".opencode/agents/planner.md"
     },
     {
       "mode": "100644",
-      "oid": "3ddb21c29ade559d01b3439f6b085823dee0e6f3",
+      "oid": "11c67c8fa32942d786fabe4fed75bdbefcf82096",
       "path": ".opencode/agents/reviewer.md"
     },
     {
@@ -629,7 +629,7 @@
     },
     {
       "mode": "100644",
-      "oid": "735b97c1d99041fee3054ef4f66293a6109697d5",
+      "oid": "4657daafce9e4d1afb9e63e286107ac7c222b514",
       "path": "opencode.jsonc"
     }
   ],
