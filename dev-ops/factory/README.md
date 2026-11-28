@@ -42,6 +42,113 @@ schedules use the host's local time. The generated files default to:
 Prefer running the scheduled job as a dedicated Unix user without personal
 GitHub, SSH, Docker, or deployment credentials.
 
+## OpenCode permissions and language servers
+
+Checked on the factory host with OpenCode v2.4.1 (`opencode --version`).
+
+### Config schema
+
+- Valid key: `permissions`, an ordered array of
+  `{ "action", "resource", "effect" }` rules (V2). The last matching rule wins.
+- Deprecated key: `permission`, the V1 map keyed by tool. The four agent files
+  use the V2 `permissions:` frontmatter list. The V1-only `temperature` field
+  was removed.
+- Keys verified against the published schema: `default_agent`, `formatter`,
+  `watcher.ignore`, `compaction.auto`, `compaction.background`,
+  `compaction.keep.tokens`, `compaction.buffer`, `experimental.todo`, and
+  `permissions`.
+- `experimental.background_compaction` is not in the v2.4.1 schema. The runtime
+  drops it silently, so it is replaced by `compaction.background`.
+- `opencode debug config --standalone` resolves `opencode.jsonc` as the only
+  project document. The resolved top-level keys are `$schema`, `default_agent`,
+  `permissions`, `watcher`, `formatter`, `compaction`, and `experimental`; the
+  global `permissions` array has 50 ordered rules.
+- `opencode debug agents --standalone` prints the effective rule list per
+  agent: builder 177, fixer 178, planner 132, and reviewer 130 rules. Each list
+  is the built-in defaults, then the global rules, then the role profile.
+
+### Permission profiles
+
+[`opencode.jsonc`](../../opencode.jsonc) starts every agent with
+`{ "action": "*", "resource": "*", "effect": "deny" }`. It then allows
+read-only discovery (`read`, `glob`, `grep`, `skill`, `todowrite`) and denies
+`*.env` reads. Each role file appends its allowlist and re-asserts the hard
+denies after it, because the last matching rule wins.
+
+| Role       | Appended allows                                                                                                                                                                                                                                                | Hard denies re-asserted last                                                                                                                                                             |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `builder`  | `edit`; `reviewer` subagent; git status, diff, log, show, fetch, add, commit, checkout, worktree; `git push origin factory/*`; `gh pr list/create/checks/ready/comment/diff`; `gh run view`; `go test/vet/build`; `npm`; `python3`; `pytest`; `bash dev-ops/*` | `webfetch`, `websearch`, `gh api*`, `gh issue view*`, `gh pr view*`, `gh pr merge*`, `rm *`, `curl *`, `docker *`, `git push -f*`, `git push --force*`, `git push origin main*`, `*.env` |
+| `fixer`    | builder allows plus `git rebase*` and `git push --force-with-lease*`                                                                                                                                                                                           | same as `builder`                                                                                                                                                                        |
+| `planner`  | read-only git; `ls`; `gh issue list/comment/edit`; `gh label list`; `gh pr list`                                                                                                                                                                               | `edit`, `gh issue view*`, `gh pr view*`, `gh api*`, `gh pr merge*`, `*.env`                                                                                                              |
+| `reviewer` | read-only git; `ls`; `gh pr diff/checks/list`                                                                                                                                                                                                                  | `edit`, `gh issue view*`, `gh pr view*`, `gh api*`, `gh pr merge*`, `*.env`                                                                                                              |
+
+`gh pr view` and `gh issue view` are denied because the orchestrator supplies
+issue and PR context. `gh pr merge` is denied until the merge decision moves to
+the orchestrator (I-019). The planner's `gh issue edit` remains until I-018
+moves labeling to the orchestrator.
+
+The workflow text in `tick.sh` and in the builder and fixer bodies still
+mentions `gh pr view` and merging. That text is updated when I-019 moves the
+merge decision to the orchestrator. Until then those agents stop at a ready PR
+and the merge is a human step.
+
+### Validate the config
+
+```sh
+npm ci
+bash dev-ops/scripts/validate-opencode-config.sh
+```
+
+CI runs the same command in the `opencode-config` job, which `ci-gate`
+requires. A test copy with an unknown top-level key fails with
+`must NOT have additional properties`.
+
+### Host permission check
+
+Run in a throwaway session as the factory user:
+
+```sh
+opencode run --standalone --auto --agent builder --format json ...
+opencode run --standalone --auto --agent fixer --format json ...
+```
+
+Observed on the host with v2.4.1:
+
+| Command                             | builder | fixer   |
+| ----------------------------------- | ------- | ------- |
+| `rm -fr /tmp/x`                     | denied  | denied  |
+| `git push -f`                       | denied  | denied  |
+| `git push origin HEAD:main`         | denied  | denied  |
+| `curl https://example.com`          | denied  | denied  |
+| `gh api user`                       | denied  | denied  |
+| `cat projects/sauna/.env`           | denied  | denied  |
+| `go test ./...`                     | allowed | allowed |
+| `git push origin factory/issue-177` | allowed | allowed |
+
+The captured session log is attached to the `factory:build` comment on issue
+#177.
+
+### Language servers
+
+Install both for the factory user without root:
+
+```sh
+# Go toolchain and gopls (user-local).
+curl -fsSL https://go.dev/dl/go1.27.4.linux-amd64.tar.gz | tar -C "$HOME/.local" -xz
+export PATH="$HOME/.local/go/bin:$HOME/.local/bin:$PATH"
+GOBIN="$HOME/.local/bin" go install golang.org/x/tools/gopls@latest
+
+# TypeScript language server.
+npm install -g --prefix "$HOME/.local" typescript-language-server typescript
+```
+
+Then `command -v gopls typescript-language-server` prints:
+
+```text
+/home/lasrvr/.local/bin/gopls
+/home/lasrvr/.local/bin/typescript-language-server
+```
+
 ## How it works
 
 1. [`tick.sh`](tick.sh) runs on a 1-hour interval (e.g. via cron) and fetches

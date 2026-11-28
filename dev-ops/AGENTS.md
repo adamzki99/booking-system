@@ -21,6 +21,7 @@ No single lint/format command covers all dev-ops assets. Use the relevant valida
 
 ## Conventions and invariants
 
+- **Scripts are written in bash:** scripts in this directory must be bash (`.sh`, `#!/usr/bin/env bash`, `set -euo pipefail`); do not add Node ESM (`.mjs`), CommonJS (`.cjs`), or other-language scripts. A bash script may invoke installed tools such as `jq`, `node`, `npx`, `gh`, `docker`, or `python3`, but the script itself is bash. Pre-existing Python helpers under `factory/` and `scripts/` are grandfathered; do not add new non-bash scripts.
 - **Factory and issue workflow:** issues should follow the agentic template and pass validation when created via the repository flow. Do **not** add labels when creating issues; labels are applied automatically by `factory/tick.sh` after issue creation. Preserve factory invariants (isolated worktree usage, idempotent ticks, owner-approved gate, no bypassing checks/protections) as documented in [`factory/README.md`](factory/README.md).
 - **PR-only changes:** deliver dev-ops changes through pull requests; do not push directly to `main`.
 - **Operational safety:** scripts and docs in this area can affect deployments, automation, and credentials. Do not hardcode secrets, do not weaken safety checks, and keep environment-specific values in deployment configuration/environment variables (for example under `projects/<name>/` or local `.env` files that are not committed).

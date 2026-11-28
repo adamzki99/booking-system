@@ -11,6 +11,8 @@
     "lint": "npm --prefix product/frontend-solid run lint"
   },
   "devDependencies": {
+    "ajv": "8.17.1",
+    "jsonc-parser": "3.3.1",
     "oxfmt": "0.80.0"
   }
 }
