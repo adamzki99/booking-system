@@ -96,7 +96,7 @@ and the merge is a human step.
 
 ```sh
 npm ci
-node dev-ops/scripts/validate-opencode-config.mjs
+bash dev-ops/scripts/validate-opencode-config.sh
 ```
 
 CI runs the same command in the `opencode-config` job, which `ci-gate`

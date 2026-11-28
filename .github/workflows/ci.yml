@@ -114,7 +114,7 @@ jobs:
         run: npm ci
 
       - name: Validate opencode.jsonc against its $schema
-        run: node dev-ops/scripts/validate-opencode-config.mjs
+        run: bash dev-ops/scripts/validate-opencode-config.sh
 
   ci-gate:
     name: ci-gate

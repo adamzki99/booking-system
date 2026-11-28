@@ -14,7 +14,7 @@ Path-filtered workflows for this monorepo-style layout. Keep workflows minimal a
 - **Backend CI**, **Frontend CI**, **Sidecar CI**: reusable workflow calls, gated on the filter outputs.
 - **Security**, **Semgrep**: reusable workflow calls that always run.
 - **OpenCode config** (`opencode-config`): runs `npm ci` and
-  `dev-ops/scripts/validate-opencode-config.mjs`, which validates
+  `bash dev-ops/scripts/validate-opencode-config.sh`, which validates
   `opencode.jsonc` against the `$schema` it declares. An unknown key fails the
   job.
 - **ci-gate**: always runs; fails if any needed job failed or was cancelled. This is the only required check.
