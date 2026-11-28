@@ -23,6 +23,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       sidecar: ${{ steps.filter.outputs.sidecar }}
       monitoring: ${{ steps.filter.outputs.monitoring }}
+      testing: ${{ steps.filter.outputs.testing }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,6 +60,10 @@ jobs:
               - 'projects/sauna/monitoring/**'
               - '.github/workflows/monitoring-ci.yml'
               - '.github/workflows/ci.yml'
+            testing:
+              - 'dev-ops/testing/**'
+              - '.github/workflows/testing-ci.yml'
+              - '.github/workflows/ci.yml'
 
   backend:
     name: Backend CI
@@ -83,6 +88,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.monitoring == 'true'
     uses: ./.github/workflows/monitoring-ci.yml
+
+  testing:
+    name: Testing CI
+    needs: changes
+    if: needs.changes.outputs.testing == 'true'
+    uses: ./.github/workflows/testing-ci.yml
 
   security:
     name: Security
@@ -120,7 +131,16 @@ jobs:
     name: ci-gate
     if: always()
     needs:
-      [changes, backend, frontend, sidecar, monitoring, security, semgrep, format, opencode-config]
+      - changes
+      - backend
+      - frontend
+      - sidecar
+      - monitoring
+      - testing
+      - security
+      - semgrep
+      - format
+      - opencode-config
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate results
